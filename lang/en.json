@@ -1,0 +1,13 @@
+{
+  "PENDANT-BRIDGE.settings.enabled.name": "Enable bridge",
+  "PENDANT-BRIDGE.settings.enabled.hint": "Connect this client to pendant-home. Normally only the GM should enable this.",
+  "PENDANT-BRIDGE.settings.url.name": "Relay URL",
+  "PENDANT-BRIDGE.settings.url.hint": "WebSocket URL of pendant-home's Foundry Bridge relay. Default: ws://localhost:30001",
+  "PENDANT-BRIDGE.settings.token.name": "Auth token",
+  "PENDANT-BRIDGE.settings.token.hint": "Auth token shown in pendant-home's Foundry Bridge module.",
+  "PENDANT-BRIDGE.settings.gmOnly.name": "GM only",
+  "PENDANT-BRIDGE.settings.gmOnly.hint": "If on, the bridge only attempts to connect when the current user is a GM.",
+  "PENDANT-BRIDGE.notif.connected": "Pendant Bridge: connected to pendant-home",
+  "PENDANT-BRIDGE.notif.disconnected": "Pendant Bridge: disconnected",
+  "PENDANT-BRIDGE.notif.error": "Pendant Bridge: connection error"
+}
