@@ -306,6 +306,104 @@ function sceneDimensions(scene) {
   }
 }
 
+/**
+ * Build a Drawing document payload that validates across Foundry v11–v13.
+ * Key robustness fixes (this is why drawings were silently failing before):
+ *   • `author` is REQUIRED on DrawingDocument in v12+ — without it the
+ *     create rejects. We default it to the current user.
+ *   • Text drawings need real text + a zero stroke so they don't render an
+ *     empty box; shape drawings need a visible stroke.
+ *   • fillType uses the numeric CONST (0 none / 1 solid) Foundry expects.
+ */
+/**
+ * Build a Wall document payload from a high-level wallType, mapping to the
+ * right block flags across Foundry versions. v12 renamed the sight field
+ * from `sense` → `sight`; we set BOTH so it works on v11–v13.
+ * Block values: 0 = none (passes through), 20 = normal (blocks).
+ */
+/**
+ * Build an AmbientLight payload. Supports color, dim/bright radii (scene
+ * distance units), alpha (intensity), and an animation { type, speed,
+ * intensity }. Animation type strings match Foundry's CONFIG.Canvas
+ * .lightAnimations keys: "torch", "pulse", "chroma", "flame", etc.
+ */
+function buildLightData(l) {
+  const config = { dim: Number(l.dim) || 0, bright: Number(l.bright) || 0 }
+  if (l.color) config.color = l.color
+  if (l.alpha != null) config.alpha = Number(l.alpha)
+  if (l.angle != null) config.angle = Number(l.angle)
+  if (l.animationType) {
+    config.animation = {
+      type: String(l.animationType),
+      speed: l.animationSpeed != null ? Number(l.animationSpeed) : 5,
+      intensity: l.animationIntensity != null ? Number(l.animationIntensity) : 5
+    }
+  }
+  const out = { x: Number(l.x) || 0, y: Number(l.y) || 0, config, hidden: !!l.hidden }
+  if (l.rotation != null) out.rotation = Number(l.rotation)
+  return out
+}
+
+function buildWallData(w) {
+  const c = (w.c || [w.x0, w.y0, w.x1, w.y1]).map(Number)
+  const d = { c }
+  const type = String(w.wallType || "wall")
+  // Defaults: a normal wall blocks everything.
+  let move = 20, sight = 20, sound = 20, light = 20, door = 0
+  if (type === "door")   { door = 1 }
+  else if (type === "secret") { door = 2 }
+  else if (type === "window") {
+    // Window: you can see and light passes, but you can't walk through
+    // and sound is muffled.
+    sight = 0; light = 0; move = 20; sound = 20
+  }
+  // explicit overrides win
+  if (w.door  != null) door  = Number(w.door)
+  if (w.move  != null) move  = Number(w.move)
+  if (w.sight != null) sight = Number(w.sight)
+  if (w.sense != null) sight = Number(w.sense)
+  if (w.sound != null) sound = Number(w.sound)
+  if (w.light != null) light = Number(w.light)
+  d.move = move; d.sight = sight; d.sense = sight; d.sound = sound; d.light = light; d.door = door
+  if (door > 0) d.ds = 0   // door state: closed
+  return d
+}
+
+function buildDrawingData(d) {
+  const t = String(d.shape || "rectangle")
+  const shapeType = t === "ellipse" ? "e" : t === "polygon" ? "p" : "r"
+  const isText = t === "text"
+  const out = {
+    author: game.user?.id,
+    x: Number(d.x) || 0,
+    y: Number(d.y) || 0,
+    shape: {
+      type:   shapeType,
+      width:  Number(d.width)  || 100,
+      height: Number(d.height) || 100
+    },
+    rotation:    Number(d.rotation) || 0,
+    strokeWidth: isText ? 0 : (d.strokeWidth != null ? Number(d.strokeWidth) : 2),
+    strokeColor: d.strokeColor || "#ffffff",
+    strokeAlpha: d.strokeAlpha != null ? Number(d.strokeAlpha) : 1,
+    fillType:    (!isText && d.fillColor) ? 1 : 0,
+    fillColor:   d.fillColor || "#000000",
+    fillAlpha:   d.fillAlpha != null ? Number(d.fillAlpha) : 0.5,
+    hidden:      !!d.hidden
+  }
+  if (Array.isArray(d.points) && d.points.length) out.shape.points = d.points
+  if (isText || d.text) {
+    out.text       = String(d.text || "")
+    out.fontSize   = Number(d.fontSize) || 28
+    out.fontFamily = d.fontFamily || "Signika"
+    out.textColor  = d.textColor || "#ffffff"
+    out.textAlpha  = d.textAlpha != null ? Number(d.textAlpha) : 1
+    // A text drawing with no fill/stroke still needs SOMETHING to anchor
+    // its bounds; Foundry renders the text fine with strokeWidth 0.
+  }
+  return out
+}
+
 function snapshotState() {
   // Per-item try/catch so a single actor's data quirks don't kill the
   // whole snapshot (e.g. modules attaching weird non-serializable junk).
@@ -770,39 +868,7 @@ async function handleCommand(msg) {
       const scene = msg.sceneId ? game.scenes.get(msg.sceneId) : game.scenes.active
       if (!scene) throw new Error("Scene not found: " + (msg.sceneId || "(no active scene)"))
       const inArr = Array.isArray(msg.drawings) ? msg.drawings : [msg]
-      const data = inArr.map(d => {
-        const t = String(d.shape || "rectangle")
-        // Foundry shape codes: r=rectangle, e=ellipse, p=polygon.
-        // Text labels ride on a rectangle bounding box.
-        const shapeType = t === "ellipse" ? "e" : t === "polygon" ? "p" : "r"
-        const isText = t === "text"
-        const out = {
-          x: Number(d.x) || 0,
-          y: Number(d.y) || 0,
-          shape: {
-            type:   shapeType,
-            width:  Number(d.width)  || 100,
-            height: Number(d.height) || 100
-          },
-          rotation:    Number(d.rotation) || 0,
-          strokeWidth: isText ? 0 : (d.strokeWidth != null ? Number(d.strokeWidth) : 2),
-          strokeColor: d.strokeColor || "#ffffff",
-          strokeAlpha: d.strokeAlpha != null ? Number(d.strokeAlpha) : 1,
-          fillType:    (!isText && d.fillColor) ? 1 : 0,
-          fillColor:   d.fillColor || "#000000",
-          fillAlpha:   d.fillAlpha != null ? Number(d.fillAlpha) : 0.5,
-          hidden:      !!d.hidden
-        }
-        if (Array.isArray(d.points) && d.points.length) out.shape.points = d.points
-        if (isText || d.text) {
-          out.text       = String(d.text || "")
-          out.fontSize   = Number(d.fontSize) || 28
-          out.fontFamily = d.fontFamily || "Signika"
-          out.textColor  = d.textColor || "#ffffff"
-          out.textAlpha  = d.textAlpha != null ? Number(d.textAlpha) : 1
-        }
-        return out
-      })
+      const data = inArr.map(d => buildDrawingData(d))
       const created = await scene.createEmbeddedDocuments("Drawing", data)
       return bridge.reply(msg.reqId, {
         type: "drawing.created",
@@ -848,7 +914,11 @@ async function handleCommand(msg) {
       const walls = scene.walls.map(w => ({
         id: w.id,
         c: Array.isArray(w.c) ? w.c.slice() : [w.c?.[0], w.c?.[1], w.c?.[2], w.c?.[3]],
-        door: w.door || 0, move: w.move, sense: w.sense
+        door: w.door || 0,
+        move: w.move,
+        // v12 uses `sight`, v11 used `sense` — report whichever exists.
+        sight: (w.sight != null ? w.sight : w.sense),
+        sound: w.sound, light: w.light
       }))
       const lights = scene.lights.map(l => ({
         id: l.id,
@@ -856,7 +926,8 @@ async function handleCommand(msg) {
         dim: (l.config && l.config.dim) || 0,
         bright: (l.config && l.config.bright) || 0,
         color: (l.config && l.config.color) || null,
-        alpha: (l.config && l.config.alpha) != null ? l.config.alpha : null
+        alpha: (l.config && l.config.alpha) != null ? l.config.alpha : null,
+        animationType: (l.config && l.config.animation && l.config.animation.type) || null
       }))
       const notes = scene.notes.map(n => ({
         id: n.id,
@@ -954,18 +1025,15 @@ async function handleCommand(msg) {
 
     // ── Place walls ───────────────────────────────────────────
     // Each wall is a segment: c = [x0, y0, x1, y1] in scene pixels.
+    // wallType: "wall" (default) | "door" | "secret" | "window".
+    //   door   → swinging door (door=1, closed)
+    //   secret → secret door  (door=2, closed)
+    //   window → blocks movement + sound, but light + sight pass through
     case "wall.create": {
       const scene = msg.sceneId ? game.scenes.get(msg.sceneId) : game.scenes.active
       if (!scene) throw new Error("Scene not found: " + (msg.sceneId || "(no active scene)"))
       const arr = Array.isArray(msg.walls) ? msg.walls : [msg]
-      const data = arr.map(w => {
-        const c = (w.c || [w.x0, w.y0, w.x1, w.y1]).map(Number)
-        const d = { c }
-        if (w.door != null) d.door = Number(w.door)
-        if (w.move != null) d.move = Number(w.move)
-        if (w.sense != null) d.sense = Number(w.sense)
-        return d
-      })
+      const data = arr.map(w => buildWallData(w))
       const created = await scene.createEmbeddedDocuments("Wall", data)
       return bridge.reply(msg.reqId, { type: "wall.created", sceneId: scene.id, ids: created.map(doc => doc.id) })
     }
@@ -976,12 +1044,7 @@ async function handleCommand(msg) {
       const scene = msg.sceneId ? game.scenes.get(msg.sceneId) : game.scenes.active
       if (!scene) throw new Error("Scene not found: " + (msg.sceneId || "(no active scene)"))
       const arr = Array.isArray(msg.lights) ? msg.lights : [msg]
-      const data = arr.map(l => {
-        const config = { dim: Number(l.dim) || 0, bright: Number(l.bright) || 0 }
-        if (l.color) config.color = l.color
-        if (l.alpha != null) config.alpha = Number(l.alpha)
-        return { x: Number(l.x) || 0, y: Number(l.y) || 0, config, hidden: !!l.hidden }
-      })
+      const data = arr.map(l => buildLightData(l))
       const created = await scene.createEmbeddedDocuments("AmbientLight", data)
       return bridge.reply(msg.reqId, { type: "light.created", sceneId: scene.id, ids: created.map(doc => doc.id) })
     }
@@ -1033,11 +1096,16 @@ async function handleCommand(msg) {
       const scene = game.scenes.get(msg.sceneId)
       if (!scene) throw new Error("Scene not found: " + msg.sceneId)
       const updates = (Array.isArray(msg.updates) ? msg.updates : [msg]).map(u => {
+        // If a wallType is given, rebuild block flags from it.
+        if (u.wallType) { const d = buildWallData(u); d._id = u.id; if (u.c == null) delete d.c; return d }
         const o = { _id: u.id }
         if (u.c != null) o.c = u.c.map(Number)
         if (u.door != null) o.door = Number(u.door)
         if (u.move != null) o.move = Number(u.move)
-        if (u.sense != null) o.sense = Number(u.sense)
+        if (u.sight != null) { o.sight = Number(u.sight); o.sense = Number(u.sight) }
+        else if (u.sense != null) { o.sight = Number(u.sense); o.sense = Number(u.sense) }
+        if (u.sound != null) o.sound = Number(u.sound)
+        if (u.light != null) o.light = Number(u.light)
         return o
       })
       const upd = await scene.updateEmbeddedDocuments("Wall", updates)
@@ -1060,12 +1128,19 @@ async function handleCommand(msg) {
         if (u.x != null) o.x = Number(u.x)
         if (u.y != null) o.y = Number(u.y)
         if (u.hidden != null) o.hidden = !!u.hidden
-        if (u.dim != null || u.bright != null || u.color != null || u.alpha != null) {
+        if (u.dim != null || u.bright != null || u.color != null || u.alpha != null || u.animationType != null) {
           o.config = {}
           if (u.dim != null) o.config.dim = Number(u.dim)
           if (u.bright != null) o.config.bright = Number(u.bright)
           if (u.color != null) o.config.color = u.color
           if (u.alpha != null) o.config.alpha = Number(u.alpha)
+          if (u.animationType != null) {
+            o.config.animation = {
+              type: u.animationType || null,
+              speed: u.animationSpeed != null ? Number(u.animationSpeed) : 5,
+              intensity: u.animationIntensity != null ? Number(u.animationIntensity) : 5
+            }
+          }
         }
         return o
       })
