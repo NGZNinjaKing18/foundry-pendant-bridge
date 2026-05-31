@@ -837,7 +837,34 @@ async function handleCommand(msg) {
         fillType: d.fillType, fillColor: d.fillColor, fillAlpha: d.fillAlpha,
         text: d.text || "", fontSize: d.fontSize, fontFamily: d.fontFamily, textColor: d.textColor
       }))
-      return bridge.reply(msg.reqId, { type: "scene.objects", sceneId: scene.id, tiles, drawings })
+      const tokens = scene.tokens.map(t => ({
+        id: t.id,
+        name: t.name || "",
+        src: resolveImg((t.texture && t.texture.src) || t.img || ""),
+        x: t.x, y: t.y, width: t.width, height: t.height,
+        rotation: t.rotation || 0, hidden: !!t.hidden,
+        actorId: t.actorId || null
+      }))
+      const walls = scene.walls.map(w => ({
+        id: w.id,
+        c: Array.isArray(w.c) ? w.c.slice() : [w.c?.[0], w.c?.[1], w.c?.[2], w.c?.[3]],
+        door: w.door || 0, move: w.move, sense: w.sense
+      }))
+      const lights = scene.lights.map(l => ({
+        id: l.id,
+        x: l.x, y: l.y, hidden: !!l.hidden,
+        dim: (l.config && l.config.dim) || 0,
+        bright: (l.config && l.config.bright) || 0,
+        color: (l.config && l.config.color) || null,
+        alpha: (l.config && l.config.alpha) != null ? l.config.alpha : null
+      }))
+      const notes = scene.notes.map(n => ({
+        id: n.id,
+        x: n.x, y: n.y,
+        text: n.text || "",
+        fontSize: n.fontSize || 32
+      }))
+      return bridge.reply(msg.reqId, { type: "scene.objects", sceneId: scene.id, tiles, drawings, tokens, walls, lights, notes })
     }
 
     // ── Update / delete existing tiles ────────────────────────
@@ -972,6 +999,108 @@ async function handleCommand(msg) {
       }))
       const created = await scene.createEmbeddedDocuments("Note", data)
       return bridge.reply(msg.reqId, { type: "note.created", sceneId: scene.id, ids: created.map(doc => doc.id) })
+    }
+
+    // ── Update / delete existing tokens ───────────────────────
+    case "token.update": {
+      const scene = game.scenes.get(msg.sceneId)
+      if (!scene) throw new Error("Scene not found: " + msg.sceneId)
+      const updates = (Array.isArray(msg.updates) ? msg.updates : [msg]).map(u => {
+        const o = { _id: u.id }
+        if (u.x != null) o.x = Number(u.x)
+        if (u.y != null) o.y = Number(u.y)
+        if (u.width  != null) o.width  = Number(u.width)
+        if (u.height != null) o.height = Number(u.height)
+        if (u.rotation != null) o.rotation = Number(u.rotation)
+        if (u.src != null) o.texture = { src: u.src }
+        if (u.name != null) o.name = String(u.name)
+        if (u.hidden != null) o.hidden = !!u.hidden
+        return o
+      })
+      const upd = await scene.updateEmbeddedDocuments("Token", updates)
+      return bridge.reply(msg.reqId, { type: "token.updated", sceneId: scene.id, ids: upd.map(d => d.id) })
+    }
+    case "token.delete": {
+      const scene = game.scenes.get(msg.sceneId)
+      if (!scene) throw new Error("Scene not found: " + msg.sceneId)
+      const ids = Array.isArray(msg.ids) ? msg.ids : [msg.id]
+      await scene.deleteEmbeddedDocuments("Token", ids)
+      return bridge.reply(msg.reqId, { type: "token.deleted", sceneId: scene.id, ids })
+    }
+
+    // ── Update / delete existing walls ────────────────────────
+    case "wall.update": {
+      const scene = game.scenes.get(msg.sceneId)
+      if (!scene) throw new Error("Scene not found: " + msg.sceneId)
+      const updates = (Array.isArray(msg.updates) ? msg.updates : [msg]).map(u => {
+        const o = { _id: u.id }
+        if (u.c != null) o.c = u.c.map(Number)
+        if (u.door != null) o.door = Number(u.door)
+        if (u.move != null) o.move = Number(u.move)
+        if (u.sense != null) o.sense = Number(u.sense)
+        return o
+      })
+      const upd = await scene.updateEmbeddedDocuments("Wall", updates)
+      return bridge.reply(msg.reqId, { type: "wall.updated", sceneId: scene.id, ids: upd.map(d => d.id) })
+    }
+    case "wall.delete": {
+      const scene = game.scenes.get(msg.sceneId)
+      if (!scene) throw new Error("Scene not found: " + msg.sceneId)
+      const ids = Array.isArray(msg.ids) ? msg.ids : [msg.id]
+      await scene.deleteEmbeddedDocuments("Wall", ids)
+      return bridge.reply(msg.reqId, { type: "wall.deleted", sceneId: scene.id, ids })
+    }
+
+    // ── Update / delete existing lights ───────────────────────
+    case "light.update": {
+      const scene = game.scenes.get(msg.sceneId)
+      if (!scene) throw new Error("Scene not found: " + msg.sceneId)
+      const updates = (Array.isArray(msg.updates) ? msg.updates : [msg]).map(u => {
+        const o = { _id: u.id }
+        if (u.x != null) o.x = Number(u.x)
+        if (u.y != null) o.y = Number(u.y)
+        if (u.hidden != null) o.hidden = !!u.hidden
+        if (u.dim != null || u.bright != null || u.color != null || u.alpha != null) {
+          o.config = {}
+          if (u.dim != null) o.config.dim = Number(u.dim)
+          if (u.bright != null) o.config.bright = Number(u.bright)
+          if (u.color != null) o.config.color = u.color
+          if (u.alpha != null) o.config.alpha = Number(u.alpha)
+        }
+        return o
+      })
+      const upd = await scene.updateEmbeddedDocuments("AmbientLight", updates)
+      return bridge.reply(msg.reqId, { type: "light.updated", sceneId: scene.id, ids: upd.map(d => d.id) })
+    }
+    case "light.delete": {
+      const scene = game.scenes.get(msg.sceneId)
+      if (!scene) throw new Error("Scene not found: " + msg.sceneId)
+      const ids = Array.isArray(msg.ids) ? msg.ids : [msg.id]
+      await scene.deleteEmbeddedDocuments("AmbientLight", ids)
+      return bridge.reply(msg.reqId, { type: "light.deleted", sceneId: scene.id, ids })
+    }
+
+    // ── Update / delete existing notes ────────────────────────
+    case "note.update": {
+      const scene = game.scenes.get(msg.sceneId)
+      if (!scene) throw new Error("Scene not found: " + msg.sceneId)
+      const updates = (Array.isArray(msg.updates) ? msg.updates : [msg]).map(u => {
+        const o = { _id: u.id }
+        if (u.x != null) o.x = Number(u.x)
+        if (u.y != null) o.y = Number(u.y)
+        if (u.text != null) o.text = String(u.text)
+        if (u.fontSize != null) o.fontSize = Number(u.fontSize)
+        return o
+      })
+      const upd = await scene.updateEmbeddedDocuments("Note", updates)
+      return bridge.reply(msg.reqId, { type: "note.updated", sceneId: scene.id, ids: upd.map(d => d.id) })
+    }
+    case "note.delete": {
+      const scene = game.scenes.get(msg.sceneId)
+      if (!scene) throw new Error("Scene not found: " + msg.sceneId)
+      const ids = Array.isArray(msg.ids) ? msg.ids : [msg.id]
+      await scene.deleteEmbeddedDocuments("Note", ids)
+      return bridge.reply(msg.reqId, { type: "note.deleted", sceneId: scene.id, ids })
     }
 
     // ── Activate a scene (make it the live/current scene) ─────
