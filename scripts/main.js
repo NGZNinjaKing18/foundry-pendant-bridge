@@ -428,11 +428,21 @@ function snapshotState() {
 }
 
 function serializeActorLight(actor) {
+  // Prototype-token texture + grid footprint, so the editor can place a
+  // token that looks like the real thing (token art, not the portrait).
+  let tokenImg = null, tokenW = 1, tokenH = 1
+  try {
+    const pt = actor.prototypeToken
+    tokenImg = resolveImg((pt && pt.texture && pt.texture.src) || actor.img)
+    tokenW = (pt && pt.width) || 1
+    tokenH = (pt && pt.height) || 1
+  } catch { tokenImg = resolveImg(actor.img) }
   return {
     id:      actor.id,
     name:    actor.name,
     type:    actor.type,
     img:     resolveImg(actor.img),
+    tokenImg, tokenW, tokenH,
     hp:      readHP(actor),
     ownership: actor.ownership,
     folder:  actor.folder?.id || null
@@ -1013,10 +1023,21 @@ async function handleCommand(msg) {
           name: String(t.name || "Token"),
           x: Number(t.x) || 0, y: Number(t.y) || 0,
           width: Number(t.width) || 1, height: Number(t.height) || 1,
-          rotation: Number(t.rotation) || 0, hidden: !!t.hidden,
-          texture: { src: String(t.src || "") }
+          rotation: Number(t.rotation) || 0, hidden: !!t.hidden
         }
-        if (t.actorId) { d.actorId = t.actorId; d.actorLink = !!t.actorLink }
+        // If bound to an actor, prefer the actor's real prototype-token data
+        // (texture + name) unless the client explicitly supplied a src.
+        if (t.actorId) {
+          const a = game.actors.get(t.actorId)
+          d.actorId = t.actorId
+          d.actorLink = t.actorLink != null ? !!t.actorLink : (a ? a.type === "character" : false)
+          const ptSrc = a && a.prototypeToken && a.prototypeToken.texture && a.prototypeToken.texture.src
+          const src = t.src || ptSrc || (a && a.img) || ""
+          if (src) d.texture = { src: String(src) }
+          if (!t.name && a) d.name = a.name
+        } else {
+          d.texture = { src: String(t.src || "") }
+        }
         return d
       })
       const created = await scene.createEmbeddedDocuments("Token", data)
