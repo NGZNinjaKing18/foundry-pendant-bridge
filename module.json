@@ -2,7 +2,7 @@
   "id": "pendant-bridge",
   "title": "Pendant Bridge",
   "description": "Relays Foundry actors, inventory, chat, and dice rolls to a pendant-home (COA) module over a local WebSocket.",
-  "version": "0.1.0",
+  "version": "0.3.6",
   "compatibility": {
     "minimum": "11",
     "verified": "12",
@@ -16,9 +16,9 @@
   "languages": [
     { "lang": "en", "name": "English", "path": "lang/en.json" }
   ],
-  "url": "",
-  "manifest": "",
-  "download": "",
+  "url": "https://github.com/NGZNinjaKing18/foundry-pendant-bridge",
+  "manifest": "https://github.com/NGZNinjaKing18/foundry-pendant-bridge/releases/latest/download/module.json",
+  "download": "https://github.com/NGZNinjaKing18/foundry-pendant-bridge/releases/latest/download/foundry-pendant-bridge.zip",
   "license": "",
   "readme": "",
   "bugs": "",

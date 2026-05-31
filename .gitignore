@@ -1,0 +1,5 @@
+*.backup-*
+*.bak
+_med.js
+_m.js
+node_modules/
