@@ -85,13 +85,16 @@ const bridge = {
   connect() {
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) return
     const url = game.settings.get(MOD, "url")
+    console.log("[pendant-bridge] connecting to", url)
     let ws
     try { ws = new WebSocket(url) }
     catch (e) { console.warn("[pendant-bridge] WS construct failed:", e); this.scheduleReconnect(); return }
     this.ws = ws
+    this.gotHelloOk = false
 
     ws.addEventListener("open", () => {
       const token = game.settings.get(MOD, "token") || ""
+      console.log("[pendant-bridge] socket OPEN — sending hello (token " + (token ? "set, len " + token.length : "EMPTY") + ")")
       ws.send(JSON.stringify({
         type:  "hello",
         role:  "foundry",
@@ -102,7 +105,18 @@ const bridge = {
 
     ws.addEventListener("message", (ev) => this.handleMessage(ev.data))
 
-    ws.addEventListener("close", () => {
+    ws.addEventListener("close", (ev) => {
+      // The close code + reason is the single most useful diagnostic:
+      //   1006 / no code  → never reached the relay (relay down? wrong port?)
+      //   4001 "auth"      → relay rejected our token (hello:error also fired)
+      //   1000 "shutdown"  → relay stopped cleanly
+      // gotHelloOk tells us whether we dropped BEFORE or AFTER the handshake.
+      console.warn(
+        "[pendant-bridge] socket CLOSED — code=" + ev.code +
+        " reason=" + JSON.stringify(ev.reason || "") +
+        " wasClean=" + ev.wasClean +
+        " handshakeCompleted=" + this.gotHelloOk
+      )
       this.open = false
       updateIndicator(false)
       this.teardownHooks()
@@ -110,7 +124,8 @@ const bridge = {
       this.scheduleReconnect()
     })
 
-    ws.addEventListener("error", () => {
+    ws.addEventListener("error", (e) => {
+      console.warn("[pendant-bridge] socket ERROR", e)
       try { ws.close() } catch {}
     })
   },
@@ -164,6 +179,8 @@ const bridge = {
     try { msg = JSON.parse(raw) } catch { return }
     try {
       if (msg.type === "hello:ok") {
+        console.log("[pendant-bridge] handshake OK — relay accepted us (id " + msg.id + ")")
+        this.gotHelloOk = true
         this.open = true
         updateIndicator(true)
         this.setupHooks()
@@ -188,6 +205,7 @@ const bridge = {
         return
       }
       if (msg.type === "hello:error") {
+        console.warn("[pendant-bridge] relay REJECTED handshake:", msg.reason)
         ui.notifications?.error(`Pendant Bridge: ${msg.reason || "auth failed"}`)
         return
       }
@@ -471,7 +489,14 @@ function serializeActorFull(actor) {
     rollData,
     flags: data.flags,        // includes ddb-importer URL, etc.
     items: actor.items.map(serializeItem),
-    effects: actor.effects.map(e => ({ id: e.id, name: e.name, icon: resolveImg(e.icon), disabled: e.disabled })),
+    effects: actor.effects.map(e => ({
+      id: e.id,
+      name: e.name || e.label,
+      icon: resolveImg(e.icon || e.img),
+      disabled: e.disabled,
+      statuses: Array.from(e.statuses || []),   // condition ids (blinded, prone, …)
+      origin: e.origin || null
+    })),
     ownership: actor.ownership,
     prototypeToken: data.prototypeToken
   }
@@ -522,6 +547,12 @@ function serializeCombat(c) {
     round:   c.round,
     turn:    c.turn,
     active:  c.active,
+    started: c.started,
+    // The Combatant whose turn it is, plus the ids in Foundry's OWN sorted
+    // turn order — so the client can highlight the active row exactly instead
+    // of re-deriving order from raw (unsorted) initiative values.
+    current:   c.combatant?.id || null,
+    turnOrder: (c.turns || []).map(t => t.id),
     combatants: c.combatants.map(cb => ({
       id: cb.id, actorId: cb.actorId, name: cb.name, initiative: cb.initiative,
       hidden: cb.hidden, defeated: cb.defeated
@@ -1205,6 +1236,121 @@ async function handleCommand(msg) {
       if (!scene) throw new Error("Scene not found: " + msg.sceneId)
       await scene.activate()
       return bridge.reply(msg.reqId, { type: "scene.activated", id: scene.id })
+    }
+
+    // ── Combat control ────────────────────────────────────────
+    // Drive the encounter from the client. `combatId` is optional — defaults
+    // to the active combat. `action`: next | previous | nextRound |
+    // previousRound | rollAll | rollNPC | start | end.
+    case "combat.control": {
+      const c = msg.combatId ? game.combats.get(msg.combatId) : game.combat
+      if (!c) throw new Error("No active combat")
+      const action = String(msg.action || "")
+      switch (action) {
+        case "next":          await c.nextTurn(); break
+        case "previous":      await c.previousTurn(); break
+        case "nextRound":     await c.nextRound(); break
+        case "previousRound": await c.previousRound(); break
+        case "rollAll":       await c.rollAll(); break
+        case "rollNPC":       await c.rollNPC(); break
+        case "start":         await c.startCombat(); break
+        case "end":           await c.delete(); break   // endCombat() prompts; delete() is clean
+        default: throw new Error("Unknown combat action: " + action)
+      }
+      return bridge.reply(msg.reqId, {
+        type: "combat.update",
+        combat: action === "end" ? null : serializeCombat(c)
+      })
+    }
+
+    // Set a combatant's initiative / hidden / defeated.
+    case "combatant.update": {
+      const c = msg.combatId ? game.combats.get(msg.combatId) : game.combat
+      if (!c) throw new Error("No active combat")
+      const updates = (Array.isArray(msg.updates) ? msg.updates : [msg]).map(u => {
+        const o = { _id: u.id }
+        if (u.initiative != null) o.initiative = Number(u.initiative)
+        if (u.hidden != null)     o.hidden = !!u.hidden
+        if (u.defeated != null)   o.defeated = !!u.defeated
+        return o
+      })
+      await c.updateEmbeddedDocuments("Combatant", updates)
+      return bridge.reply(msg.reqId, { type: "combat.update", combat: serializeCombat(c) })
+    }
+
+    // ── Apply damage / healing ────────────────────────────────
+    // `amount` > 0 deals damage, < 0 heals — matching dnd5e's Actor#applyDamage
+    // (which also honours resistances/vulnerabilities + temp HP). Falls back to
+    // a manual HP adjustment (temp absorbs first) on systems without it.
+    case "actor.applyDamage": {
+      const a = game.actors.get(msg.id)
+      if (!a) throw new Error("Actor not found: " + msg.id)
+      const amount = Number(msg.amount) || 0
+      if (typeof a.applyDamage === "function") {
+        await a.applyDamage(amount)
+      } else {
+        const hp = a.system?.attributes?.hp ?? a.system?.hp
+        if (hp && typeof hp === "object") {
+          let value = Number(hp.value) || 0, temp = Number(hp.temp) || 0
+          const max = Number(hp.max) || 0
+          if (amount > 0) { const ft = Math.min(temp, amount); temp -= ft; value = Math.max(0, value - (amount - ft)) }
+          else            { value = max ? Math.min(max, value - amount) : value - amount }
+          const changes = { "system.attributes.hp.value": value }
+          if ((Number(hp.temp) || 0) !== temp) changes["system.attributes.hp.temp"] = temp
+          await a.update(changes)
+        }
+      }
+      return bridge.reply(msg.reqId, { type: "actor", actor: serializeActorFull(a) })
+    }
+
+    // ── Active Effects / conditions ───────────────────────────
+    // Add a condition by status id (blinded, prone, …) via toggleStatusEffect
+    // (v12+), or a raw ActiveEffect payload. v11/v12 field-name shims included.
+    case "effect.create": {
+      const a = game.actors.get(msg.actorId)
+      if (!a) throw new Error("Actor not found: " + msg.actorId)
+      if (msg.statusId && typeof a.toggleStatusEffect === "function") {
+        await a.toggleStatusEffect(String(msg.statusId), { active: true })
+      } else {
+        const data = msg.effect || {
+          name:     String(msg.name || "Effect"),
+          icon:     msg.icon || "icons/svg/aura.svg",
+          changes:  Array.isArray(msg.changes) ? msg.changes : [],
+          disabled: !!msg.disabled,
+          statuses: msg.statusId ? [String(msg.statusId)] : (msg.statuses || [])
+        }
+        if (data.name && data.label == null) data.label = data.name   // v11 used label
+        if (data.icon && data.img == null)   data.img = data.icon     // v12 renamed icon→img
+        await a.createEmbeddedDocuments("ActiveEffect", [data])
+      }
+      return bridge.reply(msg.reqId, { type: "actor", actor: serializeActorFull(a) })
+    }
+    case "effect.update": {
+      const a = game.actors.get(msg.actorId)
+      if (!a) throw new Error("Actor not found: " + msg.actorId)
+      const eff = a.effects.get(msg.effectId)
+      if (!eff) throw new Error("Effect not found: " + msg.effectId)
+      await eff.update(msg.changes || {})
+      return bridge.reply(msg.reqId, { type: "actor", actor: serializeActorFull(a) })
+    }
+    case "effect.toggle": {
+      const a = game.actors.get(msg.actorId)
+      if (!a) throw new Error("Actor not found: " + msg.actorId)
+      if (msg.statusId && typeof a.toggleStatusEffect === "function") {
+        await a.toggleStatusEffect(String(msg.statusId))
+      } else {
+        const eff = a.effects.get(msg.effectId)
+        if (!eff) throw new Error("Effect not found: " + msg.effectId)
+        await eff.update({ disabled: !eff.disabled })
+      }
+      return bridge.reply(msg.reqId, { type: "actor", actor: serializeActorFull(a) })
+    }
+    case "effect.delete": {
+      const a = game.actors.get(msg.actorId)
+      if (!a) throw new Error("Actor not found: " + msg.actorId)
+      const ids = Array.isArray(msg.ids) ? msg.ids : [msg.effectId]
+      await a.deleteEmbeddedDocuments("ActiveEffect", ids)
+      return bridge.reply(msg.reqId, { type: "actor", actor: serializeActorFull(a) })
     }
 
     default:
