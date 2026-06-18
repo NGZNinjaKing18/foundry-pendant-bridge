@@ -259,6 +259,34 @@ const bridge = {
     reg("updateCombat", (combat) => {
       this.send({ type: "combat.update", combat: serializeCombat(combat) })
     })
+
+    // ── Live scene mirror (COA Scene View) ───────────────────
+    // Stream token moves/creates/deletes on the ACTIVE scene, and push the
+    // whole active scene when the canvas (re)loads or the scene doc changes.
+    reg("updateToken", (doc) => {
+      if (!doc.parent?.active) return
+      this.send({ type: "scene.token", sceneId: doc.parent.id, token: serializeToken(doc) })
+    })
+    reg("createToken", (doc) => {
+      if (!doc.parent?.active) return
+      this.send({ type: "scene.token", sceneId: doc.parent.id, token: serializeToken(doc) })
+    })
+    reg("deleteToken", (doc) => {
+      if (!doc.parent?.active) return
+      this.send({ type: "scene.token.delete", sceneId: doc.parent.id, id: doc.id })
+    })
+    reg("canvasReady", (canvas) => {
+      const scene = canvas?.scene || game.scenes?.active
+      if (!scene) return
+      this.send({ type: "scene.active", scene: serializeSceneMeta(scene), tokens: scene.tokens.map(serializeToken) })
+    })
+    reg("updateScene", (scene, changes) => {
+      // Only the live scene matters (activation, background swap, grid/dim edits).
+      if (!scene.active && !("active" in (changes || {}))) return
+      const active = scene.active ? scene : game.scenes?.active
+      if (!active) return
+      this.send({ type: "scene.active", scene: serializeSceneMeta(active), tokens: active.tokens.map(serializeToken) })
+    })
   },
 
   teardownHooks() {
@@ -557,6 +585,39 @@ function serializeCombat(c) {
       id: cb.id, actorId: cb.actorId, name: cb.name, initiative: cb.initiative,
       hidden: cb.hidden, defeated: cb.defeated
     }))
+  }
+}
+
+/**
+ * A token on the live scene — enough for the COA Scene View to draw it 1:1:
+ * resolved art, padded-canvas position (x/y), grid footprint (width/height in
+ * grid units), rotation, hidden flag, and its actor binding.
+ */
+function serializeToken(t) {
+  return {
+    id:       t.id,
+    name:     t.name || "",
+    src:      resolveImg((t.texture && t.texture.src) || t.img || ""),
+    x:        t.x, y: t.y,
+    width:    t.width, height: t.height,
+    rotation: t.rotation || 0,
+    hidden:   !!t.hidden,
+    elevation: t.elevation || 0,
+    actorId:  t.actorId || null
+  }
+}
+
+/** Active-scene meta the Scene View needs: background art + geometry + grid. */
+function serializeSceneMeta(scene) {
+  if (!scene) return null
+  return {
+    id:         scene.id,
+    name:       scene.name,
+    active:     !!scene.active,
+    background: resolveImg(scene.background?.src || ""),
+    thumb:      resolveImg(scene.thumb || scene.background?.src || ""),
+    dimensions: sceneDimensions(scene),
+    gridType:   scene.grid?.type ?? 1
   }
 }
 
@@ -864,6 +925,18 @@ async function handleCommand(msg) {
         dimensions: sceneDimensions(s)
       }))
       return bridge.reply(msg.reqId, { type: "scene.list", scenes })
+    }
+
+    // ── The live/active scene + its tokens (COA Scene View seed) ─
+    // Live token moves arrive afterward via the updateToken hook; this is the
+    // initial snapshot the mirror draws on connect.
+    case "scene.active": {
+      const scene = game.scenes.active
+      return bridge.reply(msg.reqId, {
+        type: "scene.active",
+        scene: serializeSceneMeta(scene),
+        tokens: scene ? scene.tokens.map(serializeToken) : []
+      })
     }
 
     // ── Place image tiles on a scene ──────────────────────────
