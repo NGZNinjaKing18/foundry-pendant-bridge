@@ -610,6 +610,9 @@ function serializeToken(t) {
 /** Active-scene meta the Scene View needs: background art + geometry + grid. */
 function serializeSceneMeta(scene) {
   if (!scene) return null
+  // gridColor / gridAlpha: v11 stored these at the top level (scene.gridColor,
+  // scene.gridAlpha); v12+ moved them inside scene.grid. Try both so the
+  // Scene View renders the correct lines regardless of Foundry version.
   return {
     id:         scene.id,
     name:       scene.name,
@@ -617,7 +620,9 @@ function serializeSceneMeta(scene) {
     background: resolveImg(scene.background?.src || ""),
     thumb:      resolveImg(scene.thumb || scene.background?.src || ""),
     dimensions: sceneDimensions(scene),
-    gridType:   scene.grid?.type ?? 1
+    gridType:   scene.grid?.type ?? 1,
+    gridColor:  scene.grid?.color  || scene.gridColor  || "#000000",
+    gridAlpha:  scene.grid?.alpha  ?? scene.gridAlpha  ?? 0.2
   }
 }
 
