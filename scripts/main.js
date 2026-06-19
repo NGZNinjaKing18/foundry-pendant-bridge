@@ -1490,7 +1490,7 @@ async function handleCommand(msg) {
       const list = (CONFIG.statusEffects || []).map(s => ({
         id: s.id,
         name: (game.i18n && game.i18n.localize ? game.i18n.localize(s.name || s.label || s.id) : (s.name || s.label || s.id)),
-        icon: s.icon || s.img || ""
+        icon: resolveImg(s.icon || s.img || "")   // → absolute URL the app can load
       })).filter(s => s.id)
       return bridge.reply(msg.reqId, { type: "status.list", statuses: list })
     }
