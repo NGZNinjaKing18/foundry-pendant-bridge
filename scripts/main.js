@@ -1210,7 +1210,12 @@ async function handleCommand(msg) {
         if (u.hidden != null) o.hidden = !!u.hidden
         return o
       })
-      const upd = await scene.updateEmbeddedDocuments("Token", updates)
+      // Apply INSTANTLY (no slide animation). The COA Scene View places the token
+      // at its destination the moment you drop it; if Foundry then animated the
+      // token sliding over ~1s, the two views would disagree on where the token is
+      // for the whole slide. Teleporting keeps the app and Foundry in lock-step.
+      // `animate:false` (v11) and `animation.duration:0` (v12) both disable it.
+      const upd = await scene.updateEmbeddedDocuments("Token", updates, { animate: false, animation: { duration: 0 } })
       return bridge.reply(msg.reqId, { type: "token.updated", sceneId: scene.id, ids: upd.map(d => d.id) })
     }
     case "token.delete": {
