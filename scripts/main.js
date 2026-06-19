@@ -509,6 +509,12 @@ function serializeActorLight(actor) {
     tokenW = (pt && pt.width) || 1
     tokenH = (pt && pt.height) || 1
   } catch { tokenImg = resolveImg(actor.img) }
+  // Level (PCs) or Challenge Rating (NPCs) — for the Tokens palette readout.
+  let level = null
+  try {
+    const d = actor.system?.details
+    level = d?.level ?? d?.cr ?? null
+  } catch {}
   return {
     id:      actor.id,
     name:    actor.name,
@@ -516,6 +522,7 @@ function serializeActorLight(actor) {
     img:     resolveImg(actor.img),
     tokenImg, tokenW, tokenH,
     hp:      readHP(actor),
+    level,
     ownership: actor.ownership,
     folder:  actor.folder?.id || null
   }
