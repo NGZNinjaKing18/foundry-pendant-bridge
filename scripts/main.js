@@ -714,6 +714,8 @@ function uploadBegin(msg) {
     filename: String(msg.filename || "upload.bin"),
     kind:     String(msg.kind     || "asset"),
     mimeType: String(msg.mimeType || "application/octet-stream"),
+    dedup:    !!msg.dedup,                                  // skip the write if the same filename already exists
+    subfolder: msg.subfolder ? String(msg.subfolder) : "", // optional extra folder under the kind dir
     chunks:   []
   })
 }
@@ -730,21 +732,31 @@ async function uploadEnd(msg) {
   if (!u) throw new Error("Unknown uploadId: " + msg.uploadId)
   _uploads.delete(msg.uploadId)
 
-  // Concatenate all chunks (in order) into one base64 string, decode
-  // to a Uint8Array, wrap in a File, hand off to FilePicker.upload().
+  const folder = _uploadFolderFor(u.kind) + (u.subfolder ? "/" + u.subfolder : "")
+  // Ensure the destination folder exists (no-op if it does).
+  try { await FilePicker.createDirectory("data", folder, {}) } catch {}
+
+  // De-dup: the client bakes an 8-char content hash into the filename, so a name
+  // collision IS a content match — skip the write and reuse the existing path.
+  if (u.dedup) {
+    try {
+      const listing = await FilePicker.browse("data", folder)
+      const hit = (listing?.files || []).find(p => p === folder + "/" + u.filename || p.split("/").pop() === u.filename)
+      if (hit) return { path: hit, deduped: true }
+    } catch { /* browse failed → fall through and just write it */ }
+  }
+
+  // Concatenate all chunks (in order) into one base64 string, decode to a
+  // Uint8Array, wrap in a File, hand off to FilePicker.upload().
   const fullB64 = u.chunks.join("")
   const bin = atob(fullB64)
   const bytes = new Uint8Array(bin.length)
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
   const file = new File([bytes], u.filename, { type: u.mimeType })
 
-  const folder = _uploadFolderFor(u.kind)
-  // Ensure the destination folder exists (no-op if it does).
-  try { await FilePicker.createDirectory("data", folder, {}) } catch {}
-
   const result = await FilePicker.upload("data", folder, file, {}, { notify: false })
   if (!result || !result.path) throw new Error("FilePicker.upload returned no path")
-  return result.path
+  return { path: result.path, deduped: false }
 }
 
 /** Best-effort HP read across game systems. Falls back to null. */
@@ -860,8 +872,8 @@ async function handleCommand(msg) {
       return
     }
     case "upload.end": {
-      const path = await uploadEnd(msg)
-      return bridge.reply(msg.reqId, { type: "upload.done", uploadId: msg.uploadId, path })
+      const out = await uploadEnd(msg)
+      return bridge.reply(msg.reqId, { type: "upload.done", uploadId: msg.uploadId, path: out.path, deduped: !!out.deduped })
     }
 
     // ── Create actor ──────────────────────────────────────────
@@ -963,19 +975,53 @@ async function handleCommand(msg) {
 
     // ── Create scene from an uploaded image ───────────────────
     case "scene.create": {
+      const cfg = msg.config || {}
+      const b = cfg.basics || {}, g = cfg.grid || {}, l = cfg.lighting || {}, am = cfg.ambience || {}
+      const num = (v, d) => (v != null && isFinite(+v) ? +v : d)
       const data = {
-        name: String(msg.name || "New Scene"),
+        name: String(msg.name || b.name || "New Scene"),
         background: { src: msg.imgPath },
         width:  Number(msg.width)  || 4000,
         height: Number(msg.height) || 3000,
-        padding: msg.padding != null ? Number(msg.padding) : 0.25,
-        grid:    msg.grid ? { type: 1, size: Number(msg.grid) || 100 } : undefined
+        padding: num(g.padding, msg.padding != null ? Number(msg.padding) : 0.25),
       }
+      if (g.offsetX != null) data.background.offsetX = num(g.offsetX, 0)
+      if (g.offsetY != null) data.background.offsetY = num(g.offsetY, 0)
+      if (b.navigation != null) data.navigation = !!b.navigation
+      if (b.navName) data.navName = String(b.navName)
+      if (b.backgroundColor) data.backgroundColor = String(b.backgroundColor)
+      if (b.foregroundElevation != null) data.foregroundElevation = num(b.foregroundElevation, 20)
+      if (b.ownership != null) data.ownership = { default: num(b.ownership, 0) }
+
+      // Grid — v12 carries color/alpha/style/thickness IN the grid object; v11 reads
+      // them top-level. We set BOTH; Foundry cleans whichever the running version
+      // doesn't recognise, so one payload works across 11–13.
+      const gridType = num(g.type, 1), gridColor = g.color || "#000000", gridAlpha = num(g.alpha, 0.2)
+      data.grid = { type: gridType, size: num(g.size, 100), distance: num(g.distance, 5), units: g.units != null ? String(g.units) : "ft", style: g.style || "solidLines", thickness: num(g.thickness, 1), color: gridColor, alpha: gridAlpha }
+      data.gridType = gridType; data.gridColor = gridColor; data.gridAlpha = gridAlpha
+
+      // Vision / fog (v12 nested `fog` + v11 top-level fog* keys).
+      if (l.tokenVision != null) data.tokenVision = !!l.tokenVision
+      const fogExp = l.fogExploration != null ? !!l.fogExploration : true
+      data.fog = { exploration: fogExp, colors: { unexplored: l.fogUnexploredColor || null, explored: l.fogExploredColor || null } }
+      data.fogExploration = fogExp
+      if (l.fogUnexploredColor) data.fogUnexploredColor = l.fogUnexploredColor
+      if (l.fogExploredColor) data.fogExploredColor = l.fogExploredColor
+
+      // Lighting / ambience (v12 `environment.*` + v11 top-level globalLight/darkness).
+      const glob = !!l.globalLight, thr = num(l.globalLightThreshold, 1), dark = num(l.darknessLevel, 0)
+      data.environment = {
+        globalLight: { enabled: glob, darkness: { max: thr } },
+        darknessLevel: dark, darknessLock: !!l.darknessLock, cycle: !!am.blend,
+        base: { hue: am.base?.hue || "#000000", intensity: num(am.base?.intensity, 0), luminosity: num(am.base?.luminosity, 0), saturation: num(am.base?.saturation, 0), shadows: num(am.base?.shadows, 0) },
+        dark: { hue: am.dark?.hue || "#000000", intensity: num(am.dark?.intensity, 0), luminosity: num(am.dark?.luminosity, -0.25), saturation: num(am.dark?.saturation, 0), shadows: num(am.dark?.shadows, 0) },
+      }
+      data.globalLight = glob; data.globalLightThreshold = thr; data.darkness = dark
+
       const scene = await Scene.create(data)
-      const dims = sceneDimensions(scene)
       return bridge.reply(msg.reqId, {
         type: "scene.created",
-        id: scene.id, name: scene.name, dimensions: dims
+        id: scene.id, name: scene.name, dimensions: sceneDimensions(scene)
       })
     }
 
@@ -1028,6 +1074,10 @@ async function handleCommand(msg) {
           rotation: Number(t.rotation) || 0,
           hidden: !!t.hidden
         }
+        // Flip via the texture mirror (negative scale); default 1.
+        if (t.scaleX != null) d.texture.scaleX = Number(t.scaleX)
+        if (t.scaleY != null) d.texture.scaleY = Number(t.scaleY)
+        if (t.tint) d.texture.tint = String(t.tint)
         if (t.alpha != null) d.alpha = Number(t.alpha)
         return d
       })
