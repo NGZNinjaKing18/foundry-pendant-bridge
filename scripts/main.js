@@ -287,6 +287,23 @@ const bridge = {
       if (!active) return
       this.send({ type: "scene.active", scene: serializeSceneMeta(active), tokens: active.tokens.map(serializeToken) })
     })
+
+    // Status effects live on the ACTOR's ActiveEffects, so a condition change does
+    // NOT fire updateToken — re-push every active-scene token of that actor so the
+    // Scene View redraws its effect icons in step with Foundry.
+    const actorOfEffect = (eff) => { let p = eff?.parent; while (p && p.documentName !== "Actor") p = p.parent; return p || null }
+    const pushTokensForActor = (actor) => {
+      const scene = game.scenes?.active
+      if (!actor || !scene) return
+      for (const tdoc of scene.tokens) {
+        if (tdoc.actor === actor || tdoc.actorId === actor.id) {
+          this.send({ type: "scene.token", sceneId: scene.id, token: serializeToken(tdoc) })
+        }
+      }
+    }
+    reg("createActiveEffect", (eff) => pushTokensForActor(actorOfEffect(eff)))
+    reg("updateActiveEffect", (eff) => pushTokensForActor(actorOfEffect(eff)))
+    reg("deleteActiveEffect", (eff) => pushTokensForActor(actorOfEffect(eff)))
   },
 
   teardownHooks() {
@@ -589,11 +606,38 @@ function serializeCombat(c) {
 }
 
 /**
+ * The status-effect icons Foundry draws ON a token: the token's own legacy
+ * `effects` icon paths plus the actor's temporary (condition) effect icons. A
+ * separate `overlay` is the big centred mark (e.g. the "dead" skull). `statuses`
+ * is the set of active status ids, so the quick-menu can show which are on.
+ */
+function tokenEffects(t) {
+  const icons = [], statuses = new Set()
+  let overlay = null
+  for (const e of (t.effects || [])) if (e) icons.push(resolveImg(e))   // legacy direct token effects
+  const actor = t.actor
+  if (actor) {
+    const temp = actor.temporaryEffects || []
+    for (const eff of temp) {
+      if (eff.disabled) continue
+      const img = resolveImg(eff.img || eff.icon || "")
+      const isOverlay = (eff.getFlag && eff.getFlag("core", "overlay")) || eff.flags?.core?.overlay
+      if (isOverlay && img) { overlay = img; continue }
+      if (img) icons.push(img)
+      try { for (const s of (eff.statuses || [])) statuses.add(s) } catch {}
+    }
+    try { if (actor.statuses) for (const s of actor.statuses) statuses.add(s) } catch {}
+  }
+  return { icons, overlay, statuses: [...statuses] }
+}
+
+/**
  * A token on the live scene — enough for the COA Scene View to draw it 1:1:
  * resolved art, padded-canvas position (x/y), grid footprint (width/height in
- * grid units), rotation, hidden flag, and its actor binding.
+ * grid units), rotation, hidden flag, actor binding, and its status effects.
  */
 function serializeToken(t) {
+  const fx = tokenEffects(t)
   return {
     id:       t.id,
     name:     t.name || "",
@@ -603,7 +647,10 @@ function serializeToken(t) {
     rotation: t.rotation || 0,
     hidden:   !!t.hidden,
     elevation: t.elevation || 0,
-    actorId:  t.actorId || null
+    actorId:  t.actorId || null,
+    effects:  fx.icons,        // status-effect icon URLs (drawn on the token)
+    overlay:  fx.overlay,      // big centred overlay icon (e.g. dead), or null
+    statuses: fx.statuses      // active status ids (for the quick-menu highlight)
   }
 }
 
