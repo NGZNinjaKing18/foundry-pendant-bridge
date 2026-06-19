@@ -582,7 +582,7 @@ function serializeCombat(c) {
     current:   c.combatant?.id || null,
     turnOrder: (c.turns || []).map(t => t.id),
     combatants: c.combatants.map(cb => ({
-      id: cb.id, actorId: cb.actorId, name: cb.name, initiative: cb.initiative,
+      id: cb.id, actorId: cb.actorId, tokenId: cb.tokenId, name: cb.name, initiative: cb.initiative,
       hidden: cb.hidden, defeated: cb.defeated
     }))
   }
@@ -1434,6 +1434,43 @@ async function handleCommand(msg) {
       const ids = Array.isArray(msg.ids) ? msg.ids : [msg.effectId]
       await a.deleteEmbeddedDocuments("ActiveEffect", ids)
       return bridge.reply(msg.reqId, { type: "actor", actor: serializeActorFull(a) })
+    }
+
+    // ── Status-effect catalogue (for the Scene View token quick-menu) ──────────
+    // The world's configured conditions: { id, name, icon }. Apply one with
+    // effect.toggle { actorId, statusId }.
+    case "status.list": {
+      const list = (CONFIG.statusEffects || []).map(s => ({
+        id: s.id,
+        name: (game.i18n && game.i18n.localize ? game.i18n.localize(s.name || s.label || s.id) : (s.name || s.label || s.id)),
+        icon: s.icon || s.img || ""
+      })).filter(s => s.id)
+      return bridge.reply(msg.reqId, { type: "status.list", statuses: list })
+    }
+
+    // ── Add / remove a token from the active combat (initiative) ───────────────
+    // Toggles membership: if the token is already a combatant it's removed, else
+    // it's added (creating an encounter if none exists). Returns the new state.
+    case "combat.toggleToken": {
+      const scene = (msg.sceneId ? game.scenes.get(msg.sceneId) : null) || game.scenes.active
+      if (!scene) throw new Error("No scene")
+      const tokenDoc = scene.tokens.get(msg.tokenId)
+      if (!tokenDoc) throw new Error("Token not found: " + msg.tokenId)
+      const existing = game.combat?.combatants?.find(c => c.tokenId === msg.tokenId)
+      if (existing) {
+        await existing.delete()
+      } else {
+        const tokenObj = tokenDoc.object || tokenDoc._object
+        if (tokenObj && typeof tokenObj.toggleCombat === "function") {
+          await tokenObj.toggleCombat()           // native: creates combat if needed
+        } else {
+          let combat = game.combat
+          if (!combat) combat = await getDocumentClass("Combat").create({ scene: scene.id, active: true })
+          await combat.createEmbeddedDocuments("Combatant", [{ tokenId: msg.tokenId, sceneId: scene.id, actorId: tokenDoc.actorId }])
+        }
+      }
+      const inCombat = !!game.combat?.combatants?.find(c => c.tokenId === msg.tokenId)
+      return bridge.reply(msg.reqId, { type: "combat.toggleToken", tokenId: msg.tokenId, inCombat, combat: game.combat ? serializeCombat(game.combat) : null })
     }
 
     default:
