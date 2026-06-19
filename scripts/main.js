@@ -259,6 +259,15 @@ const bridge = {
     reg("updateCombat", (combat) => {
       this.send({ type: "combat.update", combat: serializeCombat(combat) })
     })
+    // Adding/removing a token to/from initiative fires combatant (not combat)
+    // hooks — re-broadcast the parent combat so the app's in-combat state (and the
+    // Scene View ⚔ icon) stays correct even after the menu is closed and reopened.
+    const pushCombat = (c) => { if (c) this.send({ type: "combat.update", combat: serializeCombat(c) }) }
+    reg("createCombatant", (cb) => pushCombat(cb.parent))
+    reg("deleteCombatant", (cb) => pushCombat(cb.parent))
+    reg("updateCombatant", (cb) => pushCombat(cb.parent))
+    reg("createCombat", (c) => pushCombat(c))
+    reg("deleteCombat", (c) => this.send({ type: "combat.update", combat: game.combat ? serializeCombat(game.combat) : null }))
 
     // ── Live scene mirror (COA Scene View) ───────────────────
     // Stream token moves/creates/deletes on the ACTIVE scene, and push the
