@@ -1897,6 +1897,18 @@ async function handleCommand(msg) {
       await ahRecomputeActor(a)
       return bridge.reply(msg.reqId, { type: "antihammer.actor", actor: AH.actorSummary(a, AH.cfg()) })
     }
+    case "antihammer.gear.add": {
+      const a = game.actors.get(msg.actorId); if (!a) throw new Error("Actor not found: " + msg.actorId)
+      const kind = String(msg.kind || ""); if (!AH_GEAR[kind]) throw new Error("Unknown gear: " + kind)
+      const list = ahGearList(a).slice(); list.push({ id: "g" + Math.random().toString(36).slice(2, 8), kind })
+      await a.setFlag(MOD, "ahGear", list); await ahRecomputeActor(a)
+      return bridge.reply(msg.reqId, { type: "antihammer.actor", actor: AH.actorSummary(a, AH.cfg()) })
+    }
+    case "antihammer.gear.remove": {
+      const a = game.actors.get(msg.actorId); if (!a) throw new Error("Actor not found: " + msg.actorId)
+      await a.setFlag(MOD, "ahGear", ahGearList(a).filter(g => g.id !== msg.gearId)); await ahRecomputeActor(a)
+      return bridge.reply(msg.reqId, { type: "antihammer.actor", actor: AH.actorSummary(a, AH.cfg()) })
+    }
 
     default:
       throw new Error("Unknown command: " + msg.type)
@@ -2160,12 +2172,15 @@ function ahRenderTray(ctx) {
   for (const g of AH_CARRY_ORDER) {
     const arr = groups[g]; if (!arr || !arr.length) continue
     arr.sort((a, b) => (a.name || "").localeCompare(b.name || ""))
-    h += '<div class="ah-tray-group">' + ahEscX(g === "Miscellaneous" ? "Other" : g) + ' <span class="ah-tray-gn">' + arr.length + '</span></div><div class="ah-tray-row">'
+    // each carry type is a collapsible group; big stacks (lots of consumables) start
+    // COLLAPSED so they never flood the sheet.
+    const open = arr.length <= 8 ? " open" : ""
+    h += '<details class="ah-tgroup"' + open + '><summary class="ah-tray-group">' + ahEscX(g === "Miscellaneous" ? "Other" : g) + ' <span class="ah-tray-gn">' + arr.length + '</span></summary><div class="ah-tray-row">'
     for (const it of arr) {
       const m = ctx.metaById[it.id] || {}
       h += '<div class="ah-tray-it" data-tray="' + ahEscX(it.id) + '"' + (ctx.canArrange ? ' style="cursor:grab"' : "") + ' title="' + ahEscX((m.size || "") + (m.needsBackPoint ? " · needs a Back point" : "")) + '">' + ahMiniSVG(it) + '<span class="ah-tray-nm">' + ahEscX(it.name) + '</span><span class="ah-tray-sz">' + ahFmt(it.spaces) + "</span></div>"
     }
-    h += "</div>"
+    h += "</div></details>"
   }
   ctx.trayEl.innerHTML = h
 }
@@ -2311,13 +2326,19 @@ function ahMeta(item) {
   const isLongItem = (type, name, props, twoHanded) => { if (COILABLE_RE.test(name)) return false; if (LONG_NAME_RE.test(name)) return true; if (type === "weapon" && props.has("rch") && (props.has("two") || twoHanded)) return true; return false }
   const deriveGrants = (type, sub, name) => safe(() => {
     const merge = (...objs) => { const out = {}; for (const o of objs) for (const k of Object.keys(o || {})) out[k] = (out[k] || 0) + o[k]; return Object.keys(out).length ? out : null }
-    if (type === "container" || type === "backpack") return null   // packs CONSUME a back point + provide storage (don't grant slots)
+    if (type === "container" || type === "backpack") {
+      // A backpack has two BUILT-IN back straps (a weapon + a bedroll) on top of its bag.
+      if (type === "backpack" || /back\s?pack|rucksack|knapsack/.test(name)) return { Back: 2 }
+      if (/harness|baldric|bandolier/.test(name)) return { Back: 2 }
+      return null   // satchel / pouch / chest just hold things
+    }
     if (type === "equipment" || type === "armor") {
-      const lightSet = { Chest: 1, Belt: 1, "Left Hip": 1, "Right Hip": 1, Back: 1, Feet: 1, Head: 1, Face: 1, Neck: 1 }
+      // Back: 2 so any armoured character can carry a back weapon AND wear a backpack.
+      const lightSet = { Chest: 1, Belt: 1, "Left Hip": 1, "Right Hip": 1, Back: 2, Feet: 1, Head: 1, Face: 1, Neck: 1 }
       switch (sub) {
         case "light": return lightSet
-        case "medium": return merge(lightSet, { Back: 2 })
-        case "heavy": return merge(lightSet, { Back: 2 })
+        case "medium": return merge(lightSet, { Back: 1 })
+        case "heavy": return merge(lightSet, { Back: 1 })
         case "clothing": default: {
           if (/traveler|traveller|explorer|adventur/.test(name)) return { Chest: 1, Belt: 1, "Left Hip": 1, "Right Hip": 1, Feet: 1, Back: 1, Head: 1, Face: 1, Neck: 1 }
           if (/harness|bandolier|baldric/.test(name)) return { Belt: 1, "Left Hip": 1, "Right Hip": 1, Back: 2 }
@@ -2379,6 +2400,27 @@ const AH_GRANTABLE = ["Head", "Face", "Neck", "Belt", "LHip", "RHip", "Back"]
 const AH_BASE_MOUNTS = new Set(["LHand", "RHand", "Feet", "LRing", "RRing", "Chest", "Clothes"])
 const AH_SLOT_KEY = { "Head": "Head", "Face": "Face", "Neck": "Neck", "Chest": "Chest", "Clothes": "Clothes", "Back": "Back", "Belt": "Belt", "Left Hip": "LHip", "Right Hip": "RHip", "Left Hand": "LHand", "Right Hand": "RHand", "Feet": "Feet", "Left Ring": "LRing", "Right Ring": "RRing" }
 
+// ── add-on storage gear (player-added belts/packs that grant slots + bag space) ──
+// Stored on the actor flag `ahGear` = [{ id, kind }]. Each grants attachment points
+// and/or hex storage on top of whatever real armor/clothing provides.
+const AH_GEAR = {
+  belt:      { name: "Belt",       grants: { Belt: 1 },                              storage: 0 },
+  pouch:     { name: "Belt Pouch", grants: {},                                       storage: 3 },
+  backpack:  { name: "Backpack",   grants: { Back: 2 },                              storage: 12 },
+  satchel:   { name: "Satchel",    grants: {},                                       storage: 8 },
+  harness:   { name: "Harness",    grants: { Back: 2, "Left Hip": 1, "Right Hip": 1 }, storage: 0 },
+  bandolier: { name: "Bandolier",  grants: { Belt: 1 },                              storage: 4 },
+  sack:      { name: "Sack",       grants: {},                                       storage: 6 },
+}
+const AH_GEAR_ORDER = ["belt", "pouch", "backpack", "satchel", "harness", "bandolier", "sack"]
+function ahGearList(actor) { try { const g = actor.getFlag(MOD, "ahGear"); return Array.isArray(g) ? g.filter(x => x && AH_GEAR[x.kind]) : [] } catch { return [] } }
+function ahGearGrants(actor) {
+  const out = {}
+  for (const g of ahGearList(actor)) { const cat = AH_GEAR[g.kind]; if (cat && cat.grants) for (const k of Object.keys(cat.grants)) { const key = AH_SLOT_KEY[k] || k; out[key] = (out[key] || 0) + cat.grants[k] } }
+  return out
+}
+function ahGearStorage(actor) { let n = 0; for (const g of ahGearList(actor)) n += (AH_GEAR[g.kind] && AH_GEAR[g.kind].storage) || 0; return n }
+
 function ahDollGender(actor) {
   let g = ""; try { g = String(actor.system?.details?.gender || "").toLowerCase() } catch {}
   return (/female|woman|girl|she\/her/.test(g) || g === "f") ? "female" : "male"
@@ -2395,6 +2437,7 @@ function ahEquippedIds(ctx) { return Object.keys(ctx.worn || {}).concat(ctx.back
 function ahCaps(ctx) {
   const c = Object.assign({}, AH_BASE_CAP)
   for (const id of ahEquippedIds(ctx)) { const m = ctx.metaById[id]; const g = m && m.grantsSlots; if (g) for (const gk of Object.keys(g)) { const key = AH_SLOT_KEY[gk] || gk; if (AH_GRANTABLE.indexOf(key) >= 0) c[key] = (c[key] || 0) + g[gk] } }
+  if (ctx.actor) { const gg = ahGearGrants(ctx.actor); for (const k of Object.keys(gg)) if (AH_GRANTABLE.indexOf(k) >= 0) c[k] = (c[k] || 0) + gg[k] }   // add-on storage gear
   return c
 }
 function ahOccupancy(ctx) {
@@ -2426,13 +2469,13 @@ function ahBuildEquip(actor, metaById, byId) {
   for (const id of ids) {
     const slot = sw[id], m = metaById[id]; if (!m) continue
     if (!(m.equipSlots || []).some(s => (AH_SLOT_KEY[s] || s) === slot)) continue
-    const occ = ahOccupancy({ worn, metaById }), caps = ahCaps({ worn, back, metaById })
+    const occ = ahOccupancy({ worn, metaById }), caps = ahCaps({ worn, back, metaById, actor })
     if (m.twoHanded && (slot === "LHand" || slot === "RHand")) { if (occ.LHand || occ.RHand) continue }
     else if (occ[slot]) continue
     else if (AH_GRANTABLE.indexOf(slot) >= 0 && (caps[slot] || 0) <= 0) continue
     worn[id] = slot
   }
-  const caps2 = ahCaps({ worn, back, metaById })
+  const caps2 = ahCaps({ worn, back, metaById, actor })
   for (const id of sb) { if (!byId[id]) continue; if (back.length >= caps2.Back) break; if (back.indexOf(id) < 0) back.push(id) }
   return { worn, back }
 }
@@ -2505,6 +2548,27 @@ function ahOpenSlotMenu(ctx, slotKey) {
 }
 function ahCloseMenu(ctx) { if (ctx._menuOff) { ctx._menuOff(); ctx._menuOff = null } if (ctx._menu) { ctx._menu.remove(); ctx._menu = null } }
 
+/** "+ Add" storage gear → a menu of belts/packs/pouches; click adds one to the actor. */
+function ahOpenGearMenu(actor, anchorEl) {
+  anchorEl.querySelectorAll(".ah-gear-menu").forEach(n => n.remove())
+  const menu = document.createElement("div"); menu.className = "ah-gear-menu"
+  for (const kind of AH_GEAR_ORDER) {
+    const cat = AH_GEAR[kind]
+    const bits = []; if (cat.storage) bits.push("+" + cat.storage + " bag")
+    for (const k of Object.keys(cat.grants || {})) bits.push("+" + cat.grants[k] + " " + k)
+    const b = document.createElement("button"); b.className = "ah-gear-mi"
+    b.innerHTML = '<span class="ah-gear-mi-n">' + ahEscX(cat.name) + '</span>' + (bits.length ? '<span class="ah-gear-mi-m">' + ahEscX(bits.join(" · ")) + '</span>' : "")
+    b.addEventListener("click", async (e) => {
+      e.stopPropagation()
+      const list = ahGearList(actor).slice(); list.push({ id: "g" + Math.random().toString(36).slice(2, 8), kind })
+      try { await actor.setFlag(MOD, "ahGear", list) } catch (er) { console.warn("[pendant-bridge] AH gear add failed", er) }
+    })
+    menu.appendChild(b)
+  }
+  anchorEl.appendChild(menu)
+  setTimeout(() => { const onDoc = (e) => { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener("mousedown", onDoc) } }; document.addEventListener("mousedown", onDoc) }, 0)
+}
+
 function ahMoveGhost(ctx, e) { const el = ctx.ghostEl; if (!el) return; el.style.left = (e.clientX + 12) + "px"; el.style.top = (e.clientY + 8) + "px" }
 /** Unified drag of an item from the tray (from:'tray') or the bag (from:'bag') →
  *  drop on a body slot to equip, or into the bag to pack (R rotates). */
@@ -2557,7 +2621,7 @@ function ahBuildPanel(actor) {
   const eq = ahBuildEquip(actor, metaById, byId); ctx.worn = eq.worn; ctx.back = eq.back
   // the bag exists ONLY when a container is equipped; size = per-container slots × #containers
   const containerN = ahEquippedIds(ctx).filter(id => metaById[id] && metaById[id].carryType === "Container").length
-  const bagCapacity = containerN > 0 ? capacity * containerN : 0
+  const bagCapacity = (containerN > 0 ? capacity * containerN : 0) + ahGearStorage(actor)   // + add-on storage gear
   ctx.bagCapacity = bagCapacity
   const vc = ahValidCells(bagCapacity); ctx.validList = vc.list; ctx.validSet = vc.set; ctx.geom = ahGeom(bagCapacity)
   ctx.placed = ahBuildPlaced(actor, byId, vc.set)
@@ -2599,8 +2663,25 @@ function ahBuildPanel(actor) {
     const scroll = document.createElement("div"); scroll.className = "ah-scroll"
     const holder = document.createElement("div"); holder.className = "ah-svgholder"; ctx.holder = holder; scroll.appendChild(holder); bagCol.appendChild(scroll)
   } else {
-    const hint = document.createElement("div"); hint.className = "ah-bag-empty"; hint.textContent = "No storage yet — equip a backpack or container to open a bag."; bagCol.appendChild(hint)
+    const hint = document.createElement("div"); hint.className = "ah-bag-empty"; hint.textContent = "No storage yet — equip a backpack/container or add storage gear below."; bagCol.appendChild(hint)
   }
+  // add-on storage gear (belts, packs, pouches…) — grant slots + bag space
+  const gearList = ahGearList(actor)
+  const gearWrap = document.createElement("div"); gearWrap.className = "ah-gear"
+  const gearHead = document.createElement("div"); gearHead.className = "ah-gear-head"
+  const gearLbl = document.createElement("span"); gearLbl.className = "ah-gear-lbl"; gearLbl.textContent = "Storage gear"; gearHead.appendChild(gearLbl)
+  if (ctx.canArrange) { const add = document.createElement("button"); add.className = "ah-gear-add"; add.textContent = "+ Add"; add.title = "Add a belt, backpack, pouch…"; add.addEventListener("click", (e) => { e.stopPropagation(); ahOpenGearMenu(actor, gearWrap) }); gearHead.appendChild(add) }
+  gearWrap.appendChild(gearHead)
+  const gearRow = document.createElement("div"); gearRow.className = "ah-gear-row"
+  if (!gearList.length) { const e = document.createElement("span"); e.className = "ah-gear-empty"; e.textContent = ctx.canArrange ? "None — add a belt or pack." : "None."; gearRow.appendChild(e) }
+  for (const g of gearList) {
+    const cat = AH_GEAR[g.kind]; if (!cat) continue
+    const chip = document.createElement("span"); chip.className = "ah-gear-chip"
+    chip.innerHTML = ahEscX(cat.name) + (cat.storage ? ' <span class="ah-gear-n">+' + cat.storage + '</span>' : "")
+    if (ctx.canArrange) { const x = document.createElement("button"); x.className = "ah-gear-x"; x.textContent = "×"; x.title = "Remove"; x.addEventListener("click", async () => { try { await actor.setFlag(MOD, "ahGear", ahGearList(actor).filter(z => z.id !== g.id)) } catch (e) { console.warn("[pendant-bridge] AH gear remove failed", e) } }); chip.appendChild(x) }
+    gearRow.appendChild(chip)
+  }
+  gearWrap.appendChild(gearRow); bagCol.appendChild(gearWrap)
   cols.appendChild(bagCol); wrap.appendChild(cols)
 
   // loose tray

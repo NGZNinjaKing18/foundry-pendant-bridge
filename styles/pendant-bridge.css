@@ -91,6 +91,23 @@
 .ah-panel .ah-pick-it > i { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; }
 .ah-panel .ah-pick-empty { font-size: 10px; font-style: italic; color: #8c8a7e; padding: 6px 8px; }
 .ah-panel .ah-bag-empty { font-size: 11px; font-style: italic; color: #8c8a7e; padding: 18px 6px; }
+/* add-on storage gear */
+.ah-panel .ah-gear { position: relative; margin-top: 10px; }
+.ah-panel .ah-gear-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.ah-panel .ah-gear-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: #9a9888; }
+.ah-panel .ah-gear-add { margin-left: auto; font-size: 10px; padding: 2px 9px; border-radius: 999px; cursor: pointer; background: transparent; border: 1px solid rgba(255, 255, 255, 0.2); color: #c8c4b6; }
+.ah-panel .ah-gear-add:hover { border-color: #c98b3a; color: #ece9df; }
+.ah-panel .ah-gear-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.ah-panel .ah-gear-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; padding: 3px 4px 3px 9px; border-radius: 999px; background: rgba(124, 92, 191, 0.16); border: 1px solid rgba(124, 92, 191, 0.45); color: #e6dcff; }
+.ah-panel .ah-gear-n { font-size: 9px; color: #9a9888; }
+.ah-panel .ah-gear-x { width: 16px; height: 16px; border: none; border-radius: 50%; background: transparent; color: #b9b6a8; cursor: pointer; font-size: 13px; line-height: 1; padding: 0; }
+.ah-panel .ah-gear-x:hover { background: #c0413f; color: #fff; }
+.ah-panel .ah-gear-empty { font-size: 10.5px; font-style: italic; color: #8c8a7e; }
+.ah-panel .ah-gear-menu { position: absolute; right: 0; top: 22px; z-index: 40; min-width: 184px; max-height: 230px; overflow-y: auto; padding: 4px; border-radius: 9px; background: #15161d; border: 1px solid #5a5a66; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.6); display: flex; flex-direction: column; gap: 2px; }
+.ah-panel .ah-gear-mi { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; text-align: left; padding: 6px 8px; border: none; border-radius: 6px; background: transparent; color: #ece9df; cursor: pointer; }
+.ah-panel .ah-gear-mi:hover { background: rgba(201, 139, 58, 0.22); }
+.ah-panel .ah-gear-mi-n { font-size: 12px; font-weight: 600; }
+.ah-panel .ah-gear-mi-m { font-size: 9.5px; color: #9a9888; }
 /* the comb (SVG board, scrolls horizontally) */
 .ah-panel .ah-scroll { overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; }
 .ah-panel .ah-svgholder { display: inline-block; }
@@ -104,8 +121,10 @@
 .ah-panel.is-over .ah-tray-lbl { color: #c46b6b; }
 .ah-panel .ah-tray-chips { display: flex; flex-direction: column; gap: 6px; max-height: 176px; overflow-y: auto; padding-right: 3px; }
 .ah-panel .ah-tray-group { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: #7f7d72; margin-top: 2px; }
+.ah-panel details.ah-tgroup > summary.ah-tray-group { cursor: pointer; list-style: revert; padding: 2px 0; }
+.ah-panel details.ah-tgroup > summary.ah-tray-group:hover { color: #b8b5a6; }
 .ah-panel .ah-tray-gn { color: #5f5e57; }
-.ah-panel .ah-tray-row { display: flex; flex-wrap: wrap; gap: 7px; }
+.ah-panel .ah-tray-row { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 5px; }
 .ah-panel .ah-tray-it { display: flex; align-items: center; gap: 7px; padding: 5px 9px 5px 6px; background: #22222a;
   border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 9px; user-select: none; -webkit-user-select: none; }
 .ah-panel .ah-tray-it:hover { border-color: rgba(201, 139, 58, 0.5); }
