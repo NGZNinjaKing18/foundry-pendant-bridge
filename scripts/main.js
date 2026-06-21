@@ -106,12 +106,15 @@ const AH = {
     let used = 0
     for (const it of actor.items) {
       if (!this.counted(it, cfg)) continue
-      const override = this.itemOverride(it)
-      const spaces = this.itemSpaces(it, cfg, override)
+      const flagOv = this.itemOverride(it)
+      let rule = null; try { rule = ahRuleFor(it) } catch {}
+      const effOv = (flagOv != null) ? flagOv : (rule && rule.spaces != null ? Number(rule.spaces) : null)
+      const spaces = this.itemSpaces(it, cfg, effOv)
       used += spaces
       let m = null; try { m = ahMeta(it) } catch {}
       const meta = m ? { size: m.size, carryType: m.carryType, equipSlots: m.equipSlots, needsBackPoint: m.needsBackPoint, longItem: m.longItem, override: m.override } : null
-      items.push({ id: it.id, name: it.name, type: it.type, img: resolveImg(it.img), weight: this.itemWeight(it), qty: this.itemQty(it), spaces, override, meta })
+      let shape = null; try { shape = ahEffectiveShape(it, Math.max(1, Math.ceil(spaces))) } catch {}
+      items.push({ id: it.id, name: it.name, type: it.type, img: resolveImg(it.img), weight: this.itemWeight(it), qty: this.itemQty(it), spaces, override: flagOv, ruleKey: ahItemRuleKey(it), hasRule: !!rule, shape, meta })
     }
     used = Math.round(used * 100) / 100
     const { capacity, override } = this.capacityOf(actor, cfg)
@@ -175,6 +178,15 @@ Hooks.once("init", () => {
     config:  false,
     type:    Object,
     default: AH.defaults,
+    onChange: () => ahOnConfigChanged()
+  })
+  // World-wide per-item-name overrides (size/carryType/equipSlots/spaces/shape),
+  // applied to every copy of that item. Edited from the app's Item Rules panel.
+  game.settings.register(MOD, "ahItemRules", {
+    scope:   "world",
+    config:  false,
+    type:    Object,
+    default: {},
     onChange: () => ahOnConfigChanged()
   })
 })
@@ -1798,7 +1810,7 @@ async function handleCommand(msg) {
         try { actors.push(AH.actorSummary(a, cfg)) }
         catch (e) { console.warn("[pendant-bridge] AH summary skip", a?.id, a?.name, e) }
       }
-      return bridge.reply(msg.reqId, { type: "antihammer.summary", config: cfg, actors })
+      return bridge.reply(msg.reqId, { type: "antihammer.summary", config: cfg, actors, rules: ahItemRules() })
     }
     case "antihammer.setCapacity": {
       const a = game.actors.get(msg.actorId)
@@ -1836,6 +1848,24 @@ async function handleCommand(msg) {
       }
       await ahRecomputeActor(a)
       return bridge.reply(msg.reqId, { type: "antihammer.actor", actor: AH.actorSummary(a, AH.cfg()) })
+    }
+    case "antihammer.rules.get": {
+      return bridge.reply(msg.reqId, { type: "antihammer.rules", rules: ahItemRules() })
+    }
+    case "antihammer.rules.set": {
+      const key = String(msg.key || "").trim().toLowerCase()
+      if (!key) throw new Error("antihammer.rules.set missing key")
+      const all = { ...ahItemRules() }
+      if (msg.rule == null) delete all[key]
+      else {
+        const cur = all[key] || {}
+        const next = { ...cur, ...msg.rule }
+        for (const k of Object.keys(next)) if (next[k] == null) delete next[k]   // per-field null clears
+        if (Object.keys(next).length) all[key] = next; else delete all[key]
+      }
+      await game.settings.set(MOD, "ahItemRules", all)
+      ahOnConfigChanged()   // re-persist every bag + re-render
+      return bridge.reply(msg.reqId, { type: "antihammer.rules", rules: ahItemRules() })
     }
 
     default:
@@ -2156,6 +2186,19 @@ function ahStartDrag(ctx, itemId, fromId, ev) {
   document.addEventListener("mousemove", move); document.addEventListener("mouseup", up); document.addEventListener("keydown", key)
 }
 
+// ── world-wide per-item-name DM overrides ───────────────────────────────────
+// A rule keyed by lowercased item name overrides the derived metadata for EVERY
+// copy of that item in the world (size/carryType/equipSlots/spaces/shape).
+function ahItemRuleKey(item) { return String((item && item.name) || "").trim().toLowerCase() }
+function ahItemRules() { try { return game.settings.get(MOD, "ahItemRules") || {} } catch { return {} } }
+function ahRuleFor(item) { const k = ahItemRuleKey(item); if (!k) return null; const r = ahItemRules(); return (r && r[k]) || null }
+/** The hex shape an item's bag footprint uses: the DM's custom shape, else auto from cell count. */
+function ahEffectiveShape(item, cells) {
+  const rule = ahRuleFor(item)
+  if (rule && Array.isArray(rule.shape) && rule.shape.length) return rule.shape
+  return ahShapeFor(Math.max(1, cells | 0), ahHashOf((item && item.id) || ""))
+}
+
 // ── rules engine: derive inventory metadata from a Foundry item ─────────────
 // "Rules, not exceptions" — size/carryType/equipSlots/storage/grants from the
 // item's existing dnd5e data. Pure, never throws, tolerant of v3 + v4 schemas.
@@ -2266,7 +2309,15 @@ function ahMeta(item) {
     let longItem = isLongItem(type, name, props, eq.twoHanded)
     const covers = (type === "equipment" && sub === "heavy") ? ["Head", "Feet"] : null   // plate: integrated helm + sabatons
     let equipSlots = eq.equipSlots, needsBackPoint = eq.needsBackPoint
-    // per-item DM override flag → wins over the rules ("rules, not exceptions" — but exceptions allowed)
+    // world-wide DM rule for this item's name → overrides the derived rules
+    const rule = safe(() => ahRuleFor(item), null)
+    if (rule) {
+      if (rule.size) size = rule.size
+      if (rule.carryType) carryType = rule.carryType
+      if (Array.isArray(rule.equipSlots)) { equipSlots = rule.equipSlots.slice(); needsBackPoint = equipSlots.indexOf("Back") >= 0 && equipSlots.length === 1 }
+      if (typeof rule.longItem === "boolean") longItem = rule.longItem
+    }
+    // per-item DM override flag → most specific, wins over the world rule + derived
     const ov = safe(() => { const f = item && item.flags && item.flags[MOD]; return (f && f.meta) || null }, null)
     if (ov) {
       if (ov.size) size = ov.size
@@ -2458,7 +2509,7 @@ function ahBuildPanel(actor) {
   const capacity = Math.max(0, Math.round(sum.capacity))
 
   // items + metadata (rules engine runs on the live Foundry item)
-  const items = sum.items.map(it => ({ id: it.id, name: it.name, type: it.type, spaces: it.spaces, qty: it.qty, override: it.override, color: ahColorFor(it.id), shape: ahShapeFor(ahCellSize(it), ahHashOf(it.id)) }))
+  const items = sum.items.map(it => ({ id: it.id, name: it.name, type: it.type, spaces: it.spaces, qty: it.qty, override: it.override, color: ahColorFor(it.id), shape: (Array.isArray(it.shape) && it.shape.length) ? it.shape : ahShapeFor(ahCellSize(it), ahHashOf(it.id)) }))
   const byId = {}; for (const it of items) byId[it.id] = it
   const metaById = {}; for (const it of items) { let m; try { m = ahMeta(actor.items.get(it.id)) } catch { m = null } metaById[it.id] = m || { equipSlots: [], carryType: "Miscellaneous", grantsSlots: null } }
   const ctx = {
