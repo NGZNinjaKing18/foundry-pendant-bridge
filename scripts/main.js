@@ -338,6 +338,16 @@ function resolveImg(p) {
 }
 
 /**
+ * The scene's map-image src. v14 moved the background off the Scene document onto
+ * its first Level (`scene.firstLevel.background.src`); fall back to the legacy
+ * top-level `scene.background.src` for v11–v13. Returns "" if none.
+ */
+function sceneBg(scene) {
+  try { return scene?.firstLevel?.background?.src || scene?.background?.src || "" }
+  catch { return scene?.background?.src || "" }
+}
+
+/**
  * Geometry the editor needs to map its image-space coords → scene space.
  * A Foundry scene pads its background inside a larger canvas, so the
  * top-left of the background sits at (sceneX, sceneY), NOT (0,0). Tile
@@ -680,8 +690,8 @@ function serializeSceneMeta(scene) {
     id:         scene.id,
     name:       scene.name,
     active:     !!scene.active,
-    background: resolveImg(scene.background?.src || ""),
-    thumb:      resolveImg(scene.thumb || scene.background?.src || ""),
+    background: resolveImg(sceneBg(scene)),
+    thumb:      resolveImg(scene.thumb || sceneBg(scene)),
     dimensions: sceneDimensions(scene),
     gridType:   scene.grid?.type ?? 1,
     gridColor:  scene.grid?.color  || scene.gridColor  || "#000000",
@@ -697,6 +707,16 @@ function serializeSceneMeta(scene) {
 // hand the resulting Blob to FilePicker.upload() — Foundry handles
 // the actual write into world/system storage from there.
 const _uploads = new Map()  // uploadId → { filename, kind, mimeType, chunks: [] }
+
+// FilePicker moved to the foundry.applications.apps namespace in v13 and the
+// global `FilePicker` was REMOVED in v14. Resolve the active class from the
+// namespace (preferring the configured `.implementation`), falling back to the
+// old global for v11–v13. Its static upload/browse/createDirectory are unchanged.
+function getFilePicker() {
+  return foundry?.applications?.apps?.FilePicker?.implementation
+      ?? foundry?.applications?.apps?.FilePicker
+      ?? globalThis.FilePicker
+}
 
 function _uploadFolderFor(kind) {
   const worldId = game.world?.id || "world"
@@ -732,15 +752,17 @@ async function uploadEnd(msg) {
   if (!u) throw new Error("Unknown uploadId: " + msg.uploadId)
   _uploads.delete(msg.uploadId)
 
+  const FP = getFilePicker()
+  if (!FP) throw new Error("FilePicker unavailable in this Foundry version")
   const folder = _uploadFolderFor(u.kind) + (u.subfolder ? "/" + u.subfolder : "")
   // Ensure the destination folder exists (no-op if it does).
-  try { await FilePicker.createDirectory("data", folder, {}) } catch {}
+  try { await FP.createDirectory("data", folder, {}) } catch {}
 
   // De-dup: the client bakes an 8-char content hash into the filename, so a name
   // collision IS a content match — skip the write and reuse the existing path.
   if (u.dedup) {
     try {
-      const listing = await FilePicker.browse("data", folder)
+      const listing = await FP.browse("data", folder)
       const hit = (listing?.files || []).find(p => p === folder + "/" + u.filename || p.split("/").pop() === u.filename)
       if (hit) return { path: hit, deduped: true }
     } catch { /* browse failed → fall through and just write it */ }
@@ -754,7 +776,7 @@ async function uploadEnd(msg) {
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
   const file = new File([bytes], u.filename, { type: u.mimeType })
 
-  const result = await FilePicker.upload("data", folder, file, {}, { notify: false })
+  const result = await FP.upload("data", folder, file, {}, { notify: false })
   if (!result || !result.path) throw new Error("FilePicker.upload returned no path")
   return { path: result.path, deduped: false }
 }
@@ -837,7 +859,7 @@ async function handleCommand(msg) {
 
     case "roll.formula": {
       const r = new Roll(String(msg.formula || "1d20"), msg.data || {})
-      await r.evaluate({ async: true })
+      await r.evaluate()   // sync-eval (the `async` option) was removed; evaluate() is async
       if (msg.toChat !== false) {
         const speaker = msg.speaker || (msg.actorId ? ChatMessage.getSpeaker({ actor: game.actors.get(msg.actorId) }) : ChatMessage.getSpeaker())
         await r.toMessage({ flavor: msg.flavor || "", speaker, rollMode: msg.rollMode })
@@ -990,6 +1012,7 @@ async function handleCommand(msg) {
       if (b.navigation != null) data.navigation = !!b.navigation
       if (b.navName) data.navName = String(b.navName)
       if (b.backgroundColor) data.backgroundColor = String(b.backgroundColor)
+      if (b.foreground) data.foreground = String(b.foreground)
       if (b.foregroundElevation != null) data.foregroundElevation = num(b.foregroundElevation, 20)
       if (b.ownership != null) data.ownership = { default: num(b.ownership, 0) }
 
@@ -1003,8 +1026,9 @@ async function handleCommand(msg) {
       // Vision / fog (v12 nested `fog` + v11 top-level fog* keys).
       if (l.tokenVision != null) data.tokenVision = !!l.tokenVision
       const fogExp = l.fogExploration != null ? !!l.fogExploration : true
-      data.fog = { exploration: fogExp, colors: { unexplored: l.fogUnexploredColor || null, explored: l.fogExploredColor || null } }
+      data.fog = { exploration: fogExp, overlay: l.fogOverlay || null, colors: { unexplored: l.fogUnexploredColor || null, explored: l.fogExploredColor || null } }
       data.fogExploration = fogExp
+      if (l.fogOverlay) data.fogOverlay = String(l.fogOverlay)
       if (l.fogUnexploredColor) data.fogUnexploredColor = l.fogUnexploredColor
       if (l.fogExploredColor) data.fogExploredColor = l.fogExploredColor
 
@@ -1018,7 +1042,43 @@ async function handleCommand(msg) {
       }
       data.globalLight = glob; data.globalLightThreshold = thr; data.darkness = dark
 
+      // Weather particle effect (v11–13 top-level `weather` = effect id; '' = none).
+      if (am.weather) data.weather = String(am.weather)
+
       const scene = await Scene.create(data)
+      // v14 moved the map image from Scene.background onto the new Level document.
+      // Set it on the scene's first level (Foundry auto-creates one for simple
+      // scenes); create a Ground level only if none exists. Best-effort: a schema
+      // mismatch must never fail the publish (the scene already exists). v11–13 use
+      // the top-level `background` set in `data` above and skip this block.
+      if ((game.release?.generation || 0) >= 14 && msg.imgPath) {
+        try {
+          const lvl = { background: { src: msg.imgPath } }
+          if (b.foreground) lvl.foreground = { src: String(b.foreground) }
+          if (scene.firstLevel) await scene.firstLevel.update(lvl)
+          else await scene.createEmbeddedDocuments("Level", [{ name: "Ground", ...lvl }])
+        } catch (e) { console.warn("[pendant-bridge] v14 Level background set failed:", e) }
+      }
+      // Auto-generate the navigation/sidebar thumbnail from the background. Best-
+      // effort: a thumbnail failure must never fail the publish.
+      try { const tn = await scene.createThumbnail(); if (tn && tn.thumb) await scene.update({ thumb: tn.thumb }) }
+      catch (e) { console.warn("[pendant-bridge] scene thumbnail failed:", e) }
+      // Initial view position: the client sends the camera centre in IMAGE space
+      // (0..width / 0..height); shift it into the padded-canvas space Foundry's
+      // `initial` expects by adding the background's sceneX/sceneY offset.
+      if (b.initial && b.initial.x != null) {
+        try {
+          const dim = sceneDimensions(scene)
+          // Foundry's initial.scale is schema-bounded (~0.25–3 on v12+); clamp so
+          // an extreme editor zoom can't throw and drop the whole position.
+          const sc = b.initial.scale != null ? Math.max(0.25, Math.min(3, Number(b.initial.scale))) : null
+          await scene.update({ initial: {
+            x: Math.round(Number(b.initial.x) + (dim.sceneX || 0)),
+            y: Math.round(Number(b.initial.y) + (dim.sceneY || 0)),
+            scale: sc
+          } })
+        } catch (e) { console.warn("[pendant-bridge] initial view failed:", e) }
+      }
       return bridge.reply(msg.reqId, {
         type: "scene.created",
         id: scene.id, name: scene.name, dimensions: sceneDimensions(scene)
@@ -1034,8 +1094,8 @@ async function handleCommand(msg) {
         id: s.id,
         name: s.name,
         active: !!s.active,
-        thumb: resolveImg(s.thumb || s.background?.src || ""),
-        background: resolveImg(s.background?.src || ""),
+        thumb: resolveImg(s.thumb || sceneBg(s)),
+        background: resolveImg(sceneBg(s)),
         dimensions: sceneDimensions(s)
       }))
       return bridge.reply(msg.reqId, { type: "scene.list", scenes })
@@ -1573,13 +1633,17 @@ async function handleCommand(msg) {
       if (existing) {
         await existing.delete()
       } else {
-        const tokenObj = tokenDoc.object || tokenDoc._object
-        if (tokenObj && typeof tokenObj.toggleCombat === "function") {
-          await tokenObj.toggleCombat()           // native: creates combat if needed
+        if (typeof tokenDoc.toggleCombatant === "function") {
+          await tokenDoc.toggleCombatant()        // v13+: TokenDocument method (Token#toggleCombat removed in v14)
         } else {
-          let combat = game.combat
-          if (!combat) combat = await getDocumentClass("Combat").create({ scene: scene.id, active: true })
-          await combat.createEmbeddedDocuments("Combatant", [{ tokenId: msg.tokenId, sceneId: scene.id, actorId: tokenDoc.actorId }])
+          const tokenObj = tokenDoc.object || tokenDoc._object
+          if (tokenObj && typeof tokenObj.toggleCombat === "function") {
+            await tokenObj.toggleCombat()         // v11–12: placeable method, creates combat if needed
+          } else {
+            let combat = game.combat
+            if (!combat) combat = await CONFIG.Combat.documentClass.create({ scene: scene.id, active: true })
+            await combat.createEmbeddedDocuments("Combatant", [{ tokenId: msg.tokenId, sceneId: scene.id, actorId: tokenDoc.actorId }])
+          }
         }
       }
       const inCombat = !!game.combat?.combatants?.find(c => c.tokenId === msg.tokenId)
