@@ -110,3 +110,18 @@
   border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 5px; background: #11131a; color: #ece9df; }
 .ah-panel .ah-row-sp.ovr { border-color: #c98b3a; background: rgba(201, 139, 58, 0.18); font-weight: 700; }
 .ah-panel .ah-empty { font-size: 11px; font-style: italic; color: #8c8a7e; padding: 6px 2px; }
+/* GM per-item editor rows */
+.ah-panel .ah-erow { padding: 5px 4px; border-radius: 6px; }
+.ah-panel .ah-erow + .ah-erow { border-top: 1px solid rgba(255, 255, 255, 0.06); }
+.ah-panel .ah-erow.ovr { background: rgba(201, 139, 58, 0.08); }
+.ah-panel .ah-erow-top { display: flex; align-items: center; gap: 7px; }
+.ah-panel .ah-erow-mid { display: flex; gap: 6px; margin: 5px 0 0 18px; }
+.ah-panel .ah-row-sel { flex: 1; min-width: 0; height: 22px; font-size: 10px; padding: 0 4px; color: #ece9df;
+  background: #11131a; border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 5px; }
+.ah-panel .ah-row-rst { width: 22px; height: 22px; flex: 0 0 auto; border: 1px solid rgba(255, 255, 255, 0.18);
+  background: transparent; color: #9a9888; border-radius: 5px; cursor: pointer; font-size: 12px; line-height: 1; }
+.ah-panel .ah-row-rst:hover { color: #ece9df; border-color: #c98b3a; }
+.ah-panel .ah-slotchips { display: flex; flex-wrap: wrap; gap: 3px; margin: 5px 0 0 18px; }
+.ah-panel .ah-slotchip { font-size: 9px; padding: 2px 6px; border-radius: 999px; cursor: pointer;
+  background: transparent; border: 1px solid rgba(255, 255, 255, 0.16); color: #9a9888; }
+.ah-panel .ah-slotchip.on { background: rgba(201, 139, 58, 0.22); border-color: #c98b3a; color: #ece9df; }

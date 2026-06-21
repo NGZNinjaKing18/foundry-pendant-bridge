@@ -109,7 +109,9 @@ const AH = {
       const override = this.itemOverride(it)
       const spaces = this.itemSpaces(it, cfg, override)
       used += spaces
-      items.push({ id: it.id, name: it.name, type: it.type, img: resolveImg(it.img), weight: this.itemWeight(it), qty: this.itemQty(it), spaces, override })
+      let m = null; try { m = ahMeta(it) } catch {}
+      const meta = m ? { size: m.size, carryType: m.carryType, equipSlots: m.equipSlots, needsBackPoint: m.needsBackPoint, longItem: m.longItem, override: m.override } : null
+      items.push({ id: it.id, name: it.name, type: it.type, img: resolveImg(it.img), weight: this.itemWeight(it), qty: this.itemQty(it), spaces, override, meta })
     }
     used = Math.round(used * 100) / 100
     const { capacity, override } = this.capacityOf(actor, cfg)
@@ -1818,6 +1820,23 @@ async function handleCommand(msg) {
       await ahRecomputeActor(a)   // persist the new authoritative totals before replying
       return bridge.reply(msg.reqId, { type: "antihammer.actor", actor: AH.actorSummary(a, AH.cfg()) })
     }
+    case "antihammer.setMeta": {
+      const a = game.actors.get(msg.actorId)
+      if (!a) throw new Error("Actor not found: " + msg.actorId)
+      const it = a.items.get(msg.itemId)
+      if (!it) throw new Error("Item not found: " + msg.itemId)
+      const patch = msg.meta
+      if (patch == null) await it.unsetFlag(MOD, "meta")          // full reset to the rules
+      else {
+        const cur = (it.flags && it.flags[MOD] && it.flags[MOD].meta) || {}
+        const next = { ...cur, ...patch }
+        for (const k of Object.keys(next)) if (next[k] == null) delete next[k]   // null clears one field
+        if (Object.keys(next).length) await it.setFlag(MOD, "meta", next)
+        else await it.unsetFlag(MOD, "meta")
+      }
+      await ahRecomputeActor(a)
+      return bridge.reply(msg.reqId, { type: "antihammer.actor", actor: AH.actorSummary(a, AH.cfg()) })
+    }
 
     default:
       throw new Error("Unknown command: " + msg.type)
@@ -2055,6 +2074,20 @@ function ahMiniSVG(it) {
 
 function ahRenderBoard(ctx) { if (ctx.holder) ctx.holder.innerHTML = ahBoardSVG(ctx) }
 const AH_CARRY_ORDER = ["Weapon", "Armor", "Clothing", "Container", "Tool", "Consumable", "Treasure", "Cargo", "Miscellaneous"]
+const AH_SIZE_OPTS = ["Tiny", "Small", "Medium", "Large", "Huge"]
+const AH_CARRY_OPTS = ["Weapon", "Armor", "Clothing", "Tool", "Consumable", "Container", "Cargo", "Treasure", "Miscellaneous"]
+const AH_SLOT_OPTS = ["Head", "Face", "Neck", "Chest", "Back", "Belt", "Left Hip", "Right Hip", "Left Hand", "Right Hand", "Feet", "Left Ring", "Right Ring"]
+/** GM helper: patch one field of an item's `meta` override flag (null clears the field). */
+async function ahSetMetaField(item, field, value) {
+  try {
+    const cur = (item.flags && item.flags[MOD] && item.flags[MOD].meta) || {}
+    const next = Object.assign({}, cur)
+    if (value == null || value === "" || (Array.isArray(value) && !value.length)) delete next[field]
+    else next[field] = value
+    if (Object.keys(next).length) await item.setFlag(MOD, "meta", next)
+    else await item.unsetFlag(MOD, "meta")
+  } catch (e) { console.warn("[pendant-bridge] AH setMeta failed", e) }
+}
 function ahRenderTray(ctx) {
   if (!ctx.trayEl) return
   // loose = not worn, not on a back point, not packed in the bag
@@ -2230,9 +2263,18 @@ function ahMeta(item) {
     let size = sizeFromWeight(wLb); if (size == null) size = categorySizeDefault(type, sub, props, name)
     const carryType = deriveCarryType(sys, type, sub, size, name, wLb)
     const eq = deriveEquipSlots(type, sub, name, props, cls)
-    const longItem = isLongItem(type, name, props, eq.twoHanded)
+    let longItem = isLongItem(type, name, props, eq.twoHanded)
     const covers = (type === "equipment" && sub === "heavy") ? ["Head", "Feet"] : null   // plate: integrated helm + sabatons
-    return { size, carryType, equipSlots: eq.equipSlots, allowedContainers: containersForSize(size), longItem, twoHanded: eq.twoHanded, needsBackPoint: eq.needsBackPoint, grantsSlots: deriveGrants(type, sub, name), covers, nonPhysical: false }
+    let equipSlots = eq.equipSlots, needsBackPoint = eq.needsBackPoint
+    // per-item DM override flag → wins over the rules ("rules, not exceptions" — but exceptions allowed)
+    const ov = safe(() => { const f = item && item.flags && item.flags[MOD]; return (f && f.meta) || null }, null)
+    if (ov) {
+      if (ov.size) size = ov.size
+      if (ov.carryType) carryType = ov.carryType
+      if (Array.isArray(ov.equipSlots)) { equipSlots = ov.equipSlots.slice(); needsBackPoint = equipSlots.indexOf("Back") >= 0 && equipSlots.length === 1 }
+      if (typeof ov.longItem === "boolean") longItem = ov.longItem
+    }
+    return { size, carryType, equipSlots, allowedContainers: containersForSize(size), longItem, twoHanded: eq.twoHanded, needsBackPoint, grantsSlots: deriveGrants(type, sub, name), covers, override: !!ov, nonPhysical: false }
   } catch {
     return { size: "Medium", carryType: "Miscellaneous", equipSlots: [], allowedContainers: ["Backpack", "Chest", "Wagon"], longItem: false, twoHanded: false, needsBackPoint: false, grantsSlots: null, covers: null, nonPhysical: false }
   }
@@ -2440,29 +2482,51 @@ function ahBuildPanel(actor) {
   }
   ahRenderDoll(ctx); ahRenderBoard(ctx); ahRenderTray(ctx)
 
-  // GM tuning — set each item's space cost by hand (blank = auto from the rule)
+  // GM tuning — override the rules per item (size · carry type · spaces · slots)
   if (isGM && sum.items.length) {
     const det = document.createElement("details"); det.className = "ah-items"
-    const summ = document.createElement("summary"); summ.textContent = "Tune item sizes (GM)"
+    const summ = document.createElement("summary"); summ.textContent = "Tune items (GM) — size · type · spaces · slots"
     det.appendChild(summ)
     const list = document.createElement("div"); list.className = "ah-list"
+    const mkSelect = (opts, value, onChange) => {
+      const s = document.createElement("select"); s.className = "ah-row-sel"
+      for (const o of opts) { const op = document.createElement("option"); op.value = o; op.textContent = o; if (o === value) op.selected = true; s.appendChild(op) }
+      s.addEventListener("change", () => onChange(s.value))
+      return s
+    }
     for (const it of sum.items) {
-      const row = document.createElement("div"); row.className = "ah-row" + (it.override != null ? " ovr" : "")
-      const sw = document.createElement("span"); sw.className = "ah-row-sw"; sw.style.background = ahColorFor(it.id); row.appendChild(sw)
-      const name = document.createElement("span"); name.className = "ah-row-name"; name.textContent = it.name || "—"; row.appendChild(name)
-      if (it.qty > 1) { const q = document.createElement("span"); q.className = "ah-row-qty"; q.textContent = "×" + it.qty; row.appendChild(q) }
-      const item = actor.items.get(it.id)
-      const sp = document.createElement("input")
-      sp.type = "number"; sp.min = "0"; sp.step = "0.5"; sp.className = "ah-row-sp" + (it.override != null ? " ovr" : "")
-      sp.value = it.override != null ? String(it.override) : ""
-      sp.placeholder = ahFmt(it.spaces)
-      sp.title = "Spaces this item takes (blank = auto: " + cfg.costMode + ")"
-      sp.addEventListener("change", async () => {
-        const v = sp.value.trim()
-        try { (v === "" && item) ? await item.unsetFlag(MOD, "spaces") : await item.setFlag(MOD, "spaces", Number(v) || 0) }
-        catch (e) { console.warn("[pendant-bridge] AH setItemSpaces failed", e) }
-      })
-      row.appendChild(sp)
+      const item = actor.items.get(it.id); if (!item) continue
+      const m = it.meta || {}
+      const row = document.createElement("div"); row.className = "ah-erow" + (m.override || it.override != null ? " ovr" : "")
+      const top = document.createElement("div"); top.className = "ah-erow-top"
+      const sw = document.createElement("span"); sw.className = "ah-row-sw"; sw.style.background = ahColorFor(it.id); top.appendChild(sw)
+      const name = document.createElement("span"); name.className = "ah-row-name"; name.textContent = it.name || "—"; top.appendChild(name)
+      if (it.qty > 1) { const q = document.createElement("span"); q.className = "ah-row-qty"; q.textContent = "×" + it.qty; top.appendChild(q) }
+      // spaces (bag footprint)
+      const sp = document.createElement("input"); sp.type = "number"; sp.min = "0"; sp.step = "0.5"; sp.className = "ah-row-sp" + (it.override != null ? " ovr" : "")
+      sp.value = it.override != null ? String(it.override) : ""; sp.placeholder = ahFmt(it.spaces); sp.title = "Bag spaces (blank = auto)"
+      sp.addEventListener("change", async () => { const v = sp.value.trim(); try { (v === "" && item) ? await item.unsetFlag(MOD, "spaces") : await item.setFlag(MOD, "spaces", Number(v) || 0) } catch (e) { console.warn("[pendant-bridge] AH spaces failed", e) } })
+      top.appendChild(sp)
+      // reset
+      const rst = document.createElement("button"); rst.type = "button"; rst.className = "ah-row-rst"; rst.textContent = "↺"; rst.title = "Reset this item to the rules"
+      rst.addEventListener("click", async () => { try { await item.unsetFlag(MOD, "meta"); await item.unsetFlag(MOD, "spaces") } catch (e) { console.warn("[pendant-bridge] AH reset failed", e) } })
+      top.appendChild(rst)
+      row.appendChild(top)
+      // size + carry selects
+      const mid = document.createElement("div"); mid.className = "ah-erow-mid"
+      mid.appendChild(mkSelect(AH_SIZE_OPTS, m.size, (v) => ahSetMetaField(item, "size", v)))
+      mid.appendChild(mkSelect(AH_CARRY_OPTS, m.carryType, (v) => ahSetMetaField(item, "carryType", v)))
+      row.appendChild(mid)
+      // equip-slot toggle chips
+      const slots = document.createElement("div"); slots.className = "ah-slotchips"
+      const cur = Array.isArray(m.equipSlots) ? m.equipSlots.slice() : []
+      for (const sName of AH_SLOT_OPTS) {
+        const on = cur.indexOf(sName) >= 0
+        const chip = document.createElement("button"); chip.type = "button"; chip.className = "ah-slotchip" + (on ? " on" : ""); chip.textContent = AH_SLOT_KEY[sName] && AH_SLOT_KEY[sName] !== sName ? sName.replace("Left ", "L.").replace("Right ", "R.") : sName
+        chip.addEventListener("click", () => { const set = new Set(Array.isArray((it.meta || {}).equipSlots) ? it.meta.equipSlots : cur); set.has(sName) ? set.delete(sName) : set.add(sName); ahSetMetaField(item, "equipSlots", [...set]) })
+        slots.appendChild(chip)
+      }
+      row.appendChild(slots)
       list.appendChild(row)
     }
     det.appendChild(list)
