@@ -1933,6 +1933,20 @@ function ahHashOf(s) { s = String(s || ""); let h = 0; for (let i = 0; i < s.len
 function ahShort(name) { const w = String(name || "").trim().split(/\s+/)[0] || ""; return w.length > 7 ? w.slice(0, 6) + "…" : w }
 function ahCellSize(it) { return Math.max(1, Math.ceil(Number(it.spaces) || 0)) }
 
+// Tray grouping by carry type (interim — the full rules engine refines this later).
+const AH_GROUP_ORDER = ["Weapons", "Equipment", "Containers", "Consumables", "Tools", "Loot", "Other"]
+function ahCarryGroup(type) {
+  switch (type) {
+    case "weapon": return "Weapons"
+    case "equipment": return "Equipment"
+    case "container": case "backpack": case "equipmentpack": return "Containers"
+    case "consumable": return "Consumables"
+    case "tool": return "Tools"
+    case "loot": return "Loot"
+    default: return "Other"
+  }
+}
+
 // Shape library by cell-count (cube-coord offsets); fallback = straight line.
 const AH_SHAPES = {
   1: [[[0, 0, 0]]],
@@ -2044,8 +2058,17 @@ function ahRenderTray(ctx) {
   if (!ctx.trayEl) return
   const items = ctx.items.filter(it => !ctx.placed.has(it.id) && !(ctx.held && ctx.held.item.id === it.id))
   if (!items.length) { ctx.trayEl.innerHTML = '<span class="ah-tray-empty">Everything\'s packed.</span>'; return }
+  // group by carry type, alpha within each group
+  const groups = {}
+  for (const it of items) { const g = ahCarryGroup(it.type); (groups[g] = groups[g] || []).push(it) }
   let h = ""
-  for (const it of items) h += '<div class="ah-tray-it" data-tray="' + ahEscX(it.id) + '"' + (ctx.canArrange ? ' style="cursor:grab"' : "") + '>' + ahMiniSVG(it) + '<span class="ah-tray-nm">' + ahEscX(it.name) + '</span><span class="ah-tray-sz">' + ahFmt(it.spaces) + "</span></div>"
+  for (const g of AH_GROUP_ORDER) {
+    const arr = groups[g]; if (!arr || !arr.length) continue
+    arr.sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+    h += '<div class="ah-tray-group">' + ahEscX(g) + ' <span class="ah-tray-gn">' + arr.length + '</span></div><div class="ah-tray-row">'
+    for (const it of arr) h += '<div class="ah-tray-it" data-tray="' + ahEscX(it.id) + '"' + (ctx.canArrange ? ' style="cursor:grab"' : "") + '>' + ahMiniSVG(it) + '<span class="ah-tray-nm">' + ahEscX(it.name) + '</span><span class="ah-tray-sz">' + ahFmt(it.spaces) + "</span></div>"
+    h += "</div>"
+  }
   ctx.trayEl.innerHTML = h
 }
 
@@ -2138,7 +2161,7 @@ function ahBuildPanel(actor) {
   wrap.appendChild(head)
 
   // build the puzzle context (each item gets a colour + a shape from its size)
-  const items = sum.items.map(it => ({ id: it.id, name: it.name, spaces: it.spaces, qty: it.qty, override: it.override, color: ahColorFor(it.id), shape: ahShapeFor(ahCellSize(it), ahHashOf(it.id)) }))
+  const items = sum.items.map(it => ({ id: it.id, name: it.name, type: it.type, spaces: it.spaces, qty: it.qty, override: it.override, color: ahColorFor(it.id), shape: ahShapeFor(ahCellSize(it), ahHashOf(it.id)) }))
   const byId = {}; for (const it of items) byId[it.id] = it
   const vc = ahValidCells(capacity)
   const ctx = {
