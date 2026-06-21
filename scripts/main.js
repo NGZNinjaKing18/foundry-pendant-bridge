@@ -112,19 +112,23 @@ const AH = {
       const spaces = this.itemSpaces(it, cfg, effOv)
       used += spaces
       let m = null; try { m = ahMeta(it) } catch {}
-      const meta = m ? { size: m.size, carryType: m.carryType, equipSlots: m.equipSlots, needsBackPoint: m.needsBackPoint, longItem: m.longItem, override: m.override } : null
+      const meta = m ? { size: m.size, carryType: m.carryType, equipSlots: m.equipSlots, needsBackPoint: m.needsBackPoint, twoHanded: m.twoHanded, longItem: m.longItem, override: m.override } : null
       let shape = null; try { shape = ahEffectiveShape(it, Math.max(1, Math.ceil(spaces))) } catch {}
-      items.push({ id: it.id, name: it.name, type: it.type, img: resolveImg(it.img), weight: this.itemWeight(it), qty: this.itemQty(it), spaces, override: flagOv, ruleKey: ahItemRuleKey(it), hasRule: !!rule, shape, meta })
+      items.push({ id: it.id, name: it.name, type: it.type, img: resolveImg(it.img), color: ahColorFor(it.id), weight: this.itemWeight(it), qty: this.itemQty(it), spaces, override: flagOv, ruleKey: ahItemRuleKey(it), hasRule: !!rule, shape, meta })
     }
     used = Math.round(used * 100) / 100
     const { capacity, override } = this.capacityOf(actor, cfg)
     const overflow = Math.max(0, Math.round((used - capacity) * 100) / 100)
     items.sort((a, b) => b.spaces - a.spaces || (a.name || "").localeCompare(b.name || ""))
+    // render-ready paperdoll state (so the app can show + edit the body too)
+    let doll
+    try { const c = ahHeadlessCtx(actor); doll = { gender: ahDollGender(actor), worn: c.worn, back: c.back, occ: ahOccupancy(c), caps: ahCaps(c) } }
+    catch { doll = { gender: ahDollGender(actor), worn: {}, back: [], occ: {}, caps: Object.assign({}, AH_BASE_CAP) } }
     return {
       id: actor.id, name: actor.name, img: resolveImg(actor.img), type: actor.type,
       capacity, capacityOverride: override, used, overflow,
       free: Math.max(0, Math.round((capacity - used) * 100) / 100),
-      itemCount: items.length, items,
+      itemCount: items.length, items, doll,
     }
   },
 }
@@ -1810,7 +1814,7 @@ async function handleCommand(msg) {
         try { actors.push(AH.actorSummary(a, cfg)) }
         catch (e) { console.warn("[pendant-bridge] AH summary skip", a?.id, a?.name, e) }
       }
-      return bridge.reply(msg.reqId, { type: "antihammer.summary", config: cfg, actors, rules: ahItemRules() })
+      return bridge.reply(msg.reqId, { type: "antihammer.summary", config: cfg, actors, rules: ahItemRules(), bodySlots: AH_BODY_SLOTS })
     }
     case "antihammer.setCapacity": {
       const a = game.actors.get(msg.actorId)
@@ -1866,6 +1870,32 @@ async function handleCommand(msg) {
       await game.settings.set(MOD, "ahItemRules", all)
       ahOnConfigChanged()   // re-persist every bag + re-render
       return bridge.reply(msg.reqId, { type: "antihammer.rules", rules: ahItemRules() })
+    }
+    case "antihammer.equip": {
+      const a = game.actors.get(msg.actorId)
+      if (!a) throw new Error("Actor not found: " + msg.actorId)
+      const it = a.items.get(msg.itemId)
+      if (!it) throw new Error("Item not found: " + msg.itemId)
+      const slot = String(msg.slot || "")
+      const ctx = ahHeadlessCtx(a)
+      const m = ctx.metaById[msg.itemId] || { equipSlots: [] }
+      if (!ahFreeBody(ctx, m).has(slot)) throw new Error("That slot isn't available for this item")
+      if (slot === "Back") { if (ctx.back.indexOf(msg.itemId) < 0) ctx.back.push(msg.itemId) } else ctx.worn[msg.itemId] = slot
+      await a.setFlag(MOD, "ahEquip", { worn: ctx.worn, back: ctx.back })
+      try { const pl = a.getFlag(MOD, "ahPlace") || {}; if (pl[msg.itemId]) { delete pl[msg.itemId]; await a.setFlag(MOD, "ahPlace", pl) } } catch {}
+      try { if (it.system && ("equipped" in it.system)) await it.update({ "system.equipped": true }) } catch {}
+      await ahRecomputeActor(a)
+      return bridge.reply(msg.reqId, { type: "antihammer.actor", actor: AH.actorSummary(a, AH.cfg()) })
+    }
+    case "antihammer.unequip": {
+      const a = game.actors.get(msg.actorId)
+      if (!a) throw new Error("Actor not found: " + msg.actorId)
+      const ctx = ahHeadlessCtx(a)
+      delete ctx.worn[msg.itemId]; ctx.back = ctx.back.filter(x => x !== msg.itemId)
+      await a.setFlag(MOD, "ahEquip", { worn: ctx.worn, back: ctx.back })
+      try { const it = a.items.get(msg.itemId); if (it && it.system && ("equipped" in it.system)) await it.update({ "system.equipped": false }) } catch {}
+      await ahRecomputeActor(a)
+      return bridge.reply(msg.reqId, { type: "antihammer.actor", actor: AH.actorSummary(a, AH.cfg()) })
     }
 
     default:
@@ -2349,10 +2379,17 @@ const AH_GRANTABLE = ["Head", "Face", "Neck", "Belt", "LHip", "RHip", "Back"]
 const AH_BASE_MOUNTS = new Set(["LHand", "RHand", "Feet", "LRing", "RRing", "Chest", "Clothes"])
 const AH_SLOT_KEY = { "Head": "Head", "Face": "Face", "Neck": "Neck", "Chest": "Chest", "Clothes": "Clothes", "Back": "Back", "Belt": "Belt", "Left Hip": "LHip", "Right Hip": "RHip", "Left Hand": "LHand", "Right Hand": "RHand", "Feet": "Feet", "Left Ring": "LRing", "Right Ring": "RRing" }
 
-function ahDollImg(actor) {
+function ahDollGender(actor) {
   let g = ""; try { g = String(actor.system?.details?.gender || "").toLowerCase() } catch {}
-  const fem = /female|woman|girl|she\/her/.test(g) || g === "f"
-  return "modules/" + MOD + "/assets/paperdoll-" + (fem ? "female" : "male") + ".svg"
+  return (/female|woman|girl|she\/her/.test(g) || g === "f") ? "female" : "male"
+}
+function ahDollImg(actor) { return "modules/" + MOD + "/assets/paperdoll-" + ahDollGender(actor) + ".svg" }
+/** Headless equip context for the equip/unequip commands (validated worn/back from the flag). */
+function ahHeadlessCtx(actor) {
+  const metaById = {}, byId = {}
+  for (const it of actor.items) { byId[it.id] = true; try { metaById[it.id] = ahMeta(it) } catch { metaById[it.id] = { equipSlots: [] } } }
+  const e = ahBuildEquip(actor, metaById, byId)
+  return { actor, byId, metaById, worn: e.worn, back: e.back, placed: new Map() }
 }
 function ahEquippedIds(ctx) { return Object.keys(ctx.worn || {}).concat(ctx.back || []) }
 function ahCaps(ctx) {
