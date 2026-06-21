@@ -17,6 +17,114 @@
 const MOD = "pendant-bridge"
 
 // ──────────────────────────────────────────────────────────────
+// Anti-Hammer Space — slot-based encumbrance layered over the actor's
+// EXISTING Foundry items (no second inventory to maintain). The DM sets a
+// default capacity (in "spaces") plus a cost rule that turns each item's
+// system data (weight × quantity, or size, or a flat count) into spaces;
+// any single item can be hand-overridden. Going over capacity is allowed —
+// the excess becomes "overflow points" the DM can spend on consequences.
+//
+// This object is the SINGLE SOURCE OF TRUTH for the maths: the on-sheet panel
+// (renders on every player's client, no relay needed) and the DM's app tool
+// (over the GM-only relay) both read the same numbers from here.
+// ──────────────────────────────────────────────────────────────
+const AH_PHYSICAL_TYPES = new Set([
+  "weapon", "equipment", "consumable", "tool", "loot", "container", "backpack", "equipmentpack"
+])
+
+const AH = {
+  defaults: {
+    defaultCapacity: 20,     // spaces every actor has unless individually overridden
+    costMode: "weight",      // "weight" | "count" | "size"
+    weightPerSpace: 5,       // weight (× qty) that equals one space   (weight mode)
+    minPerItem: 1,           // a carried item never costs fewer spaces than this
+    roundEachItem: true,     // ceil each item up to a whole slot
+    ignoreTypes: ["feat", "spell", "class", "subclass", "background", "race", "feature", "facility", "trait"],
+    sizeSpaces: { tiny: 0.5, sm: 1, med: 1, lg: 2, huge: 4, grg: 8 },  // by dnd5e item size code (size mode)
+  },
+
+  /** The active config = saved world setting merged over defaults (so a missing key is safe). */
+  cfg() {
+    let saved = {}
+    try { saved = game.settings.get(MOD, "ahConfig") || {} } catch {}
+    const d = this.defaults
+    return {
+      ...d, ...saved,
+      sizeSpaces:  { ...d.sizeSpaces, ...(saved.sizeSpaces || {}) },
+      ignoreTypes: Array.isArray(saved.ignoreTypes) ? saved.ignoreTypes : d.ignoreTypes,
+    }
+  },
+
+  /** Per-unit weight, tolerating dnd5e 3.x { value, units } and plain numbers. */
+  itemWeight(it) {
+    const w = it?.system?.weight
+    if (w == null) return 0
+    if (typeof w === "number") return w
+    if (typeof w === "object") return Number(w.value) || 0
+    const n = Number(w); return Number.isNaN(n) ? 0 : n
+  },
+  itemQty(it) {
+    const q = it?.system?.quantity
+    if (q == null) return 1
+    const n = Number(q); return Number.isNaN(n) ? 1 : n
+  },
+  /** Does this item occupy bag space? Physical types + anything with a quantity, minus the ignore list. */
+  counted(it, cfg) {
+    if (!it) return false
+    if ((cfg.ignoreTypes || []).includes(it.type)) return false
+    if (AH_PHYSICAL_TYPES.has(it.type)) return true
+    return it?.system?.quantity != null
+  },
+  /** Per-item override flag (number) or null. */
+  itemOverride(it) {
+    try { const v = it.getFlag(MOD, "spaces"); return (v == null || v === "") ? null : Number(v) } catch { return null }
+  },
+  /** Spaces a single item costs. `override` (when not null) wins over the computed value. */
+  itemSpaces(it, cfg, override) {
+    if (override != null && override !== "" && !Number.isNaN(Number(override))) return Number(override)
+    const qty = this.itemQty(it)
+    if (qty <= 0) return 0
+    let s
+    if (cfg.costMode === "count") s = 1
+    else if (cfg.costMode === "size") { const code = it?.system?.size || "med"; s = (cfg.sizeSpaces[code] ?? 1) * qty }
+    else { const per = cfg.weightPerSpace > 0 ? cfg.weightPerSpace : 1; s = (this.itemWeight(it) * qty) / per }
+    if (cfg.roundEachItem) s = Math.ceil(s)
+    s = Math.max(Number(cfg.minPerItem) || 0, s)
+    return Math.round(s * 100) / 100
+  },
+  /** Resolved capacity for an actor + the raw override (null when using the world default). */
+  capacityOf(actor, cfg) {
+    let ov = null
+    try { ov = actor.getFlag(MOD, "capacity") } catch {}
+    if (ov == null || ov === "") return { capacity: Number(cfg.defaultCapacity) || 0, override: null }
+    return { capacity: Number(ov) || 0, override: Number(ov) || 0 }
+  },
+  /** The full bag snapshot for one actor — what both surfaces render. */
+  actorSummary(actor, cfg) {
+    cfg = cfg || this.cfg()
+    const items = []
+    let used = 0
+    for (const it of actor.items) {
+      if (!this.counted(it, cfg)) continue
+      const override = this.itemOverride(it)
+      const spaces = this.itemSpaces(it, cfg, override)
+      used += spaces
+      items.push({ id: it.id, name: it.name, type: it.type, img: resolveImg(it.img), weight: this.itemWeight(it), qty: this.itemQty(it), spaces, override })
+    }
+    used = Math.round(used * 100) / 100
+    const { capacity, override } = this.capacityOf(actor, cfg)
+    const overflow = Math.max(0, Math.round((used - capacity) * 100) / 100)
+    items.sort((a, b) => b.spaces - a.spaces || (a.name || "").localeCompare(b.name || ""))
+    return {
+      id: actor.id, name: actor.name, img: resolveImg(actor.img), type: actor.type,
+      capacity, capacityOverride: override, used, overflow,
+      free: Math.max(0, Math.round((capacity - used) * 100) / 100),
+      itemCount: items.length, items,
+    }
+  },
+}
+
+// ──────────────────────────────────────────────────────────────
 // Settings
 // ──────────────────────────────────────────────────────────────
 
@@ -56,6 +164,16 @@ Hooks.once("init", () => {
     type:    Boolean,
     default: true,
     onChange: () => bridge.reconcile()
+  })
+  // Anti-Hammer Space config — world-scoped so every player's client reads the
+  // GM's default capacity + cost rule. Edited from the app's DM tool (config:false
+  // → not shown in Foundry's module-settings form; the app is the editor).
+  game.settings.register(MOD, "ahConfig", {
+    scope:   "world",
+    config:  false,
+    type:    Object,
+    default: AH.defaults,
+    onChange: () => ahOnConfigChanged()
   })
 })
 
@@ -1650,6 +1768,57 @@ async function handleCommand(msg) {
       return bridge.reply(msg.reqId, { type: "combat.toggleToken", tokenId: msg.tokenId, inCombat, combat: game.combat ? serializeCombat(game.combat) : null })
     }
 
+    // ── Anti-Hammer Space (slot inventory) ─────────────────────
+    // The app's DM tool reads + writes the encumbrance config and per-actor
+    // overrides. The maths live in the `AH` object so this and the on-sheet
+    // panel agree exactly.
+    case "antihammer.config.get": {
+      return bridge.reply(msg.reqId, { type: "antihammer.config", config: AH.cfg() })
+    }
+    case "antihammer.config.set": {
+      const cur = AH.cfg()
+      const inc = msg.config || {}
+      const next = { ...cur, ...inc }
+      if (inc.sizeSpaces) next.sizeSpaces = { ...cur.sizeSpaces, ...inc.sizeSpaces }
+      if (inc.ignoreTypes != null) next.ignoreTypes = Array.isArray(inc.ignoreTypes)
+        ? inc.ignoreTypes
+        : String(inc.ignoreTypes).split(",").map(s => s.trim()).filter(Boolean)
+      await game.settings.set(MOD, "ahConfig", next)
+      // The setting's onChange (ahOnConfigChanged) re-persists every bag + re-renders.
+      return bridge.reply(msg.reqId, { type: "antihammer.config", config: AH.cfg() })
+    }
+    case "antihammer.summary": {
+      const cfg = AH.cfg()
+      const ids = Array.isArray(msg.actorIds) && msg.actorIds.length ? new Set(msg.actorIds) : null
+      const actors = []
+      for (const a of game.actors) {
+        if (ids && !ids.has(a.id)) continue
+        try { actors.push(AH.actorSummary(a, cfg)) }
+        catch (e) { console.warn("[pendant-bridge] AH summary skip", a?.id, a?.name, e) }
+      }
+      return bridge.reply(msg.reqId, { type: "antihammer.summary", config: cfg, actors })
+    }
+    case "antihammer.setCapacity": {
+      const a = game.actors.get(msg.actorId)
+      if (!a) throw new Error("Actor not found: " + msg.actorId)
+      const v = msg.capacity
+      if (v == null || v === "") await a.unsetFlag(MOD, "capacity")
+      else await a.setFlag(MOD, "capacity", Number(v) || 0)
+      await ahRecomputeActor(a)   // persist the new authoritative totals before replying
+      return bridge.reply(msg.reqId, { type: "antihammer.actor", actor: AH.actorSummary(a, AH.cfg()) })
+    }
+    case "antihammer.setItemSpaces": {
+      const a = game.actors.get(msg.actorId)
+      if (!a) throw new Error("Actor not found: " + msg.actorId)
+      const it = a.items.get(msg.itemId)
+      if (!it) throw new Error("Item not found: " + msg.itemId)
+      const v = msg.spaces
+      if (v == null || v === "") await it.unsetFlag(MOD, "spaces")
+      else await it.setFlag(MOD, "spaces", Number(v) || 0)
+      await ahRecomputeActor(a)   // persist the new authoritative totals before replying
+      return bridge.reply(msg.reqId, { type: "antihammer.actor", actor: AH.actorSummary(a, AH.cfg()) })
+    }
+
     default:
       throw new Error("Unknown command: " + msg.type)
   }
@@ -1679,11 +1848,237 @@ function updateIndicator(connected) {
 }
 
 // ──────────────────────────────────────────────────────────────
+// Anti-Hammer Space — world-authoritative state + on-sheet panel
+// ──────────────────────────────────────────────────────────────
+// The numbers are NOT recomputed independently on each viewer's machine. The GM
+// client is the single authority: it recomputes a bag's totals whenever an input
+// changes (items / capacity / rules) and writes them to the actor as world data
+// (flag `ah`), which Foundry syncs to everyone. Every surface — each player's
+// sheet panel and the DM app — then READS that one stored value, so it is
+// consistent for the whole table and persists in the world.
+//
+// The sheet panel must still render in the browser (Foundry has no server-side
+// sheet rendering), but it only DISPLAYS the stored authority; it falls back to a
+// live compute only when no value has been written yet (e.g. before the GM is on).
+
+/** Persist a bag's authoritative totals onto the actor. GM-only; no-op if unchanged. */
+async function ahRecomputeActor(actor) {
+  if (!game.user?.isGM || !actor) return
+  if (actor.type === "group" || actor.type === "party") return
+  let s
+  try { s = AH.actorSummary(actor, AH.cfg()) } catch (e) { console.warn("[pendant-bridge] AH recompute failed", actor?.id, e); return }
+  const next = { used: s.used, capacity: s.capacity, overflow: s.overflow, free: s.free, itemCount: s.itemCount, capacityOverride: s.capacityOverride }
+  let cur = null
+  try { cur = actor.getFlag(MOD, "ah") } catch {}
+  if (cur && cur.used === next.used && cur.capacity === next.capacity && cur.overflow === next.overflow
+      && cur.itemCount === next.itemCount && cur.capacityOverride === next.capacityOverride) return  // unchanged → skip the write
+  next.computedAt = Date.now()
+  try { await actor.setFlag(MOD, "ah", next) }
+  catch (e) { console.warn("[pendant-bridge] AH persist failed", actor?.id, e) }
+}
+
+/** Recompute every actor's bag (GM-only). Used on boot + after a rule change. */
+async function ahRecomputeAll() {
+  if (!game.user?.isGM) return
+  for (const a of game.actors) { try { await ahRecomputeActor(a) } catch {} }
+}
+
+/** True when an actor `changes` payload actually touched our capacity flag. */
+function ahCapacityChanged(changes) {
+  try {
+    const f = changes?.flags?.[MOD]
+    return !!f && ("capacity" in f || "-=capacity" in f)
+  } catch { return false }
+}
+
+/** Rule change → GM re-persists every bag, and all clients re-render open sheets. */
+function ahOnConfigChanged() {
+  ahRecomputeAll().catch(() => {})
+  ahRerenderSheets()
+}
+
+/** The numbers a surface shows: the stored authority, or a live compute as fallback. */
+function ahStateOf(actor) {
+  const live = AH.actorSummary(actor, AH.cfg())   // breakdown + fallback (deterministic from world data)
+  let stored = null
+  try { stored = actor.getFlag(MOD, "ah") } catch {}
+  if (stored && typeof stored.used === "number") {
+    return {
+      ...live,
+      used: stored.used,
+      capacity: stored.capacity != null ? stored.capacity : live.capacity,
+      overflow: stored.overflow != null ? stored.overflow : live.overflow,
+      free: stored.free != null ? stored.free : live.free,
+      itemCount: stored.itemCount != null ? stored.itemCount : live.itemCount,
+    }
+  }
+  return live
+}
+
+function ahFmt(n) {
+  const r = Math.round(Number(n) * 100) / 100
+  return String(Number.isFinite(r) ? r : 0)
+}
+
+function ahBuildPanel(actor) {
+  const cfg = AH.cfg()
+  const sum = ahStateOf(actor)            // stored authority (GM-computed), live fallback
+  const isGM = !!game.user?.isGM
+  const over = sum.overflow > 0
+  const full = sum.capacity > 0 && sum.used >= sum.capacity
+
+  const wrap = document.createElement("div")
+  wrap.className = "ah-panel" + (over ? " is-over" : full ? " is-full" : "")
+
+  // header: title · used/capacity · overflow · (GM) capacity input
+  const head = document.createElement("div")
+  head.className = "ah-head"
+  const title = document.createElement("span")
+  title.className = "ah-title"
+  title.textContent = "🎒 Anti-Hammer Space"
+  head.appendChild(title)
+  const stat = document.createElement("span")
+  stat.className = "ah-stat"
+  stat.innerHTML = `<b>${ahFmt(sum.used)}</b> / ${ahFmt(sum.capacity)} <span class="ah-stat-lbl">spaces</span>`
+    + (over ? ` <span class="ah-over">+${ahFmt(sum.overflow)} over</span>` : "")
+  head.appendChild(stat)
+  if (isGM) {
+    const cap = document.createElement("label")
+    cap.className = "ah-cap"
+    cap.appendChild(document.createTextNode("Cap"))
+    const inp = document.createElement("input")
+    inp.type = "number"; inp.min = "0"; inp.className = "ah-cap-input"
+    inp.value = sum.capacityOverride != null ? String(sum.capacityOverride) : ""
+    inp.placeholder = ahFmt(cfg.defaultCapacity)
+    inp.title = "This actor's capacity (blank = world default " + ahFmt(cfg.defaultCapacity) + ")"
+    inp.addEventListener("change", async () => {
+      const v = inp.value.trim()
+      try { v === "" ? await actor.unsetFlag(MOD, "capacity") : await actor.setFlag(MOD, "capacity", Number(v) || 0) }
+      catch (e) { console.warn("[pendant-bridge] AH setCapacity failed", e) }
+    })
+    cap.appendChild(inp)
+    head.appendChild(cap)
+  }
+  wrap.appendChild(head)
+
+  // slot grid (pips) when reasonable, else a fill bar. Over-pips are gated on the
+  // authoritative `over` flag so the grid never disagrees with the headline when
+  // capacity is fractional.
+  const cap = Math.max(0, Math.round(sum.capacity))
+  const filled = Math.min(cap, Math.round(sum.used))
+  const overPips = over ? Math.max(1, Math.round(sum.used) - cap) : 0
+  const bar = document.createElement("div")
+  bar.className = "ah-bar"
+  if (cap > 0 && cap + overPips <= 60) {
+    const grid = document.createElement("div")
+    grid.className = "ah-pips"
+    for (let i = 0; i < cap; i++) {
+      const pip = document.createElement("span")
+      pip.className = "ah-pip" + (i < filled ? " on" : "")
+      grid.appendChild(pip)
+    }
+    for (let i = 0; i < overPips; i++) {
+      const pip = document.createElement("span")
+      pip.className = "ah-pip over"
+      grid.appendChild(pip)
+    }
+    bar.appendChild(grid)
+  } else {
+    const track = document.createElement("div")
+    track.className = "ah-track"
+    const fill = document.createElement("i")
+    fill.style.width = (cap > 0 ? Math.min(100, (sum.used / cap) * 100) : 0) + "%"
+    track.appendChild(fill)
+    bar.appendChild(track)
+  }
+  wrap.appendChild(bar)
+
+  // collapsible item breakdown
+  const det = document.createElement("details")
+  det.className = "ah-items"
+  const summ = document.createElement("summary")
+  summ.textContent = `${sum.itemCount} item${sum.itemCount === 1 ? "" : "s"} carried`
+  det.appendChild(summ)
+  const list = document.createElement("div")
+  list.className = "ah-list"
+  if (!sum.items.length) {
+    const e = document.createElement("div"); e.className = "ah-empty"; e.textContent = "Bag is empty."
+    list.appendChild(e)
+  }
+  for (const it of sum.items) {
+    const row = document.createElement("div")
+    row.className = "ah-row" + (it.override != null ? " ovr" : "")
+    const name = document.createElement("span"); name.className = "ah-row-name"; name.textContent = it.name || "—"
+    row.appendChild(name)
+    if (it.qty > 1) { const q = document.createElement("span"); q.className = "ah-row-qty"; q.textContent = "×" + it.qty; row.appendChild(q) }
+    if (isGM) {
+      const item = actor.items.get(it.id)
+      const sp = document.createElement("input")
+      sp.type = "number"; sp.min = "0"; sp.step = "0.5"; sp.className = "ah-row-sp" + (it.override != null ? " ovr" : "")
+      sp.value = it.override != null ? String(it.override) : ""
+      sp.placeholder = ahFmt(it.spaces)
+      sp.title = "Spaces this item takes (blank = auto: " + cfg.costMode + ")"
+      sp.addEventListener("change", async () => {
+        const v = sp.value.trim()
+        try { (v === "" && item) ? await item.unsetFlag(MOD, "spaces") : await item.setFlag(MOD, "spaces", Number(v) || 0) }
+        catch (e) { console.warn("[pendant-bridge] AH setItemSpaces failed", e) }
+      })
+      row.appendChild(sp)
+    } else {
+      const sp = document.createElement("span"); sp.className = "ah-row-spv"; sp.textContent = ahFmt(it.spaces)
+      row.appendChild(sp)
+    }
+    list.appendChild(row)
+  }
+  det.appendChild(list)
+  wrap.appendChild(det)
+  return wrap
+}
+
+function ahInjectPanel(app, html) {
+  const actor = app?.actor || (app?.document?.documentName === "Actor" ? app.document : null)
+  if (!actor) return
+  if (actor.type === "group" || actor.type === "party") return   // containers of actors, not carriers
+  const root = (html instanceof HTMLElement) ? html : (html && html[0]) ? html[0] : null
+  if (!root || typeof root.querySelector !== "function") return
+  // A re-render replaces sheet content, but ApplicationV2 can patch in place —
+  // clear any prior panel first so we never stack duplicates.
+  root.querySelectorAll(".ah-panel").forEach(n => n.remove())
+  const host = root.querySelector(".sheet-body") || root.querySelector(".window-content") || root.querySelector("form") || root
+  let panel
+  try { panel = ahBuildPanel(actor) } catch (e) { console.warn("[pendant-bridge] AH panel build failed", e); return }
+  host.insertBefore(panel, host.firstChild)
+}
+
+/** Re-render open Actor sheets so a rule/capacity change shows live. */
+function ahRerenderSheets() {
+  try { for (const w of Object.values(ui.windows || {})) { const d = w?.document || w?.actor; if (d?.documentName === "Actor" && typeof w.render === "function") w.render(false) } } catch {}
+  try { const inst = foundry?.applications?.instances; if (inst?.values) for (const a of inst.values()) { const d = a?.document || a?.actor; if (d?.documentName === "Actor" && typeof a.render === "function") a.render(false) } } catch {}
+}
+
+// ──────────────────────────────────────────────────────────────
 // Boot
 // ──────────────────────────────────────────────────────────────
 
 Hooks.once("ready", () => {
   bridge.reconcile()
+
+  // Inject the Anti-Hammer bag onto every Actor sheet, across sheet generations.
+  const onSheet = (app, html) => { try { ahInjectPanel(app, html) } catch (e) { console.warn("[pendant-bridge] AH inject failed", e) } }
+  for (const h of ["renderActorSheet", "renderActorSheetV2", "renderApplicationV2"]) Hooks.on(h, onSheet)
+
+  // GM client = the single authority. Re-persist a bag whenever an input changes,
+  // so the stored value every surface reads stays correct. (ahRecomputeActor is
+  // itself GM-gated, so these hooks are harmless no-ops on players' clients.)
+  const itemActor = (it) => (it?.parent?.documentName === "Actor" ? it.parent : null)
+  Hooks.on("createItem", (it) => { const a = itemActor(it); if (a) ahRecomputeActor(a) })
+  Hooks.on("updateItem", (it) => { const a = itemActor(it); if (a) ahRecomputeActor(a) })
+  Hooks.on("deleteItem", (it) => { const a = itemActor(it); if (a) ahRecomputeActor(a) })
+  Hooks.on("createActor", (a) => ahRecomputeActor(a))
+  Hooks.on("updateActor", (a, changes) => { if (ahCapacityChanged(changes)) ahRecomputeActor(a) })
+
+  ahRecomputeAll()   // seed/refresh every bag's stored state on boot (GM only)
+  ahRerenderSheets()
 })
 
 // Expose for debugging from the Foundry console.
