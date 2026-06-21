@@ -1920,97 +1920,179 @@ function ahFmt(n) {
   return String(Number.isFinite(r) ? r : 0)
 }
 
-// ── honeycomb rendering + drag-to-arrange ───────────────────────
+// ── hex inventory puzzle (model A: shaped items dragged into a 4-tall comb) ──
+// The bag is a 4-row honeycomb that grows rightward (one column = 4 hexes) and
+// scrolls horizontally. It starts EMPTY: the actor's owner drags each item in;
+// an item occupies a SHAPE of connected hexes sized to its space cost; it only
+// drops where the shape fits empty cells (R rotates). Placements persist in the
+// owner-writable actor flag `ahPlace` ({itemId:{col,row,rot}}); the authoritative
+// totals (used/capacity/overflow) still come from the GM-written `ah` flag.
 const AH_COLORS = ["#4d83c4", "#9a5cc6", "#5aa84a", "#cf9a3a", "#c45f7e", "#6f78cf", "#3aa9b3", "#c9a13f", "#a06bce", "#7fb04a", "#cf7a3a", "#5bb0a0"]
 function ahColorFor(id) { const s = String(id || ""); let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return AH_COLORS[h % AH_COLORS.length] }
+function ahHashOf(s) { s = String(s || ""); let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h }
 function ahShort(name) { const w = String(name || "").trim().split(/\s+/)[0] || ""; return w.length > 7 ? w.slice(0, 6) + "…" : w }
-function ahCellSize(it) { return Math.max(1, Math.ceil(Number(it.spaces) || 0)) }   // whole hexes per item (grid only)
+function ahCellSize(it) { return Math.max(1, Math.ceil(Number(it.spaces) || 0)) }
 
-/** Items in the player's saved arrangement order; unordered ones keep summary order. */
-function ahOrderItems(actor, items) {
-  let order = []
-  try { order = actor.getFlag(MOD, "ahOrder") || [] } catch {}
-  if (!Array.isArray(order)) order = []
-  const pos = {}; order.forEach((id, i) => { pos[id] = i })
-  return items.slice().sort((a, b) => {
-    const pa = pos[a.id] != null ? pos[a.id] : Infinity
-    const pb = pos[b.id] != null ? pos[b.id] : Infinity
-    return pa - pb
-  })
+// Shape library by cell-count (cube-coord offsets); fallback = straight line.
+const AH_SHAPES = {
+  1: [[[0, 0, 0]]],
+  2: [[[0, 0, 0], [1, -1, 0]]],
+  3: [[[0, 0, 0], [1, -1, 0], [2, -2, 0]], [[0, 0, 0], [1, -1, 0], [1, 0, -1]]],
+  4: [[[0, 0, 0], [1, -1, 0], [1, 0, -1], [2, -1, -1]], [[0, 0, 0], [1, -1, 0], [2, -2, 0], [1, 0, -1]]],
+  5: [[[0, 0, 0], [1, -1, 0], [2, -2, 0], [1, 0, -1], [2, -1, -1]]],
+  6: [[[0, 0, 0], [1, -1, 0], [2, -2, 0], [0, 1, -1], [1, 0, -1], [2, -1, -1]]],
+}
+function ahShapeFor(size, h) { const lib = AH_SHAPES[size]; if (lib) return lib[h % lib.length]; const a = []; for (let i = 0; i < size; i++) a.push([i, -i, 0]); return a }
+
+// cube ↔ odd-r offset, rotation, placement cells
+function ahOToC(col, row) { const x = col - (row - (row & 1)) / 2, z = row; return [x, -x - z, z] }
+function ahCToO(c) { return { col: c[0] + (c[2] - (c[2] & 1)) / 2, row: c[2] } }
+function ahRotCW(c) { return [-c[2], -c[0], -c[1]] }
+function ahRotN(c, n) { let r = c; n = ((n % 6) + 6) % 6; for (let i = 0; i < n; i++) r = ahRotCW(r); return r }
+function ahCellsFor(item, anchor, rot) {
+  const ac = ahOToC(anchor.col, anchor.row)
+  return item.shape.map(o => { const r = ahRotN(o, rot); return ahCToO([ac[0] + r[0], ac[1] + r[1], ac[2] + r[2]]) })
 }
 
-let ahDragId = null
-
-/** Move `fromId` to sit before `beforeId` (null = end) and persist the arrangement. */
-function ahReorder(actor, items, fromId, beforeId) {
-  let ids = items.map(it => it.id).filter(id => id !== fromId)
-  if (beforeId == null || beforeId === fromId) ids.push(fromId)
-  else { const i = ids.indexOf(beforeId); i < 0 ? ids.push(fromId) : ids.splice(i, 0, fromId) }
-  try { actor.setFlag(MOD, "ahOrder", ids) } catch (e) { console.warn("[pendant-bridge] AH reorder failed", e) }
+// board geometry — 4 rows tall, ceil(capacity/4) columns; the valid cells are the
+// first `capacity` cells filled column-by-column (so the last column may be short).
+function ahGeom(capacity) {
+  const S = 22, HW = Math.sqrt(3) * S, ROWS = 4
+  const COLS = Math.max(1, Math.ceil((capacity || 0) / 4))
+  const originX = HW / 2 + 3, originY = S + 3
+  const width = originX + HW * (COLS - 1 + 0.5) + HW / 2 + 4
+  const height = originY + 1.5 * S * (ROWS - 1) + S + 4
+  return { S, HW, ROWS, COLS, originX, originY, width, height }
 }
-
-function ahMakeDrop(el, actor, items, beforeId, canArrange) {
-  if (!canArrange) return
-  el.addEventListener("dragover", (e) => { if (ahDragId) { e.preventDefault(); e.stopPropagation(); el.classList.add("ah-dropping") } })
-  el.addEventListener("dragleave", () => el.classList.remove("ah-dropping"))
-  el.addEventListener("drop", (e) => {
-    if (!ahDragId) return
-    e.preventDefault(); e.stopPropagation()
-    el.classList.remove("ah-dropping")
-    const from = ahDragId; ahDragId = null
-    ahReorder(actor, items, from, beforeId)
-  })
+function ahValidCells(capacity) {
+  const list = [], set = new Set()
+  for (let i = 0; i < capacity; i++) { const col = Math.floor(i / 4), row = i % 4; list.push({ col, row }); set.add(col + "," + row) }
+  return { list, set }
 }
+function ahCenter(g, col, row) { return { x: g.originX + g.HW * (col + 0.5 * (row & 1)), y: g.originY + 1.5 * g.S * row } }
+function ahPts(cx, cy, s) { let p = ""; for (let i = 0; i < 6; i++) { const a = (60 * i - 90) * Math.PI / 180; p += (cx + s * Math.cos(a)).toFixed(1) + "," + (cy + s * Math.sin(a)).toFixed(1) + " " } return p.trim() }
+function ahEscX(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;") }
 
-function ahHex(label, bg, over) {
-  const d = document.createElement("div")
-  d.className = "ah-hex" + (bg ? "" : " empty") + (over ? " over" : "")
-  if (bg) d.style.background = bg
-  if (label) { const s = document.createElement("span"); s.className = "ah-hex-lbl"; s.textContent = label; d.appendChild(s) }
-  return d
-}
-
-/** The 4-wide hex honeycomb. Items fill cells in arrangement order; cells past
- *  capacity render red. The actor's owner (or GM) can drag an item's lead hex to
- *  reorder which items claim the limited slots — i.e. choose what spills over. */
-function ahHoneycomb(actor, sum) {
-  const items = ahOrderItems(actor, sum.items)
-  const cap = Math.max(0, Math.round(sum.capacity))
-  const canArrange = !!(actor.isOwner || game.user?.isGM)
-  const flat = []
-  for (const it of items) { const n = ahCellSize(it); for (let k = 0; k < n; k++) flat.push({ it, first: k === 0 }) }
-  const show = Math.max(cap, flat.length)
-  const rows = Math.ceil(show / 4)
-  const comb = document.createElement("div")
-  comb.className = "ah-comb"
-  let idx = 0
-  for (let r = 0; r < rows; r++) {
-    const row = document.createElement("div")
-    row.className = "ah-comb-row" + (r % 2 ? " odd" : "")
-    for (let c = 0; c < 4 && idx < show; c++, idx++) {
-      const i = idx
-      let cell
-      if (i < flat.length) {
-        const f = flat[i]
-        cell = ahHex(f.first ? ahShort(f.it.name) : "", ahColorFor(f.it.id), i >= cap)
-        if (f.first) {
-          cell.title = f.it.name + " — " + ahFmt(f.it.spaces) + " space" + (f.it.spaces === 1 ? "" : "s")
-          if (canArrange) {
-            cell.classList.add("drag"); cell.draggable = true
-            cell.addEventListener("dragstart", (e) => { ahDragId = f.it.id; e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", f.it.id) } catch {} e.stopPropagation() })
-            cell.addEventListener("dragend", () => { ahDragId = null })
-          }
-        }
-        ahMakeDrop(cell, actor, items, f.it.id, canArrange)
-      } else {
-        cell = ahHex("", null, false)
-      }
-      row.appendChild(cell)
-    }
-    comb.appendChild(row)
+/** Read the saved placements, keeping only ones that still fit (in-board, no overlap). */
+function ahBuildPlaced(actor, byId, validSet) {
+  let place = {}; try { place = actor.getFlag(MOD, "ahPlace") || {} } catch {}
+  if (!place || typeof place !== "object") place = {}
+  const placed = new Map(), occ = new Set()
+  for (const id of Object.keys(place)) {
+    const it = byId[id]; if (!it) continue
+    const p = place[id]; if (!p || p.col == null) continue
+    const cs = ahCellsFor(it, { col: p.col, row: p.row }, p.rot | 0)
+    let ok = true
+    for (const c of cs) { const k = c.col + "," + c.row; if (!validSet.has(k) || occ.has(k)) { ok = false; break } }
+    if (!ok) continue
+    for (const c of cs) occ.add(c.col + "," + c.row)
+    placed.set(id, { col: p.col, row: p.row, rot: p.rot | 0 })
   }
-  ahMakeDrop(comb, actor, items, null, canArrange)   // drop on empty space → send to the end
-  return comb
+  return placed
+}
+function ahOcc(ctx, excludeId) {
+  const m = new Set()
+  ctx.placed.forEach((p, id) => { if (id === excludeId) return; for (const c of ahCellsFor(ctx.byId[id], p, p.rot)) m.add(c.col + "," + c.row) })
+  return m
+}
+function ahValid(ctx, cs, excludeId) {
+  const occ = ahOcc(ctx, excludeId)
+  for (const c of cs) { const k = c.col + "," + c.row; if (!ctx.validSet.has(k) || occ.has(k)) return false }
+  return true
+}
+
+function ahBoardSVG(ctx) {
+  const g = ctx.geom
+  let s = '<svg class="ah-svg" width="' + g.width.toFixed(0) + '" height="' + g.height.toFixed(0) + '">'
+  for (const c of ctx.validList) { const ct = ahCenter(g, c.col, c.row); s += '<polygon points="' + ahPts(ct.x, ct.y, g.S) + '" fill="#1b1b1f" stroke="#474750" stroke-width="2"/>' }
+  ctx.placed.forEach((p, id) => {
+    const it = ctx.byId[id]; const cs = ahCellsFor(it, p, p.rot)
+    let sx = 0, sy = 0, n = 0
+    for (const c of cs) {
+      if (!ctx.validSet.has(c.col + "," + c.row)) continue
+      const ct = ahCenter(g, c.col, c.row)
+      s += '<polygon points="' + ahPts(ct.x, ct.y, g.S) + '" fill="' + it.color + '" stroke="rgba(0,0,0,.5)" stroke-width="2" data-item="' + ahEscX(id) + '" style="cursor:' + (ctx.canArrange ? "grab" : "default") + '"/>'
+      sx += ct.x; sy += ct.y; n++
+    }
+    if (n) s += '<text x="' + (sx / n).toFixed(1) + '" y="' + (sy / n + 3).toFixed(1) + '" text-anchor="middle" font-size="9" font-weight="600" fill="#15151a" style="pointer-events:none">' + ahEscX(ahShort(it.name)) + '</text>'
+  })
+  if (ctx.held && ctx.hover) {
+    const cs = ahCellsFor(ctx.held.item, ctx.hover, ctx.held.rot); const ok = ahValid(ctx, cs, null)
+    for (const c of cs) {
+      if (!ctx.validSet.has(c.col + "," + c.row)) continue
+      const ct = ahCenter(g, c.col, c.row)
+      s += '<polygon points="' + ahPts(ct.x, ct.y, g.S) + '" fill="' + (ok ? "rgba(90,168,74,.5)" : "rgba(192,65,63,.5)") + '" stroke="' + (ok ? "#6cc457" : "#d24b4b") + '" stroke-width="2.5" style="pointer-events:none"/>'
+    }
+  }
+  return s + "</svg>"
+}
+function ahMiniSVG(it) {
+  const s2 = 8, hw = Math.sqrt(3) * s2
+  const cs = it.shape.map(o => ahCToO(o))
+  const cols = cs.map(c => c.col), rows = cs.map(c => c.row)
+  const minc = Math.min(...cols), maxc = Math.max(...cols), minr = Math.min(...rows), maxr = Math.max(...rows)
+  const ox = hw / 2 + 2, oy = s2 + 2
+  const cen = (col, row) => ({ x: ox + hw * ((col - minc) + 0.5 * (row & 1)), y: oy + 1.5 * s2 * (row - minr) })
+  const w = ox + hw * ((maxc - minc) + 0.5) + hw / 2 + 2, h = oy + 1.5 * s2 * (maxr - minr) + s2 + 2
+  let g = '<svg width="' + w.toFixed(0) + '" height="' + h.toFixed(0) + '" style="display:block">'
+  for (const c of cs) { const ct = cen(c.col, c.row); g += '<polygon points="' + ahPts(ct.x, ct.y, s2) + '" fill="' + it.color + '" stroke="rgba(0,0,0,.45)" stroke-width="1.3"/>' }
+  return g + "</svg>"
+}
+
+function ahRenderBoard(ctx) { if (ctx.holder) ctx.holder.innerHTML = ahBoardSVG(ctx) }
+function ahRenderTray(ctx) {
+  if (!ctx.trayEl) return
+  const items = ctx.items.filter(it => !ctx.placed.has(it.id) && !(ctx.held && ctx.held.item.id === it.id))
+  if (!items.length) { ctx.trayEl.innerHTML = '<span class="ah-tray-empty">Everything\'s packed.</span>'; return }
+  let h = ""
+  for (const it of items) h += '<div class="ah-tray-it" data-tray="' + ahEscX(it.id) + '"' + (ctx.canArrange ? ' style="cursor:grab"' : "") + '>' + ahMiniSVG(it) + '<span class="ah-tray-nm">' + ahEscX(it.name) + '</span><span class="ah-tray-sz">' + ahFmt(it.spaces) + "</span></div>"
+  ctx.trayEl.innerHTML = h
+}
+
+function ahPixelCell(ctx, e) {
+  const svg = ctx.holder && ctx.holder.querySelector(".ah-svg"); if (!svg) return null
+  const r = svg.getBoundingClientRect()
+  if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) return null
+  const g = ctx.geom
+  const x = (e.clientX - r.left) * (g.width / (r.width || g.width)), y = (e.clientY - r.top) * (g.height / (r.height || g.height))
+  let row = Math.round((y - g.originY) / (1.5 * g.S)); if (row < 0) row = 0; if (row > g.ROWS - 1) row = g.ROWS - 1
+  let col = Math.round((x - g.originX) / g.HW - 0.5 * (row & 1)); if (col < 0) col = 0
+  return { col, row }
+}
+function ahSavePlace(actor, place) { try { actor.setFlag(MOD, "ahPlace", place) } catch (e) { console.warn("[pendant-bridge] AH place save failed", e) } }
+
+function ahStartDrag(ctx, itemId, fromId, ev) {
+  if (!ctx.canArrange || ctx.held || !ctx.byId[itemId]) return
+  ev.preventDefault()
+  const orig = fromId != null ? ctx.placed.get(fromId) : null
+  if (fromId != null) ctx.placed.delete(fromId)
+  ctx.held = { item: ctx.byId[itemId], rot: orig ? orig.rot : 0, fromId, orig }
+  ctx.hover = ahPixelCell(ctx, ev)
+  ahRenderBoard(ctx); ahRenderTray(ctx)
+
+  const move = (e) => { if (!ctx.held) return; ctx.hover = ahPixelCell(ctx, e); ahRenderBoard(ctx) }
+  const key = (e) => { if (!ctx.held) return; if (e.key === "r" || e.key === "R") { ctx.held.rot = (ctx.held.rot + 1) % 6; ahRenderBoard(ctx) } else if (e.key === "Escape") finish(true) }
+  const up = (e) => finish(false, e)
+  function finish(cancel, e) {
+    document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); document.removeEventListener("keydown", key)
+    const held = ctx.held; ctx.held = null; ctx.hover = null
+    if (!held) return
+    let action = "revert", dropCell = null
+    if (!cancel && e) {
+      if (ctx.trayEl && e.target && ctx.trayEl.contains(e.target)) action = "unplace"
+      else { const hc = ahPixelCell(ctx, e); if (hc && ahValid(ctx, ahCellsFor(held.item, hc, held.rot), null)) { action = "place"; dropCell = hc } }
+    }
+    if (action === "unplace" && held.fromId == null) action = "revert"   // tray→tray, nothing to do
+    if (action === "revert") {
+      if (held.fromId != null && held.orig) ctx.placed.set(held.fromId, held.orig)
+      ahRenderBoard(ctx); ahRenderTray(ctx); return                       // no flag change
+    }
+    const place = {}
+    ctx.placed.forEach((p, id) => { place[id] = { col: p.col, row: p.row, rot: p.rot } })
+    if (action === "place") place[held.item.id] = { col: dropCell.col, row: dropCell.row, rot: held.rot }
+    ahSavePlace(ctx.actor, place)                                          // re-render rebuilds from the flag
+  }
+  document.addEventListener("mousemove", move); document.addEventListener("mouseup", up); document.addEventListener("keydown", key)
 }
 
 function ahBuildPanel(actor) {
@@ -2019,6 +2101,7 @@ function ahBuildPanel(actor) {
   const isGM = !!game.user?.isGM
   const over = sum.overflow > 0
   const full = sum.capacity > 0 && sum.used >= sum.capacity
+  const capacity = Math.max(0, Math.round(sum.capacity))
 
   const wrap = document.createElement("div")
   wrap.className = "ah-panel" + (over ? " is-over" : full ? " is-full" : "")
@@ -2054,29 +2137,33 @@ function ahBuildPanel(actor) {
   }
   wrap.appendChild(head)
 
-  // the 4-wide hex honeycomb (items fill slots; spill is red; owner can drag-arrange)
-  wrap.appendChild(ahHoneycomb(actor, sum))
-
-  // overflow tray — the items that spilled past the slots, in arrangement order
-  if (over) {
-    const capN = Math.max(0, Math.round(sum.capacity))
-    const spilled = []
-    let run = 0
-    for (const it of ahOrderItems(actor, sum.items)) { const start = run; run += ahCellSize(it); if (start >= capN) spilled.push(it) }
-    if (spilled.length) {
-      const tray = document.createElement("div"); tray.className = "ah-tray"
-      const lbl = document.createElement("div"); lbl.className = "ah-tray-lbl"; lbl.textContent = "Overflow — won't fit the bag"
-      tray.appendChild(lbl)
-      const chips = document.createElement("div"); chips.className = "ah-tray-chips"
-      for (const it of spilled) {
-        const chip = document.createElement("span"); chip.className = "ah-chip"
-        chip.textContent = it.name + " (" + ahFmt(it.spaces) + ")"
-        chips.appendChild(chip)
-      }
-      tray.appendChild(chips)
-      wrap.appendChild(tray)
-    }
+  // build the puzzle context (each item gets a colour + a shape from its size)
+  const items = sum.items.map(it => ({ id: it.id, name: it.name, spaces: it.spaces, qty: it.qty, override: it.override, color: ahColorFor(it.id), shape: ahShapeFor(ahCellSize(it), ahHashOf(it.id)) }))
+  const byId = {}; for (const it of items) byId[it.id] = it
+  const vc = ahValidCells(capacity)
+  const ctx = {
+    actor, items, byId, validList: vc.list, validSet: vc.set, geom: ahGeom(capacity),
+    canArrange: !!(actor.isOwner || game.user?.isGM), placed: new Map(), held: null, hover: null, holder: null, trayEl: null,
   }
+  ctx.placed = ahBuildPlaced(actor, byId, vc.set)
+
+  // the comb (4 tall, scrolls right)
+  const scroll = document.createElement("div"); scroll.className = "ah-scroll"
+  const holder = document.createElement("div"); holder.className = "ah-svgholder"
+  ctx.holder = holder; scroll.appendChild(holder); wrap.appendChild(scroll)
+
+  // the tray of not-yet-placed items (= overflow)
+  const trayWrap = document.createElement("div"); trayWrap.className = "ah-tray"
+  const trayLbl = document.createElement("div"); trayLbl.className = "ah-tray-lbl"
+  trayLbl.textContent = (over ? "Unpacked — won't all fit" : "Unpacked") + (ctx.canArrange ? " · drag into the bag, R to rotate" : "")
+  const trayEl = document.createElement("div"); trayEl.className = "ah-tray-chips"
+  ctx.trayEl = trayEl; trayWrap.appendChild(trayLbl); trayWrap.appendChild(trayEl); wrap.appendChild(trayWrap)
+
+  if (ctx.canArrange) {
+    holder.addEventListener("mousedown", (e) => { const t = e.target.closest("[data-item]"); if (t) ahStartDrag(ctx, t.getAttribute("data-item"), t.getAttribute("data-item"), e) })
+    trayEl.addEventListener("mousedown", (e) => { const t = e.target.closest("[data-tray]"); if (t) ahStartDrag(ctx, t.getAttribute("data-tray"), null, e) })
+  }
+  ahRenderBoard(ctx); ahRenderTray(ctx)
 
   // GM tuning — set each item's space cost by hand (blank = auto from the rule)
   if (isGM && sum.items.length) {
@@ -2105,9 +2192,6 @@ function ahBuildPanel(actor) {
     }
     det.appendChild(list)
     wrap.appendChild(det)
-  } else if (!sum.items.length) {
-    const e = document.createElement("div"); e.className = "ah-empty"; e.textContent = "Bag is empty."
-    wrap.appendChild(e)
   }
 
   return wrap
