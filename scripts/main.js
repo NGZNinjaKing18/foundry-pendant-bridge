@@ -32,6 +32,19 @@ const AH_PHYSICAL_TYPES = new Set([
   "weapon", "equipment", "consumable", "tool", "loot", "container", "backpack", "equipmentpack"
 ])
 
+// Natural / unarmed attacks (Bite, Claw, Unarmed Strike, …) are not carriable gear —
+// they must never count toward bag space nor show in the loose tray.
+const AH_NATURAL_NAMES = /^(unarmed strike|bite|claw|claws|slam|tail|gore|hoof|hooves|talon|talons|tentacle|sting|stinger|fist|fists|pseudopod|tusk|tusks|horn|horns|beak)$/i
+function ahIsNaturalWeapon(it) {
+  try {
+    if (!it || it.type !== "weapon") return false
+    const sys = it.system || {}
+    const t = String((sys.type && sys.type.value) ?? sys.weaponType ?? "").toLowerCase()
+    if (t === "natural") return true
+    return AH_NATURAL_NAMES.test(String(it.name || "").trim())
+  } catch { return false }
+}
+
 const AH = {
   defaults: {
     defaultCapacity: 20,     // spaces every actor has unless individually overridden
@@ -72,6 +85,7 @@ const AH = {
   counted(it, cfg) {
     if (!it) return false
     if ((cfg.ignoreTypes || []).includes(it.type)) return false
+    if (ahIsNaturalWeapon(it)) return false
     if (AH_PHYSICAL_TYPES.has(it.type)) return true
     return it?.system?.quantity != null
   },
@@ -192,6 +206,15 @@ Hooks.once("init", () => {
     type:    Object,
     default: {},
     onChange: () => ahOnConfigChanged()
+  })
+  // DM-authored custom storage gear (belts/packs the players can add), keyed by id
+  // → { name, storage, grants:{ slot: n } }. Merged on top of the built-in catalog.
+  game.settings.register(MOD, "ahGearDefs", {
+    scope:   "world",
+    config:  false,
+    type:    Object,
+    default: {},
+    onChange: () => { ahRecomputeAll().catch(() => {}); ahRerenderSheets() }
   })
 })
 
@@ -1899,7 +1922,7 @@ async function handleCommand(msg) {
     }
     case "antihammer.gear.add": {
       const a = game.actors.get(msg.actorId); if (!a) throw new Error("Actor not found: " + msg.actorId)
-      const kind = String(msg.kind || ""); if (!AH_GEAR[kind]) throw new Error("Unknown gear: " + kind)
+      const kind = String(msg.kind || ""); if (!ahGearCatalog()[kind]) throw new Error("Unknown gear: " + kind)
       const list = ahGearList(a).slice(); list.push({ id: "g" + Math.random().toString(36).slice(2, 8), kind })
       await a.setFlag(MOD, "ahGear", list); await ahRecomputeActor(a)
       return bridge.reply(msg.reqId, { type: "antihammer.actor", actor: AH.actorSummary(a, AH.cfg()) })
@@ -1908,6 +1931,26 @@ async function handleCommand(msg) {
       const a = game.actors.get(msg.actorId); if (!a) throw new Error("Actor not found: " + msg.actorId)
       await a.setFlag(MOD, "ahGear", ahGearList(a).filter(g => g.id !== msg.gearId)); await ahRecomputeActor(a)
       return bridge.reply(msg.reqId, { type: "antihammer.actor", actor: AH.actorSummary(a, AH.cfg()) })
+    }
+    // DM-authored storage-gear catalog (custom belts/packs), shared world-wide.
+    case "antihammer.gear.defs.get": {
+      return bridge.reply(msg.reqId, { type: "antihammer.gear.defs", builtin: AH_GEAR, order: AH_GEAR_ORDER, custom: ahGearDefs() })
+    }
+    case "antihammer.gear.defs.set": {
+      if (!game.user?.isGM) throw new Error("Only the GM can edit storage gear")
+      const id = String(msg.id || "").trim(); if (!id) throw new Error("Missing gear id")
+      if (AH_GEAR[id]) throw new Error("Can't overwrite a built-in: " + id)
+      const defs = { ...ahGearDefs() }
+      if (msg.def == null) { delete defs[id] }
+      else {
+        const grants = {}
+        for (const k of Object.keys((msg.def.grants) || {})) { const n = Number(msg.def.grants[k]) || 0; if (n > 0) grants[k] = n }
+        defs[id] = { name: String(msg.def.name || "Storage item").slice(0, 40), storage: Math.max(0, Number(msg.def.storage) || 0), grants }
+      }
+      await game.settings.set(MOD, "ahGearDefs", defs)
+      await ahRecomputeAll()           // storage/grants may change for actors carrying it
+      ahRerenderSheets()
+      return bridge.reply(msg.reqId, { type: "antihammer.gear.defs", builtin: AH_GEAR, order: AH_GEAR_ORDER, custom: ahGearDefs() })
     }
 
     default:
@@ -2413,13 +2456,18 @@ const AH_GEAR = {
   sack:      { name: "Sack",       grants: {},                                       storage: 6 },
 }
 const AH_GEAR_ORDER = ["belt", "pouch", "backpack", "satchel", "harness", "bandolier", "sack"]
-function ahGearList(actor) { try { const g = actor.getFlag(MOD, "ahGear"); return Array.isArray(g) ? g.filter(x => x && AH_GEAR[x.kind]) : [] } catch { return [] } }
+// DM custom gear (world setting) merged ON TOP of the built-ins, so the DM can add
+// their own belts/packs (name + storage spaces + granted slots) from the app editor.
+function ahGearDefs() { try { const d = game.settings.get(MOD, "ahGearDefs"); return (d && typeof d === "object") ? d : {} } catch { return {} } }
+function ahGearCatalog() { return Object.assign({}, AH_GEAR, ahGearDefs()) }
+function ahGearOrder() { const custom = Object.keys(ahGearDefs()).filter(k => !AH_GEAR[k]); return AH_GEAR_ORDER.concat(custom) }
+function ahGearList(actor) { try { const cat = ahGearCatalog(), g = actor.getFlag(MOD, "ahGear"); return Array.isArray(g) ? g.filter(x => x && cat[x.kind]) : [] } catch { return [] } }
 function ahGearGrants(actor) {
-  const out = {}
-  for (const g of ahGearList(actor)) { const cat = AH_GEAR[g.kind]; if (cat && cat.grants) for (const k of Object.keys(cat.grants)) { const key = AH_SLOT_KEY[k] || k; out[key] = (out[key] || 0) + cat.grants[k] } }
+  const out = {}, cat = ahGearCatalog()
+  for (const g of ahGearList(actor)) { const c = cat[g.kind]; if (c && c.grants) for (const k of Object.keys(c.grants)) { const key = AH_SLOT_KEY[k] || k; out[key] = (out[key] || 0) + (Number(c.grants[k]) || 0) } }
   return out
 }
-function ahGearStorage(actor) { let n = 0; for (const g of ahGearList(actor)) n += (AH_GEAR[g.kind] && AH_GEAR[g.kind].storage) || 0; return n }
+function ahGearStorage(actor) { const cat = ahGearCatalog(); let n = 0; for (const g of ahGearList(actor)) n += (Number(cat[g.kind] && cat[g.kind].storage) || 0); return n }
 
 function ahDollGender(actor) {
   let g = ""; try { g = String(actor.system?.details?.gender || "").toLowerCase() } catch {}
@@ -2552,8 +2600,9 @@ function ahCloseMenu(ctx) { if (ctx._menuOff) { ctx._menuOff(); ctx._menuOff = n
 function ahOpenGearMenu(actor, anchorEl) {
   anchorEl.querySelectorAll(".ah-gear-menu").forEach(n => n.remove())
   const menu = document.createElement("div"); menu.className = "ah-gear-menu"
-  for (const kind of AH_GEAR_ORDER) {
-    const cat = AH_GEAR[kind]
+  const catalog = ahGearCatalog()
+  for (const kind of ahGearOrder()) {
+    const cat = catalog[kind]; if (!cat) continue
     const bits = []; if (cat.storage) bits.push("+" + cat.storage + " bag")
     for (const k of Object.keys(cat.grants || {})) bits.push("+" + cat.grants[k] + " " + k)
     const b = document.createElement("button"); b.className = "ah-gear-mi"
