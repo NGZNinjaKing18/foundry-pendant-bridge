@@ -31,51 +31,61 @@
 }
 
 /* ──────────────────────────────────────────────────────────────
-   Anti-Hammer Space — the slot/overflow bag injected onto Actor sheets.
-   Scoped under .ah-panel; uses a violet accent + its own neutral surface so
-   it reads on both light (parchment) and dark sheets. ────────────────────── */
+   Anti-Hammer Space — the hex-slot bag injected into the Actor sheet's
+   INVENTORY tab. A self-contained dark "Foundry app" card (so it reads the same
+   on a parchment or a dark sheet); items fill a 4-wide honeycomb, spill turns
+   red, and the actor's owner can drag an item's lead hex to rearrange. ──────── */
 .ah-panel {
-  --ah-accent: #7c5cbf;
-  margin: 6px 6px 10px;
-  padding: 8px 10px 6px;
-  border: 1px solid rgba(124, 92, 191, 0.45);
-  border-radius: 8px;
-  background: rgba(124, 92, 191, 0.08);
-  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
-  color: inherit;
+  margin: 8px 4px 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 10px;
+  background: #1a1a21;
+  color: #ece9df;
+  font: 13px/1.4 "Signika", system-ui, -apple-system, "Segoe UI", sans-serif;
 }
-/* At OR over capacity → red (locked intent: the bag turns red when full). Both
-   states set --ah-accent red so the filled pips/bar redden too; "over" adds the
-   +N overflow badge in the header. */
 .ah-panel.is-full,
-.ah-panel.is-over { --ah-accent: #d04545; border-color: rgba(208, 69, 69, 0.7); background: rgba(208, 69, 69, 0.12); }
-.ah-panel .ah-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.ah-panel .ah-title { font-weight: 700; font-size: 12px; letter-spacing: 0.02em; }
-.ah-panel .ah-stat { font-size: 12px; opacity: 0.95; }
-.ah-panel .ah-stat b { font-size: 14px; }
-.ah-panel .ah-stat-lbl { opacity: 0.6; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
-.ah-panel .ah-over { color: #d04545; font-weight: 700; }
-.ah-panel .ah-cap { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.75; }
-.ah-panel .ah-cap-input { width: 52px; height: 22px; padding: 0 5px; font-size: 12px; text-align: center;
-  border: 1px solid rgba(124, 92, 191, 0.5); border-radius: 5px; background: rgba(255, 255, 255, 0.6); color: #1a1024; }
-.ah-panel .ah-bar { margin: 7px 0 4px; }
-.ah-panel .ah-pips { display: flex; flex-wrap: wrap; gap: 3px; }
-.ah-panel .ah-pip { width: 12px; height: 12px; border-radius: 3px; background: transparent;
-  border: 1px solid rgba(124, 92, 191, 0.4); box-sizing: border-box; }
-.ah-panel .ah-pip.on { background: var(--ah-accent); border-color: var(--ah-accent); }
-.ah-panel .ah-pip.over { background: #d04545; border-color: #d04545; box-shadow: 0 0 4px rgba(208, 69, 69, 0.6); }
-.ah-panel.is-over .ah-pip:not(.on):not(.over) { border-color: rgba(208, 69, 69, 0.55); }
-.ah-panel .ah-track { height: 9px; border-radius: 5px; background: rgba(0, 0, 0, 0.18); overflow: hidden; }
-.ah-panel .ah-track > i { display: block; height: 100%; background: var(--ah-accent); }
-.ah-panel .ah-items { margin-top: 4px; }
-.ah-panel .ah-items > summary { cursor: pointer; font-size: 11px; opacity: 0.75; padding: 2px 0; list-style: revert; }
-.ah-panel .ah-list { margin-top: 4px; display: flex; flex-direction: column; gap: 1px; }
-.ah-panel .ah-row { display: flex; align-items: center; gap: 6px; padding: 2px 4px; border-radius: 4px; }
-.ah-panel .ah-row:hover { background: rgba(124, 92, 191, 0.12); }
+.ah-panel.is-over { border-color: rgba(192, 65, 63, 0.6); }
+.ah-panel .ah-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.ah-panel .ah-title { font-weight: 600; font-size: 13px; letter-spacing: 0.02em; }
+.ah-panel .ah-stat { font-size: 12px; color: #b8b5a6; }
+.ah-panel .ah-stat b { color: #ece9df; }
+.ah-panel .ah-stat-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.7; }
+.ah-panel .ah-over { color: #d86a6a; font-weight: 600; }
+.ah-panel .ah-cap { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: #8c8a7e; }
+.ah-panel .ah-cap-input { width: 50px; height: 22px; padding: 0 5px; font-size: 12px; text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 5px; background: #11131a; color: #ece9df; }
+/* honeycomb */
+.ah-panel .ah-comb { display: flex; flex-direction: column; align-items: flex-start; overflow-x: auto; padding-bottom: 2px; }
+.ah-panel .ah-comb-row { display: flex; gap: 5px; }
+.ah-panel .ah-comb-row + .ah-comb-row { margin-top: -14px; }
+.ah-panel .ah-comb-row.odd { margin-left: 28px; }
+.ah-panel .ah-hex { width: 52px; height: 60px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
+  box-sizing: border-box; padding: 0 4px; background: #2a2a33; overflow: hidden;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
+.ah-panel .ah-hex.empty { background: rgba(255, 255, 255, 0.05); }
+.ah-panel .ah-hex.over { box-shadow: inset 0 0 0 2px #c0413f; }
+.ah-panel .ah-hex.drag { cursor: grab; }
+.ah-panel .ah-hex.drag:active { cursor: grabbing; }
+.ah-panel .ah-hex.ah-dropping { filter: brightness(1.35); }
+.ah-panel .ah-hex-lbl { font-size: 9px; font-weight: 600; line-height: 1; color: #11131a;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+/* overflow tray */
+.ah-panel .ah-tray { margin-top: 12px; }
+.ah-panel .ah-tray-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: #c46b6b; margin-bottom: 6px; }
+.ah-panel .ah-tray-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ah-panel .ah-chip { font-size: 11px; padding: 3px 9px; border-radius: 999px;
+  background: rgba(192, 65, 63, 0.16); border: 1px solid rgba(192, 65, 63, 0.5); color: #e79b9b; }
+/* GM tuning */
+.ah-panel .ah-items { margin-top: 12px; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 6px; }
+.ah-panel .ah-items > summary { cursor: pointer; font-size: 11px; color: #9a9888; padding: 2px 0; list-style: revert; }
+.ah-panel .ah-list { margin-top: 5px; display: flex; flex-direction: column; gap: 2px; }
+.ah-panel .ah-row { display: flex; align-items: center; gap: 7px; padding: 3px 4px; border-radius: 5px; }
+.ah-panel .ah-row:hover { background: rgba(255, 255, 255, 0.05); }
+.ah-panel .ah-row-sw { width: 11px; height: 11px; border-radius: 3px; flex: 0 0 auto; }
 .ah-panel .ah-row-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-.ah-panel .ah-row-qty { font-size: 10px; opacity: 0.6; flex-shrink: 0; }
-.ah-panel .ah-row-spv { font-size: 12px; font-weight: 700; color: var(--ah-accent); min-width: 22px; text-align: right; flex-shrink: 0; }
-.ah-panel .ah-row-sp { width: 46px; height: 20px; padding: 0 4px; font-size: 11px; text-align: center; flex-shrink: 0;
-  border: 1px solid rgba(124, 92, 191, 0.4); border-radius: 4px; background: rgba(255, 255, 255, 0.55); color: #1a1024; }
-.ah-panel .ah-row-sp.ovr { border-color: var(--ah-accent); background: rgba(124, 92, 191, 0.18); font-weight: 700; }
-.ah-panel .ah-empty { font-size: 11px; font-style: italic; opacity: 0.55; padding: 4px; }
+.ah-panel .ah-row-qty { font-size: 10px; color: #9a9888; flex-shrink: 0; }
+.ah-panel .ah-row-sp { width: 48px; height: 22px; padding: 0 4px; font-size: 11px; text-align: center; flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 5px; background: #11131a; color: #ece9df; }
+.ah-panel .ah-row-sp.ovr { border-color: #c98b3a; background: rgba(201, 139, 58, 0.18); font-weight: 700; }
+.ah-panel .ah-empty { font-size: 11px; font-style: italic; color: #8c8a7e; padding: 6px 2px; }

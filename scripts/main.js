@@ -1920,6 +1920,99 @@ function ahFmt(n) {
   return String(Number.isFinite(r) ? r : 0)
 }
 
+// ── honeycomb rendering + drag-to-arrange ───────────────────────
+const AH_COLORS = ["#4d83c4", "#9a5cc6", "#5aa84a", "#cf9a3a", "#c45f7e", "#6f78cf", "#3aa9b3", "#c9a13f", "#a06bce", "#7fb04a", "#cf7a3a", "#5bb0a0"]
+function ahColorFor(id) { const s = String(id || ""); let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return AH_COLORS[h % AH_COLORS.length] }
+function ahShort(name) { const w = String(name || "").trim().split(/\s+/)[0] || ""; return w.length > 7 ? w.slice(0, 6) + "…" : w }
+function ahCellSize(it) { return Math.max(1, Math.ceil(Number(it.spaces) || 0)) }   // whole hexes per item (grid only)
+
+/** Items in the player's saved arrangement order; unordered ones keep summary order. */
+function ahOrderItems(actor, items) {
+  let order = []
+  try { order = actor.getFlag(MOD, "ahOrder") || [] } catch {}
+  if (!Array.isArray(order)) order = []
+  const pos = {}; order.forEach((id, i) => { pos[id] = i })
+  return items.slice().sort((a, b) => {
+    const pa = pos[a.id] != null ? pos[a.id] : Infinity
+    const pb = pos[b.id] != null ? pos[b.id] : Infinity
+    return pa - pb
+  })
+}
+
+let ahDragId = null
+
+/** Move `fromId` to sit before `beforeId` (null = end) and persist the arrangement. */
+function ahReorder(actor, items, fromId, beforeId) {
+  let ids = items.map(it => it.id).filter(id => id !== fromId)
+  if (beforeId == null || beforeId === fromId) ids.push(fromId)
+  else { const i = ids.indexOf(beforeId); i < 0 ? ids.push(fromId) : ids.splice(i, 0, fromId) }
+  try { actor.setFlag(MOD, "ahOrder", ids) } catch (e) { console.warn("[pendant-bridge] AH reorder failed", e) }
+}
+
+function ahMakeDrop(el, actor, items, beforeId, canArrange) {
+  if (!canArrange) return
+  el.addEventListener("dragover", (e) => { if (ahDragId) { e.preventDefault(); e.stopPropagation(); el.classList.add("ah-dropping") } })
+  el.addEventListener("dragleave", () => el.classList.remove("ah-dropping"))
+  el.addEventListener("drop", (e) => {
+    if (!ahDragId) return
+    e.preventDefault(); e.stopPropagation()
+    el.classList.remove("ah-dropping")
+    const from = ahDragId; ahDragId = null
+    ahReorder(actor, items, from, beforeId)
+  })
+}
+
+function ahHex(label, bg, over) {
+  const d = document.createElement("div")
+  d.className = "ah-hex" + (bg ? "" : " empty") + (over ? " over" : "")
+  if (bg) d.style.background = bg
+  if (label) { const s = document.createElement("span"); s.className = "ah-hex-lbl"; s.textContent = label; d.appendChild(s) }
+  return d
+}
+
+/** The 4-wide hex honeycomb. Items fill cells in arrangement order; cells past
+ *  capacity render red. The actor's owner (or GM) can drag an item's lead hex to
+ *  reorder which items claim the limited slots — i.e. choose what spills over. */
+function ahHoneycomb(actor, sum) {
+  const items = ahOrderItems(actor, sum.items)
+  const cap = Math.max(0, Math.round(sum.capacity))
+  const canArrange = !!(actor.isOwner || game.user?.isGM)
+  const flat = []
+  for (const it of items) { const n = ahCellSize(it); for (let k = 0; k < n; k++) flat.push({ it, first: k === 0 }) }
+  const show = Math.max(cap, flat.length)
+  const rows = Math.ceil(show / 4)
+  const comb = document.createElement("div")
+  comb.className = "ah-comb"
+  let idx = 0
+  for (let r = 0; r < rows; r++) {
+    const row = document.createElement("div")
+    row.className = "ah-comb-row" + (r % 2 ? " odd" : "")
+    for (let c = 0; c < 4 && idx < show; c++, idx++) {
+      const i = idx
+      let cell
+      if (i < flat.length) {
+        const f = flat[i]
+        cell = ahHex(f.first ? ahShort(f.it.name) : "", ahColorFor(f.it.id), i >= cap)
+        if (f.first) {
+          cell.title = f.it.name + " — " + ahFmt(f.it.spaces) + " space" + (f.it.spaces === 1 ? "" : "s")
+          if (canArrange) {
+            cell.classList.add("drag"); cell.draggable = true
+            cell.addEventListener("dragstart", (e) => { ahDragId = f.it.id; e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", f.it.id) } catch {} e.stopPropagation() })
+            cell.addEventListener("dragend", () => { ahDragId = null })
+          }
+        }
+        ahMakeDrop(cell, actor, items, f.it.id, canArrange)
+      } else {
+        cell = ahHex("", null, false)
+      }
+      row.appendChild(cell)
+    }
+    comb.appendChild(row)
+  }
+  ahMakeDrop(comb, actor, items, null, canArrange)   // drop on empty space → send to the end
+  return comb
+}
+
 function ahBuildPanel(actor) {
   const cfg = AH.cfg()
   const sum = ahStateOf(actor)            // stored authority (GM-computed), live fallback
@@ -1961,57 +2054,41 @@ function ahBuildPanel(actor) {
   }
   wrap.appendChild(head)
 
-  // slot grid (pips) when reasonable, else a fill bar. Over-pips are gated on the
-  // authoritative `over` flag so the grid never disagrees with the headline when
-  // capacity is fractional.
-  const cap = Math.max(0, Math.round(sum.capacity))
-  const filled = Math.min(cap, Math.round(sum.used))
-  const overPips = over ? Math.max(1, Math.round(sum.used) - cap) : 0
-  const bar = document.createElement("div")
-  bar.className = "ah-bar"
-  if (cap > 0 && cap + overPips <= 60) {
-    const grid = document.createElement("div")
-    grid.className = "ah-pips"
-    for (let i = 0; i < cap; i++) {
-      const pip = document.createElement("span")
-      pip.className = "ah-pip" + (i < filled ? " on" : "")
-      grid.appendChild(pip)
-    }
-    for (let i = 0; i < overPips; i++) {
-      const pip = document.createElement("span")
-      pip.className = "ah-pip over"
-      grid.appendChild(pip)
-    }
-    bar.appendChild(grid)
-  } else {
-    const track = document.createElement("div")
-    track.className = "ah-track"
-    const fill = document.createElement("i")
-    fill.style.width = (cap > 0 ? Math.min(100, (sum.used / cap) * 100) : 0) + "%"
-    track.appendChild(fill)
-    bar.appendChild(track)
-  }
-  wrap.appendChild(bar)
+  // the 4-wide hex honeycomb (items fill slots; spill is red; owner can drag-arrange)
+  wrap.appendChild(ahHoneycomb(actor, sum))
 
-  // collapsible item breakdown
-  const det = document.createElement("details")
-  det.className = "ah-items"
-  const summ = document.createElement("summary")
-  summ.textContent = `${sum.itemCount} item${sum.itemCount === 1 ? "" : "s"} carried`
-  det.appendChild(summ)
-  const list = document.createElement("div")
-  list.className = "ah-list"
-  if (!sum.items.length) {
-    const e = document.createElement("div"); e.className = "ah-empty"; e.textContent = "Bag is empty."
-    list.appendChild(e)
+  // overflow tray — the items that spilled past the slots, in arrangement order
+  if (over) {
+    const capN = Math.max(0, Math.round(sum.capacity))
+    const spilled = []
+    let run = 0
+    for (const it of ahOrderItems(actor, sum.items)) { const start = run; run += ahCellSize(it); if (start >= capN) spilled.push(it) }
+    if (spilled.length) {
+      const tray = document.createElement("div"); tray.className = "ah-tray"
+      const lbl = document.createElement("div"); lbl.className = "ah-tray-lbl"; lbl.textContent = "Overflow — won't fit the bag"
+      tray.appendChild(lbl)
+      const chips = document.createElement("div"); chips.className = "ah-tray-chips"
+      for (const it of spilled) {
+        const chip = document.createElement("span"); chip.className = "ah-chip"
+        chip.textContent = it.name + " (" + ahFmt(it.spaces) + ")"
+        chips.appendChild(chip)
+      }
+      tray.appendChild(chips)
+      wrap.appendChild(tray)
+    }
   }
-  for (const it of sum.items) {
-    const row = document.createElement("div")
-    row.className = "ah-row" + (it.override != null ? " ovr" : "")
-    const name = document.createElement("span"); name.className = "ah-row-name"; name.textContent = it.name || "—"
-    row.appendChild(name)
-    if (it.qty > 1) { const q = document.createElement("span"); q.className = "ah-row-qty"; q.textContent = "×" + it.qty; row.appendChild(q) }
-    if (isGM) {
+
+  // GM tuning — set each item's space cost by hand (blank = auto from the rule)
+  if (isGM && sum.items.length) {
+    const det = document.createElement("details"); det.className = "ah-items"
+    const summ = document.createElement("summary"); summ.textContent = "Tune item sizes (GM)"
+    det.appendChild(summ)
+    const list = document.createElement("div"); list.className = "ah-list"
+    for (const it of sum.items) {
+      const row = document.createElement("div"); row.className = "ah-row" + (it.override != null ? " ovr" : "")
+      const sw = document.createElement("span"); sw.className = "ah-row-sw"; sw.style.background = ahColorFor(it.id); row.appendChild(sw)
+      const name = document.createElement("span"); name.className = "ah-row-name"; name.textContent = it.name || "—"; row.appendChild(name)
+      if (it.qty > 1) { const q = document.createElement("span"); q.className = "ah-row-qty"; q.textContent = "×" + it.qty; row.appendChild(q) }
       const item = actor.items.get(it.id)
       const sp = document.createElement("input")
       sp.type = "number"; sp.min = "0"; sp.step = "0.5"; sp.className = "ah-row-sp" + (it.override != null ? " ovr" : "")
@@ -2024,14 +2101,15 @@ function ahBuildPanel(actor) {
         catch (e) { console.warn("[pendant-bridge] AH setItemSpaces failed", e) }
       })
       row.appendChild(sp)
-    } else {
-      const sp = document.createElement("span"); sp.className = "ah-row-spv"; sp.textContent = ahFmt(it.spaces)
-      row.appendChild(sp)
+      list.appendChild(row)
     }
-    list.appendChild(row)
+    det.appendChild(list)
+    wrap.appendChild(det)
+  } else if (!sum.items.length) {
+    const e = document.createElement("div"); e.className = "ah-empty"; e.textContent = "Bag is empty."
+    wrap.appendChild(e)
   }
-  det.appendChild(list)
-  wrap.appendChild(det)
+
   return wrap
 }
 
@@ -2044,7 +2122,12 @@ function ahInjectPanel(app, html) {
   // A re-render replaces sheet content, but ApplicationV2 can patch in place —
   // clear any prior panel first so we never stack duplicates.
   root.querySelectorAll(".ah-panel").forEach(n => n.remove())
-  const host = root.querySelector(".sheet-body") || root.querySelector(".window-content") || root.querySelector("form") || root
+  // Prefer the actor's INVENTORY tab so the bag lives with the rest of their gear;
+  // fall back to the sheet body for systems/sheets without a recognizable one.
+  const host = root.querySelector('.tab[data-tab="inventory"]')
+    || root.querySelector(".tab.inventory")
+    || root.querySelector('section[data-tab="inventory"]')
+    || root.querySelector(".sheet-body") || root.querySelector(".window-content") || root.querySelector("form") || root
   let panel
   try { panel = ahBuildPanel(actor) } catch (e) { console.warn("[pendant-bridge] AH panel build failed", e); return }
   host.insertBefore(panel, host.firstChild)
