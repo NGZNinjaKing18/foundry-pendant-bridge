@@ -2054,19 +2054,24 @@ function ahMiniSVG(it) {
 }
 
 function ahRenderBoard(ctx) { if (ctx.holder) ctx.holder.innerHTML = ahBoardSVG(ctx) }
+const AH_CARRY_ORDER = ["Weapon", "Armor", "Clothing", "Container", "Tool", "Consumable", "Treasure", "Cargo", "Miscellaneous"]
 function ahRenderTray(ctx) {
   if (!ctx.trayEl) return
-  const items = ctx.items.filter(it => !ctx.placed.has(it.id) && !(ctx.held && ctx.held.item.id === it.id))
-  if (!items.length) { ctx.trayEl.innerHTML = '<span class="ah-tray-empty">Everything\'s packed.</span>'; return }
-  // group by carry type, alpha within each group
+  // loose = not worn, not on a back point, not packed in the bag
+  const used = {}; for (const id in ctx.worn) used[id] = 1; ctx.back.forEach(i => { used[i] = 1 }); ctx.placed.forEach((p, id) => { used[id] = 1 })
+  const items = ctx.items.filter(it => !used[it.id] && !(ctx.held && ctx.held.id === it.id))
+  if (!items.length) { ctx.trayEl.innerHTML = '<span class="ah-tray-empty">Nothing loose — all worn or packed.</span>'; return }
   const groups = {}
-  for (const it of items) { const g = ahCarryGroup(it.type); (groups[g] = groups[g] || []).push(it) }
+  for (const it of items) { const ct = (ctx.metaById[it.id] && ctx.metaById[it.id].carryType) || "Miscellaneous"; (groups[ct] = groups[ct] || []).push(it) }
   let h = ""
-  for (const g of AH_GROUP_ORDER) {
+  for (const g of AH_CARRY_ORDER) {
     const arr = groups[g]; if (!arr || !arr.length) continue
     arr.sort((a, b) => (a.name || "").localeCompare(b.name || ""))
-    h += '<div class="ah-tray-group">' + ahEscX(g) + ' <span class="ah-tray-gn">' + arr.length + '</span></div><div class="ah-tray-row">'
-    for (const it of arr) h += '<div class="ah-tray-it" data-tray="' + ahEscX(it.id) + '"' + (ctx.canArrange ? ' style="cursor:grab"' : "") + '>' + ahMiniSVG(it) + '<span class="ah-tray-nm">' + ahEscX(it.name) + '</span><span class="ah-tray-sz">' + ahFmt(it.spaces) + "</span></div>"
+    h += '<div class="ah-tray-group">' + ahEscX(g === "Miscellaneous" ? "Other" : g) + ' <span class="ah-tray-gn">' + arr.length + '</span></div><div class="ah-tray-row">'
+    for (const it of arr) {
+      const m = ctx.metaById[it.id] || {}
+      h += '<div class="ah-tray-it" data-tray="' + ahEscX(it.id) + '"' + (ctx.canArrange ? ' style="cursor:grab"' : "") + ' title="' + ahEscX((m.size || "") + (m.needsBackPoint ? " · needs a Back point" : "")) + '">' + ahMiniSVG(it) + '<span class="ah-tray-nm">' + ahEscX(it.name) + '</span><span class="ah-tray-sz">' + ahFmt(it.spaces) + "</span></div>"
+    }
     h += "</div>"
   }
   ctx.trayEl.innerHTML = h
@@ -2118,75 +2123,322 @@ function ahStartDrag(ctx, itemId, fromId, ev) {
   document.addEventListener("mousemove", move); document.addEventListener("mouseup", up); document.addEventListener("keydown", key)
 }
 
+// ── rules engine: derive inventory metadata from a Foundry item ─────────────
+// "Rules, not exceptions" — size/carryType/equipSlots/storage/grants from the
+// item's existing dnd5e data. Pure, never throws, tolerant of v3 + v4 schemas.
+function ahMeta(item) {
+  const SLOT = { HEAD: "Head", FACE: "Face", NECK: "Neck", CHEST: "Chest", BACK: "Back", BELT: "Belt", LHIP: "Left Hip", RHIP: "Right Hip", LHAND: "Left Hand", RHAND: "Right Hand", FEET: "Feet", LRING: "Left Ring", RRING: "Right Ring" }
+  const NON_PHYSICAL = new Set(["feat", "spell", "class", "subclass", "background", "race", "feature", "facility", "summons"])
+  const safe = (fn, d) => { try { const r = fn(); return r == null ? d : r } catch { return d } }
+  const lc = (v) => (typeof v === "string" ? v : (v == null ? "" : String(v))).toLowerCase()
+  const num = (v) => { const n = typeof v === "number" ? v : parseFloat(v); return Number.isFinite(n) ? n : null }
+  const readWeightLb = (sys) => safe(() => { const w = sys && sys.weight; if (w == null) return null; if (typeof w === "object") return num(w.value); return num(w) }, null)
+  const readSubtype = (sys) => safe(() => { const t = sys && sys.type; if (t && typeof t === "object" && t.value != null) return lc(t.value); if (typeof t === "string") return lc(t); if (sys && sys.armor && sys.armor.type != null) return lc(sys.armor.type); return "" }, "")
+  const readProps = (sys) => safe(() => { const p = sys && sys.properties; const set = new Set(); if (!p) return set; if (p instanceof Set) { p.forEach((k) => set.add(lc(k))); return set } if (Array.isArray(p)) { for (const k of p) set.add(lc(k)); return set } if (typeof p.has === "function" && typeof p.forEach === "function") { p.forEach((k) => set.add(lc(k))); return set } if (typeof p === "object") { for (const k of Object.keys(p)) if (p[k] === true || p[k] === 1) set.add(lc(k)); return set } return set }, new Set())
+  const sizeFromWeight = (lb) => { if (lb == null || lb <= 0) return null; if (lb < 1) return "Tiny"; if (lb < 5) return "Small"; if (lb < 15) return "Medium"; if (lb < 50) return "Large"; return "Huge" }
+  const POLEARM_RE = /\b(pike|halberd|glaive|lance|quarterstaff|longspear|long spear|partisan|guisarme|naginata|poleaxe|polearm|pole arm|ranseur|bardiche)\b/
+  const TREASURE_RE = /\b(gem|gemstone|jewel|jewelry|jewellery|diamond|ruby|emerald|sapphire|pearl|gold|silver|platinum|coin|coins|ingot|necklace|crown|tiara)\b/
+  const LONG_NAME_RE = /\b(pike|halberd|lance|glaive|naginata|spear|trident|polearm|pole arm|quarterstaff|staff|staves|ladder|long\s?spear|partisan|ranseur|guisarme|bardiche|bill)\b/
+  const COILABLE_RE = /\b(rope|hempen|silk\s?rope|chain|cable|tent|bedroll|blanket|net|tarp|canvas|sack|cord|twine)\b/
+  const categorySizeDefault = (type, sub, props, name) => {
+    switch (type) {
+      case "weapon": { const twoH = props.has("two"), heavy = props.has("hvy"), reach = props.has("rch"); const isRanged = sub === "simpler" || sub === "martialr" || sub === "siege"; if (POLEARM_RE.test(name) || (twoH && reach)) return "Huge"; if (isRanged) { if (/\bsling\b/.test(name)) return "Tiny"; if (/\b(dart|dagger)\b/.test(name)) return "Small"; if (/\b(longbow|heavy crossbow|greatbow)\b/.test(name)) return "Large"; return "Medium" } if (twoH || heavy) return "Large"; return "Medium" }
+      case "equipment": { if (sub === "heavy") return "Large"; if (sub === "light" || sub === "medium" || sub === "shield" || sub === "armor") return "Medium"; if (sub === "clothing" || sub === "rod") return "Small"; if (sub === "trinket" || sub === "ring" || sub === "wand") return "Tiny"; return "Small" }
+      case "consumable": return "Tiny"
+      case "tool": return "Small"
+      case "loot": return "Small"
+      case "container": case "backpack": { if (/\b(chest|crate|barrel|coffer|large)\b/.test(name)) return "Large"; if (/\b(pouch|satchel|sack|bag|case)\b/.test(name)) return "Small"; return "Medium" }
+      default: return "Medium"
+    }
+  }
+  const deriveCarryType = (sys, type, sub, size, name, wLb) => {
+    switch (type) {
+      case "weapon": return "Weapon"
+      case "equipment": { if (["light", "medium", "heavy", "shield", "armor", "natural"].includes(sub)) return "Armor"; if (sub === "clothing") return "Clothing"; if (["trinket", "ring", "rod", "wand"].includes(sub)) return "Miscellaneous"; const ac = safe(() => num(sys && sys.armor && sys.armor.value), null); return ac != null && ac > 0 ? "Armor" : "Clothing" }
+      case "consumable": return "Consumable"
+      case "tool": return "Tool"
+      case "container": case "backpack": return "Container"
+      case "loot": { const rarity = safe(() => lc(sys && sys.rarity), ""); if (rarity || TREASURE_RE.test(name)) return "Treasure"; const bulky = size === "Large" || size === "Huge" || (wLb != null && wLb >= 15); return bulky ? "Cargo" : "Miscellaneous" }
+      default: return "Miscellaneous"
+    }
+  }
+  const wornByName = (name) => {
+    const r = (...kw) => kw.some((k) => name.includes(k))
+    if (r("cloak", "cape", "mantle")) return { slots: [SLOT.BACK], back: true }
+    if (r("backpack", "rucksack", "knapsack", "satchel", "pack")) return { slots: [SLOT.BACK], back: true }
+    if (r("baldric", "bandolier", "belt", "girdle", "sash")) return { slots: [SLOT.BELT], back: false }
+    if (r("boots", "shoes", "sandals", "footwear", "greaves")) return { slots: [SLOT.FEET], back: false }
+    if (r("helmet", "helm", "hat", "hood", "cap", "coif", "circlet", "crown", "diadem")) return { slots: [SLOT.HEAD], back: false }
+    if (r("mask", "visor", "veil", "spectacles", "goggles", "eyepatch")) return { slots: [SLOT.FACE], back: false }
+    if (r("gloves", "gauntlet", "bracer", "mitten")) return { slots: [SLOT.LHAND, SLOT.RHAND], back: false }
+    if (r("ring")) return { slots: [SLOT.LRING, SLOT.RRING], back: false }
+    if (r("amulet", "necklace", "pendant", "talisman", "holy symbol", "periapt", "brooch", "torc")) return { slots: [SLOT.NECK, SLOT.BELT], back: false }
+    if (r("potion", "scroll", "waterskin", "flask", "vial", "oil", "horn", "wand", "rod")) return { slots: [SLOT.BELT], back: false }
+    if (r("ration", "bedroll", "tent", "rope")) return { slots: [], back: false }
+    return null
+  }
+  const deriveEquipSlots = (type, sub, name, props, cls) => {
+    if (type === "weapon") {
+      const two = props.has("two"), fin = props.has("fin"), thr = props.has("thr"), lgt = props.has("lgt"), amm = props.has("amm"), rch = props.has("rch")
+      if (cls === "natural") return { equipSlots: [], twoHanded: false, needsBackPoint: false }
+      if ((rch && two) || POLEARM_RE.test(name)) return { equipSlots: [SLOT.LHAND, SLOT.RHAND, SLOT.BACK], twoHanded: true, needsBackPoint: true }
+      if (cls === "ranged" && (two || amm)) return { equipSlots: [SLOT.LHAND, SLOT.RHAND, SLOT.BACK], twoHanded: true, needsBackPoint: true }
+      if ((lgt || fin || thr) && !two) return { equipSlots: [SLOT.BELT, SLOT.LHIP, SLOT.RHIP, SLOT.LHAND, SLOT.RHAND], twoHanded: false, needsBackPoint: false }
+      if (two) return { equipSlots: [SLOT.LHAND, SLOT.RHAND, SLOT.BACK], twoHanded: true, needsBackPoint: true }
+      if (cls === "ranged") return { equipSlots: [SLOT.BELT, SLOT.LHIP, SLOT.RHIP, SLOT.LHAND, SLOT.RHAND], twoHanded: false, needsBackPoint: false }
+      return { equipSlots: [SLOT.LHIP, SLOT.RHIP, SLOT.LHAND, SLOT.RHAND], twoHanded: false, needsBackPoint: false }
+    }
+    if (type === "container" || type === "backpack") return { equipSlots: [SLOT.BACK], twoHanded: false, needsBackPoint: true }
+    if (type === "equipment" || type === "armor") {
+      if (sub === "shield") return { equipSlots: [SLOT.LHAND, SLOT.RHAND, SLOT.BACK], twoHanded: false, needsBackPoint: true }
+      if (sub === "light" || sub === "medium" || sub === "heavy" || sub === "natural") return { equipSlots: [SLOT.CHEST], twoHanded: false, needsBackPoint: false }
+      if (sub === "ring") return { equipSlots: [SLOT.LRING, SLOT.RRING], twoHanded: false, needsBackPoint: false }
+      if (sub === "rod" || sub === "wand") return { equipSlots: [SLOT.BELT], twoHanded: false, needsBackPoint: false }
+      const worn = wornByName(name); if (worn) return { equipSlots: worn.slots, twoHanded: false, needsBackPoint: worn.back }
+      if (sub === "clothing") return { equipSlots: [SLOT.CHEST], twoHanded: false, needsBackPoint: false }
+      return { equipSlots: [], twoHanded: false, needsBackPoint: false }
+    }
+    if (type === "consumable" || type === "loot" || type === "tool") { const worn = wornByName(name); if (worn) return { equipSlots: worn.slots, twoHanded: false, needsBackPoint: worn.back }; return { equipSlots: [], twoHanded: false, needsBackPoint: false } }
+    return { equipSlots: [], twoHanded: false, needsBackPoint: false }
+  }
+  const containersForSize = (size) => { switch (size) { case "Tiny": case "Small": return ["Any"]; case "Medium": return ["Backpack", "Chest", "Wagon"]; case "Large": return ["Large Pack", "Chest", "Wagon", "Cart", "Ship Cargo"]; case "Huge": return ["Cargo"]; default: return ["Backpack", "Chest", "Wagon"] } }
+  const isLongItem = (type, name, props, twoHanded) => { if (COILABLE_RE.test(name)) return false; if (LONG_NAME_RE.test(name)) return true; if (type === "weapon" && props.has("rch") && (props.has("two") || twoHanded)) return true; return false }
+  const deriveGrants = (type, sub, name) => safe(() => {
+    const merge = (...objs) => { const out = {}; for (const o of objs) for (const k of Object.keys(o || {})) out[k] = (out[k] || 0) + o[k]; return Object.keys(out).length ? out : null }
+    if (type === "container" || type === "backpack") return null   // packs CONSUME a back point + provide storage (don't grant slots)
+    if (type === "equipment" || type === "armor") {
+      const lightSet = { Chest: 1, Belt: 1, "Left Hip": 1, "Right Hip": 1, Back: 1, Feet: 1, Head: 1, Face: 1, Neck: 1 }
+      switch (sub) {
+        case "light": return lightSet
+        case "medium": return merge(lightSet, { Back: 2 })
+        case "heavy": return merge(lightSet, { Back: 2 })
+        case "clothing": default: {
+          if (/traveler|traveller|explorer|adventur/.test(name)) return { Chest: 1, Belt: 1, "Left Hip": 1, "Right Hip": 1, Feet: 1, Back: 1, Head: 1, Face: 1, Neck: 1 }
+          if (/harness|bandolier|baldric/.test(name)) return { Belt: 1, "Left Hip": 1, "Right Hip": 1, Back: 2 }
+          if (/clothes|outfit|tunic|robe|garb|dress|shirt|trousers|vestment/.test(name)) return { Chest: 1, Belt: 1, Feet: 1, Head: 1, Face: 1, Neck: 1 }
+          return null
+        }
+      }
+    }
+    return null
+  }, null)
+  try {
+    const type = lc(item && item.type), name = lc(item && item.name), sys = (item && item.system) || {}
+    if (!type || NON_PHYSICAL.has(type)) return { size: null, carryType: "Miscellaneous", equipSlots: [], allowedContainers: [], longItem: false, twoHanded: false, needsBackPoint: false, grantsSlots: null, covers: null, nonPhysical: true }
+    const sub = readSubtype(sys), props = readProps(sys), wLb = readWeightLb(sys)
+    const cls = safe(() => { const t = lc((sys && sys.type && sys.type.value) ?? (sys && sys.weaponType) ?? ""); if (t === "simplem" || t === "martialm") return "melee"; if (t === "simpler" || t === "martialr") return "ranged"; if (t === "natural") return "natural"; return "" }, "")
+    let size = sizeFromWeight(wLb); if (size == null) size = categorySizeDefault(type, sub, props, name)
+    const carryType = deriveCarryType(sys, type, sub, size, name, wLb)
+    const eq = deriveEquipSlots(type, sub, name, props, cls)
+    const longItem = isLongItem(type, name, props, eq.twoHanded)
+    const covers = (type === "equipment" && sub === "heavy") ? ["Head", "Feet"] : null   // plate: integrated helm + sabatons
+    return { size, carryType, equipSlots: eq.equipSlots, allowedContainers: containersForSize(size), longItem, twoHanded: eq.twoHanded, needsBackPoint: eq.needsBackPoint, grantsSlots: deriveGrants(type, sub, name), covers, nonPhysical: false }
+  } catch {
+    return { size: "Medium", carryType: "Miscellaneous", equipSlots: [], allowedContainers: ["Backpack", "Chest", "Wagon"], longItem: false, twoHanded: false, needsBackPoint: false, grantsSlots: null, covers: null, nonPhysical: false }
+  }
+}
+
+// ── body paperdoll (equip layer) ────────────────────────────────────────────
+// Strict model: naked = Hands/Feet/Rings (+ Chest as the garment mount). Clothing
+// & armor GRANT Head/Face/Neck/Belt/Hips/Back. Plate COVERS Head + Feet. Back
+// points are granted by clothing/armor and consumed by packs/shields/bows/2-handers.
+const AH_BODY_SLOTS = [  // key, label, x%, y%  (over the figure art; tuned via screenshots)
+  ["Head", "Head", 50, 6], ["Face", "Face", 50, 11], ["Neck", "Neck", 50, 16],
+  ["Chest", "Chest", 50, 27], ["Back", "Back", 82, 21], ["Belt", "Belt", 50, 47],
+  ["LHip", "L.Hip", 28, 47], ["RHip", "R.Hip", 72, 47],
+  ["LHand", "L.Hand", 12, 53], ["RHand", "R.Hand", 88, 53],
+  ["LRing", "Ring", 8, 61], ["RRing", "Ring", 92, 61], ["Feet", "Feet", 50, 95],
+]
+const AH_BASE_CAP = { LHand: 1, RHand: 1, Feet: 1, LRing: 1, RRing: 1, Chest: 1, Head: 0, Face: 0, Neck: 0, Belt: 0, LHip: 0, RHip: 0, Back: 0 }
+const AH_GRANTABLE = ["Head", "Face", "Neck", "Belt", "LHip", "RHip", "Back"]
+const AH_SLOT_KEY = { "Head": "Head", "Face": "Face", "Neck": "Neck", "Chest": "Chest", "Back": "Back", "Belt": "Belt", "Left Hip": "LHip", "Right Hip": "RHip", "Left Hand": "LHand", "Right Hand": "RHand", "Feet": "Feet", "Left Ring": "LRing", "Right Ring": "RRing" }
+
+function ahDollImg(actor) {
+  let g = ""; try { g = String(actor.system?.details?.gender || "").toLowerCase() } catch {}
+  const fem = /female|woman|girl|she\/her/.test(g) || g === "f"
+  return "modules/" + MOD + "/assets/paperdoll-" + (fem ? "female" : "male") + ".svg"
+}
+function ahEquippedIds(ctx) { return Object.keys(ctx.worn || {}).concat(ctx.back || []) }
+function ahCaps(ctx) {
+  const c = Object.assign({}, AH_BASE_CAP)
+  for (const id of ahEquippedIds(ctx)) { const m = ctx.metaById[id]; const g = m && m.grantsSlots; if (g) for (const gk of Object.keys(g)) { const key = AH_SLOT_KEY[gk] || gk; if (AH_GRANTABLE.indexOf(key) >= 0) c[key] = (c[key] || 0) + g[gk] } }
+  return c
+}
+function ahOccupancy(ctx) {
+  const occ = {}
+  for (const id in (ctx.worn || {})) { const key = ctx.worn[id]; const m = ctx.metaById[id]
+    if (m && m.twoHanded && (key === "LHand" || key === "RHand")) { occ.LHand = id; occ.RHand = id }
+    else { occ[key] = id; if (m && m.covers) for (const cv of m.covers) { const ck = AH_SLOT_KEY[cv] || cv; occ[ck] = id } }
+  }
+  return occ
+}
+function ahFreeBody(ctx, m) {
+  const caps = ahCaps(ctx), occ = ahOccupancy(ctx), out = new Set()
+  for (const sName of (m.equipSlots || [])) {
+    const key = AH_SLOT_KEY[sName] || sName
+    if (key === "Back") { if (ctx.back.length < caps.Back) out.add("Back") }
+    else if (key === "LHand" || key === "RHand") { if (m.twoHanded) { if (!occ.LHand && !occ.RHand) { out.add("LHand"); out.add("RHand") } } else if (!occ[key]) out.add(key) }
+    else { if ((caps[key] || 0) > 0 && !occ[key]) out.add(key) }
+  }
+  return out
+}
+/** Validated equip state from the owner-written `ahEquip` flag ({worn:{id:slot}, back:[ids]}). */
+function ahBuildEquip(actor, metaById, byId) {
+  let saved = {}; try { saved = actor.getFlag(MOD, "ahEquip") || {} } catch {}
+  const sw = (saved.worn && typeof saved.worn === "object") ? saved.worn : {}
+  const sb = Array.isArray(saved.back) ? saved.back : []
+  const worn = {}, back = []
+  const ids = Object.keys(sw).filter(id => byId[id])
+  ids.sort((a, b) => ((metaById[a] && metaById[a].grantsSlots) ? 0 : 1) - ((metaById[b] && metaById[b].grantsSlots) ? 0 : 1))  // grantors first
+  for (const id of ids) {
+    const slot = sw[id], m = metaById[id]; if (!m) continue
+    if (!(m.equipSlots || []).some(s => (AH_SLOT_KEY[s] || s) === slot)) continue
+    const occ = ahOccupancy({ worn, metaById }), caps = ahCaps({ worn, back, metaById })
+    if (m.twoHanded && (slot === "LHand" || slot === "RHand")) { if (occ.LHand || occ.RHand) continue }
+    else if (occ[slot]) continue
+    else if (AH_GRANTABLE.indexOf(slot) >= 0 && (caps[slot] || 0) <= 0) continue
+    worn[id] = slot
+  }
+  const caps2 = ahCaps({ worn, back, metaById })
+  for (const id of sb) { if (!byId[id]) continue; if (back.length >= caps2.Back) break; if (back.indexOf(id) < 0) back.push(id) }
+  return { worn, back }
+}
+function ahSaveEquip(ctx) { try { ctx.actor.setFlag(MOD, "ahEquip", { worn: ctx.worn, back: ctx.back }) } catch (e) { console.warn("[pendant-bridge] AH equip save failed", e) } }
+function ahPlaceObj(ctx) { const o = {}; ctx.placed.forEach((p, id) => { o[id] = { col: p.col, row: p.row, rot: p.rot } }); return o }
+function ahEquipItem(ctx, id, slotKey) {
+  ctx.placed.delete(id)
+  if (slotKey === "Back") { if (ctx.back.indexOf(id) < 0) ctx.back.push(id) } else ctx.worn[id] = slotKey
+  ahSaveEquip(ctx); ahSavePlace(ctx.actor, ahPlaceObj(ctx))
+}
+function ahUnequip(ctx, id) { delete ctx.worn[id]; ctx.back = ctx.back.filter(x => x !== id); ahSaveEquip(ctx) }
+
+function ahRenderDoll(ctx) {
+  if (!ctx.dollEl) return
+  const occ = ahOccupancy(ctx), caps = ahCaps(ctx)
+  let h = '<img class="ah-doll-img" src="' + ahDollImg(ctx.actor) + '" alt="" draggable="false"/>'
+  for (const s of AH_BODY_SLOTS) {
+    const key = s[0], label = s[1], x = s[2], y = s[3]
+    const cap = key === "Back" ? caps.Back : (AH_GRANTABLE.indexOf(key) >= 0 ? caps[key] : 1)
+    const id = occ[key], locked = cap <= 0
+    let cls = "ah-bslot", extra = "", inner
+    if (key === "Back") {
+      inner = '<span class="ah-bslot-lbl">Back ' + ctx.back.length + "/" + caps.Back + "</span>"
+      if (ctx.back.length) inner += '<span class="ah-bdots">' + ctx.back.map(bid => '<i data-rm="' + ahEscX(bid) + '" style="background:' + ctx.byId[bid].color + '"></i>').join("") + "</span>"
+      if (caps.Back <= 0) cls += " locked"
+    } else if (id) { cls += " filled"; extra = ' data-rm="' + ahEscX(id) + '"'; inner = '<i style="background:' + ctx.byId[id].color + '"></i><span>' + ahEscX(ahShort(ctx.byId[id].name)) + "</span>" }
+    else { if (locked) cls += " locked"; inner = '<span class="ah-bslot-lbl">' + label + "</span>" }
+    if (ctx.validBody && ctx.validBody.has(key)) cls += " valid"
+    h += '<div class="' + cls + '" data-slot="' + key + '" style="left:' + x + "%;top:" + y + '%"' + extra + ">" + inner + "</div>"
+  }
+  ctx.dollEl.innerHTML = h
+}
+
+function ahMoveGhost(ctx, e) { const el = ctx.ghostEl; if (!el) return; el.style.left = (e.clientX + 12) + "px"; el.style.top = (e.clientY + 8) + "px" }
+/** Unified drag of an item from the tray (from:'tray') or the bag (from:'bag') →
+ *  drop on a body slot to equip, or into the bag to pack (R rotates). */
+function ahDragItem(ctx, id, from, ev) {
+  if (!ctx.canArrange || ctx.held || !ctx.byId[id]) return
+  ev.preventDefault()
+  const it = ctx.byId[id]
+  let origPlace = null
+  if (from === "bag") { origPlace = ctx.placed.get(id); ctx.placed.delete(id) }
+  ctx.held = { id, item: it, rot: origPlace ? origPlace.rot : 0, from, origPlace }
+  ctx.hover = null
+  ctx.validBody = ahFreeBody(ctx, ctx.metaById[id] || { equipSlots: [] })
+  if (ctx.ghostEl) { ctx.ghostEl.textContent = it.name; ctx.ghostEl.style.display = "block"; ahMoveGhost(ctx, ev) }
+  ahRenderDoll(ctx); ahRenderBoard(ctx); ahRenderTray(ctx)
+  const move = (e) => { if (!ctx.held) return; ahMoveGhost(ctx, e); ctx.hover = ahPixelCell(ctx, e); ahRenderBoard(ctx) }
+  const key = (e) => { if (!ctx.held) return; if (e.key === "r" || e.key === "R") { ctx.held.rot = (ctx.held.rot + 1) % 6; ahRenderBoard(ctx) } else if (e.key === "Escape") finish(true) }
+  const up = (e) => finish(false, e)
+  function finish(cancel, e) {
+    document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); document.removeEventListener("keydown", key)
+    if (ctx.ghostEl) ctx.ghostEl.style.display = "none"
+    const held = ctx.held; ctx.held = null; const vb = ctx.validBody || new Set(); ctx.validBody = null; const hc = ctx.hover; ctx.hover = null
+    if (!held) return
+    let done = false
+    if (!cancel && e) {
+      const tgt = document.elementFromPoint(e.clientX, e.clientY)
+      const slotEl = tgt && tgt.closest && tgt.closest("[data-slot]")
+      if (slotEl && vb.has(slotEl.getAttribute("data-slot"))) { ahEquipItem(ctx, held.id, slotEl.getAttribute("data-slot")); done = true }
+      else if (hc && ahValid(ctx, ahCellsFor(held.item, hc, held.rot), null)) { ctx.placed.set(held.id, { col: hc.col, row: hc.row, rot: held.rot }); ahSavePlace(ctx.actor, ahPlaceObj(ctx)); done = true }
+    }
+    if (!done) { if (held.from === "bag" && held.origPlace) ctx.placed.set(held.id, held.origPlace); ahRenderDoll(ctx); ahRenderBoard(ctx); ahRenderTray(ctx) }
+  }
+  document.addEventListener("mousemove", move); document.addEventListener("mouseup", up); document.addEventListener("keydown", key)
+}
+
 function ahBuildPanel(actor) {
   const cfg = AH.cfg()
   const sum = ahStateOf(actor)            // stored authority (GM-computed), live fallback
   const isGM = !!game.user?.isGM
-  const over = sum.overflow > 0
-  const full = sum.capacity > 0 && sum.used >= sum.capacity
   const capacity = Math.max(0, Math.round(sum.capacity))
 
-  const wrap = document.createElement("div")
-  wrap.className = "ah-panel" + (over ? " is-over" : full ? " is-full" : "")
+  // items + metadata (rules engine runs on the live Foundry item)
+  const items = sum.items.map(it => ({ id: it.id, name: it.name, type: it.type, spaces: it.spaces, qty: it.qty, override: it.override, color: ahColorFor(it.id), shape: ahShapeFor(ahCellSize(it), ahHashOf(it.id)) }))
+  const byId = {}; for (const it of items) byId[it.id] = it
+  const metaById = {}; for (const it of items) { let m; try { m = ahMeta(actor.items.get(it.id)) } catch { m = null } metaById[it.id] = m || { equipSlots: [], carryType: "Miscellaneous", grantsSlots: null } }
+  const vc = ahValidCells(capacity)
+  const ctx = {
+    actor, items, byId, metaById, validList: vc.list, validSet: vc.set, geom: ahGeom(capacity),
+    canArrange: !!(actor.isOwner || game.user?.isGM), placed: new Map(), worn: {}, back: [],
+    held: null, hover: null, validBody: null, holder: null, trayEl: null, dollEl: null, ghostEl: null,
+  }
+  ctx.placed = ahBuildPlaced(actor, byId, vc.set)
+  const eq = ahBuildEquip(actor, metaById, byId); ctx.worn = eq.worn; ctx.back = eq.back
+  for (const id of ahEquippedIds(ctx)) ctx.placed.delete(id)   // an item can't be both worn and packed
 
-  // header: title · used/capacity · overflow · (GM) capacity input
-  const head = document.createElement("div")
-  head.className = "ah-head"
-  const title = document.createElement("span")
-  title.className = "ah-title"
-  title.textContent = "🎒 Anti-Hammer Space"
-  head.appendChild(title)
-  const stat = document.createElement("span")
-  stat.className = "ah-stat"
-  stat.innerHTML = `<b>${ahFmt(sum.used)}</b> / ${ahFmt(sum.capacity)} <span class="ah-stat-lbl">spaces</span>`
-    + (over ? ` <span class="ah-over">+${ahFmt(sum.overflow)} over</span>` : "")
+  // counts
+  const used = {}; for (const id in ctx.worn) used[id] = 1; ctx.back.forEach(i => { used[i] = 1 }); ctx.placed.forEach((p, id) => { used[id] = 1 })
+  const wornN = Object.keys(ctx.worn).length + ctx.back.length, packedN = ctx.placed.size
+  const looseN = items.filter(it => !used[it.id]).length
+  const over = looseN > 0
+
+  const wrap = document.createElement("div")
+  wrap.className = "ah-panel" + (over ? " is-over" : "")
+
+  // header: title · worn/packed/loose · (GM) bag capacity
+  const head = document.createElement("div"); head.className = "ah-head"
+  const title = document.createElement("span"); title.className = "ah-title"; title.textContent = "🎒 Anti-Hammer Space"; head.appendChild(title)
+  const stat = document.createElement("span"); stat.className = "ah-stat"
+  stat.innerHTML = "<b>" + wornN + "</b> worn · <b>" + packedN + "</b> packed" + (over ? ' · <span class="ah-over">' + looseN + " loose</span>" : "")
   head.appendChild(stat)
   if (isGM) {
-    const cap = document.createElement("label")
-    cap.className = "ah-cap"
-    cap.appendChild(document.createTextNode("Cap"))
-    const inp = document.createElement("input")
-    inp.type = "number"; inp.min = "0"; inp.className = "ah-cap-input"
+    const cap = document.createElement("label"); cap.className = "ah-cap"; cap.appendChild(document.createTextNode("Bag"))
+    const inp = document.createElement("input"); inp.type = "number"; inp.min = "0"; inp.className = "ah-cap-input"
     inp.value = sum.capacityOverride != null ? String(sum.capacityOverride) : ""
     inp.placeholder = ahFmt(cfg.defaultCapacity)
-    inp.title = "This actor's capacity (blank = world default " + ahFmt(cfg.defaultCapacity) + ")"
-    inp.addEventListener("change", async () => {
-      const v = inp.value.trim()
-      try { v === "" ? await actor.unsetFlag(MOD, "capacity") : await actor.setFlag(MOD, "capacity", Number(v) || 0) }
-      catch (e) { console.warn("[pendant-bridge] AH setCapacity failed", e) }
-    })
-    cap.appendChild(inp)
-    head.appendChild(cap)
+    inp.title = "Bag storage slots (blank = world default " + ahFmt(cfg.defaultCapacity) + ")"
+    inp.addEventListener("change", async () => { const v = inp.value.trim(); try { v === "" ? await actor.unsetFlag(MOD, "capacity") : await actor.setFlag(MOD, "capacity", Number(v) || 0) } catch (e) { console.warn("[pendant-bridge] AH setCapacity failed", e) } })
+    cap.appendChild(inp); head.appendChild(cap)
   }
   wrap.appendChild(head)
 
-  // build the puzzle context (each item gets a colour + a shape from its size)
-  const items = sum.items.map(it => ({ id: it.id, name: it.name, type: it.type, spaces: it.spaces, qty: it.qty, override: it.override, color: ahColorFor(it.id), shape: ahShapeFor(ahCellSize(it), ahHashOf(it.id)) }))
-  const byId = {}; for (const it of items) byId[it.id] = it
-  const vc = ahValidCells(capacity)
-  const ctx = {
-    actor, items, byId, validList: vc.list, validSet: vc.set, geom: ahGeom(capacity),
-    canArrange: !!(actor.isOwner || game.user?.isGM), placed: new Map(), held: null, hover: null, holder: null, trayEl: null,
-  }
-  ctx.placed = ahBuildPlaced(actor, byId, vc.set)
-
-  // the comb (4 tall, scrolls right)
+  // body (left) + bag (right)
+  const cols = document.createElement("div"); cols.className = "ah-cols"
+  const dollWrap = document.createElement("div"); dollWrap.className = "ah-dollwrap"
+  const dollEl = document.createElement("div"); dollEl.className = "ah-doll"; ctx.dollEl = dollEl; dollWrap.appendChild(dollEl); cols.appendChild(dollWrap)
+  const bagCol = document.createElement("div"); bagCol.className = "ah-bagcol"
+  const bagLbl = document.createElement("div"); bagLbl.className = "ah-bag-lbl"; bagLbl.textContent = "Bag — pack by shape" + (ctx.canArrange ? " (R rotates)" : ""); bagCol.appendChild(bagLbl)
   const scroll = document.createElement("div"); scroll.className = "ah-scroll"
-  const holder = document.createElement("div"); holder.className = "ah-svgholder"
-  ctx.holder = holder; scroll.appendChild(holder); wrap.appendChild(scroll)
+  const holder = document.createElement("div"); holder.className = "ah-svgholder"; ctx.holder = holder; scroll.appendChild(holder); bagCol.appendChild(scroll)
+  cols.appendChild(bagCol); wrap.appendChild(cols)
 
-  // the tray of not-yet-placed items (= overflow)
+  // loose tray
   const trayWrap = document.createElement("div"); trayWrap.className = "ah-tray"
   const trayLbl = document.createElement("div"); trayLbl.className = "ah-tray-lbl"
-  trayLbl.textContent = (over ? "Unpacked — won't all fit" : "Unpacked") + (ctx.canArrange ? " · drag into the bag, R to rotate" : "")
-  const trayEl = document.createElement("div"); trayEl.className = "ah-tray-chips"
-  ctx.trayEl = trayEl; trayWrap.appendChild(trayLbl); trayWrap.appendChild(trayEl); wrap.appendChild(trayWrap)
+  trayLbl.textContent = (over ? "Loose — not worn or packed" : "Loose") + (ctx.canArrange ? " · drag onto the body or into the bag" : "")
+  const trayEl = document.createElement("div"); trayEl.className = "ah-tray-chips"; ctx.trayEl = trayEl
+  trayWrap.appendChild(trayLbl); trayWrap.appendChild(trayEl); wrap.appendChild(trayWrap)
+
+  // floating drag label
+  const ghost = document.createElement("div"); ghost.className = "ah-ghost"; ghost.style.display = "none"; ctx.ghostEl = ghost; wrap.appendChild(ghost)
 
   if (ctx.canArrange) {
-    holder.addEventListener("mousedown", (e) => { const t = e.target.closest("[data-item]"); if (t) ahStartDrag(ctx, t.getAttribute("data-item"), t.getAttribute("data-item"), e) })
-    trayEl.addEventListener("mousedown", (e) => { const t = e.target.closest("[data-tray]"); if (t) ahStartDrag(ctx, t.getAttribute("data-tray"), null, e) })
+    trayEl.addEventListener("mousedown", (e) => { const t = e.target.closest("[data-tray]"); if (t) ahDragItem(ctx, t.getAttribute("data-tray"), "tray", e) })
+    holder.addEventListener("mousedown", (e) => { const t = e.target.closest("[data-item]"); if (t) ahDragItem(ctx, t.getAttribute("data-item"), "bag", e) })
+    dollEl.addEventListener("click", (e) => { const rm = e.target.closest("[data-rm]"); if (rm) ahUnequip(ctx, rm.getAttribute("data-rm")) })
   }
-  ahRenderBoard(ctx); ahRenderTray(ctx)
+  ahRenderDoll(ctx); ahRenderBoard(ctx); ahRenderTray(ctx)
 
   // GM tuning — set each item's space cost by hand (blank = auto from the rule)
   if (isGM && sum.items.length) {

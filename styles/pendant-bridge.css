@@ -55,10 +55,32 @@
 .ah-panel .ah-cap { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: #8c8a7e; }
 .ah-panel .ah-cap-input { width: 50px; height: 22px; padding: 0 5px; font-size: 12px; text-align: center;
   border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 5px; background: #11131a; color: #ece9df; }
+/* two layers: body (left) + bag (right) */
+.ah-panel .ah-cols { display: flex; gap: 12px; align-items: flex-start; }
+.ah-panel .ah-dollwrap { flex: 0 0 auto; }
+.ah-panel .ah-bagcol { flex: 1; min-width: 0; }
+.ah-panel .ah-bag-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: #9a9888; margin-bottom: 6px; }
+/* paperdoll — the figure art with absolutely-placed slot chips over it */
+.ah-panel .ah-doll { position: relative; width: 188px; height: 300px; }
+.ah-panel .ah-doll-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0.92; pointer-events: none; -webkit-user-drag: none; user-select: none; }
+.ah-panel .ah-bslot { position: absolute; transform: translate(-50%, -50%); min-width: 40px; max-width: 64px; box-sizing: border-box;
+  padding: 2px 5px; border-radius: 7px; font-size: 9px; line-height: 1.15; text-align: center; background: #191920;
+  border: 1px solid #4a4a55; color: #d7d2c4; }
+.ah-panel .ah-bslot .ah-bslot-lbl { opacity: 0.8; }
+.ah-panel .ah-bslot.locked { background: transparent; border-style: dashed; border-color: #33333b; opacity: 0.45; }
+.ah-panel .ah-bslot.filled { background: #23232c; display: flex; align-items: center; gap: 4px; justify-content: center; cursor: pointer; }
+.ah-panel .ah-bslot.filled > i { width: 9px; height: 9px; border-radius: 2px; flex: 0 0 auto; }
+.ah-panel .ah-bslot.filled > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ah-panel .ah-bslot.valid { border: 2px solid #6cc457; background: rgba(90, 168, 74, 0.18); opacity: 1; }
+.ah-panel .ah-bdots { display: flex; gap: 2px; justify-content: center; flex-wrap: wrap; margin-top: 2px; }
+.ah-panel .ah-bdots > i { width: 9px; height: 9px; border-radius: 2px; cursor: pointer; }
 /* the comb (SVG board, scrolls horizontally) */
 .ah-panel .ah-scroll { overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; }
 .ah-panel .ah-svgholder { display: inline-block; }
 .ah-panel .ah-svg { display: block; user-select: none; -webkit-user-select: none; }
+/* floating drag label */
+.ah-panel .ah-ghost { position: fixed; z-index: 99; pointer-events: none; padding: 3px 8px; border-radius: 7px;
+  background: #2a2a33; border: 1px solid #c98b3a; font-size: 11px; white-space: nowrap; color: #ece9df; }
 /* tray of not-yet-placed items (= overflow) */
 .ah-panel .ah-tray { margin-top: 12px; }
 .ah-panel .ah-tray-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: #9a9888; margin-bottom: 7px; }
