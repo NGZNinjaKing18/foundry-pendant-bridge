@@ -2212,7 +2212,7 @@ function ahLegendHTML(ctx) {
   ctx.placed.forEach((p, id) => { const it = ctx.unitById[id]; if (it) rows.push(it) })
   if (!rows.length) return '<span class="ah-leg-empty">Nothing packed yet — drag items onto the grid.</span>'
   rows.sort((a, b) => (a.name || "").localeCompare(b.name || ""))
-  return rows.map(it => '<span class="ah-leg"><i class="ah-leg-sw" style="background:' + it.color + '"></i><span class="ah-leg-nm">' + ahEscX(it.name) + (it.bundleQty != null ? ' <span class="ah-leg-bq">·' + it.bundleQty + "</span>" : "") + '</span><span class="ah-leg-sz">' + ahFmt(it.spaces) + "</span></span>").join("")
+  return rows.map(it => { const bi = ctx.byId[it.itemId]; const use = (ctx.canArrange && bi && bi.type === "consumable" && (bi.qty || 0) >= 1) ? '<button class="ah-use" data-use="' + ahEscX(it.itemId) + '" title="Use one (−1)">use</button>' : ""; return '<span class="ah-leg"><i class="ah-leg-sw" style="background:' + it.color + '"></i><span class="ah-leg-nm">' + ahEscX(it.name) + (it.bundleQty != null ? ' <span class="ah-leg-bq">·' + it.bundleQty + "</span>" : "") + '</span><span class="ah-leg-sz">' + ahFmt(it.spaces) + "</span>" + use + "</span>" }).join("")
 }
 function ahRenderBoard(ctx) {
   if (ctx.holder) ctx.holder.innerHTML = ahBoardSVG(ctx)
@@ -2255,7 +2255,9 @@ function ahRenderTray(ctx) {
         + (m.ignoreSlot ? '<span class="ah-tray-tag free" title="Doesn\'t need a slot — won\'t count as overflow">no slot</span>' : "")
         + (u.bundleCount > 1 ? '<span class="ah-tray-tag bundle" title="One bundle of ' + u.bundleQty + ' (' + (u.bundleIdx + 1) + ' of ' + u.bundleCount + ')">×' + u.bundleQty + "</span>" : "")
       const tip = (m.size || "") + (u.bundleCount > 1 ? " · bundle " + (u.bundleIdx + 1) + "/" + u.bundleCount + " (" + u.bundleQty + ")" : "") + (m.baggable === false ? " · wear only" : "") + (m.ignoreSlot ? " · no slot needed" : "") + (m.needsBackPoint ? " · needs a Back point" : "")
-      h += '<div class="ah-tray-it" data-tray="' + ahEscX(u.uid) + '"' + (ctx.canArrange ? ' style="cursor:grab"' : "") + ' title="' + ahEscX(tip) + '">' + ahMiniSVG(u) + '<span class="ah-tray-nm">' + ahEscX(u.name) + "</span>" + tag + '<span class="ah-tray-sz">' + ahFmt(u.spaces) + "</span></div>"
+      const bi = ctx.byId[u.itemId]
+      const useBtn = (ctx.canArrange && bi && bi.type === "consumable" && (bi.qty || 0) >= 1) ? '<button class="ah-use" data-use="' + ahEscX(u.itemId) + '" title="Use one (−1)">use</button>' : ""
+      h += '<div class="ah-tray-it" data-tray="' + ahEscX(u.uid) + '"' + (ctx.canArrange ? ' style="cursor:grab"' : "") + ' title="' + ahEscX(tip) + '">' + ahMiniSVG(u) + '<span class="ah-tray-nm">' + ahEscX(u.name) + "</span>" + tag + '<span class="ah-tray-sz">' + ahFmt(u.spaces) + "</span>" + useBtn + "</div>"
     }
     h += "</div></details>"
   }
@@ -2297,6 +2299,45 @@ function ahSnapPlace(ctx, item, anchor, rot) {
   return null
 }
 function ahSavePlace(actor, place) { try { actor.setFlag(MOD, "ahPlace", place) } catch (e) { console.warn("[pendant-bridge] AH place save failed", e) } }
+
+/** Auto-pack every baggable bag unit into the grid (first-fit-decreasing). Returns a placement Map. */
+function ahAutoPack(ctx) {
+  const units = ctx.units.filter(u => ahCanBag(ctx, u.uid))
+  units.sort((a, b) => ((b.shape ? b.shape.length : 1) - (a.shape ? a.shape.length : 1)) || String(a.uid).localeCompare(String(b.uid)))   // biggest first packs tighter
+  const occ = new Set(), place = new Map()
+  const fits = (cells) => { for (const c of cells) { const k = c.col + "," + c.row; if (!ctx.validSet.has(k) || occ.has(k)) return false } return true }
+  for (const u of units) {
+    let done = false
+    for (const cell of ctx.validList) {
+      for (let rot = 0; rot < 6; rot++) {
+        const cells = ahCellsFor(u, cell, rot)
+        if (fits(cells)) { for (const c of cells) occ.add(c.col + "," + c.row); place.set(u.uid, { col: cell.col, row: cell.row, rot }); done = true; break }
+      }
+      if (done) break
+    }
+  }
+  return place
+}
+
+/** Spend one of a consumable (owner action): quantity − 1 (deletes the last one) + a chat line. */
+const _ahUsing = new Set()
+async function ahUseItem(actor, itemId) {
+  const key = (actor && actor.id || "") + ":" + itemId
+  if (_ahUsing.has(key)) return                     // re-entry guard: ignore rapid double-clicks
+  const it = actor && actor.items.get(itemId); if (!it) return
+  const qty = AH.itemQty(it); if (qty <= 0) return
+  _ahUsing.add(key)
+  const next = qty - 1, last = next <= 0
+  try {
+    if (last) await it.delete()                     // used the last one → remove it (no ghost chip)
+    else await it.update({ "system.quantity": next })
+  } catch (e) { console.warn("[pendant-bridge] AH use failed", e); _ahUsing.delete(key); return }
+  finally { _ahUsing.delete(key) }
+  try {
+    const tail = last ? ' <span style="opacity:.65">(last one)</span>' : ' <span style="opacity:.65">(' + next + " left)</span>"
+    ChatMessage.create({ speaker: ChatMessage.getSpeaker({ actor }), content: "uses <b>" + ahEscX(it.name) + "</b>" + tail })
+  } catch {}
+}
 
 // ── world-wide per-item-name DM overrides ───────────────────────────────────
 // A rule keyed by lowercased item name overrides the derived metadata for EVERY
@@ -2823,7 +2864,13 @@ function ahBuildPanel(actor) {
   const bagCol = document.createElement("div"); bagCol.className = "ah-bagcol"
   if (bagCapacity > 0) {
     const bagLbl = document.createElement("div"); bagLbl.className = "ah-bag-lbl"
-    bagLbl.innerHTML = "<span>Bag</span><span class=\"ah-bag-meta\">" + ahFmt(nonWornSpaces) + " / " + ahFmt(bagCapacity) + " spaces" + (ctx.canArrange ? " · drag here, R rotates" : "") + "</span>"
+    const bagTitle = document.createElement("span"); bagTitle.textContent = "Bag"; bagLbl.appendChild(bagTitle)
+    if (ctx.canArrange) {
+      const tidy = document.createElement("button"); tidy.type = "button"; tidy.className = "ah-tidy"; tidy.textContent = "✨ Tidy"; tidy.title = "Auto-pack your loose items into the bag"
+      tidy.addEventListener("click", (e) => { e.stopPropagation(); ctx.placed = ahAutoPack(ctx); ahSavePlace(ctx.actor, ahPlaceObj(ctx)) })   // setFlag re-renders the whole panel with consistent counts
+      bagLbl.appendChild(tidy)
+    }
+    const bagMeta = document.createElement("span"); bagMeta.className = "ah-bag-meta"; bagMeta.textContent = ahFmt(nonWornSpaces) + " / " + ahFmt(bagCapacity) + " spaces" + (ctx.canArrange ? " · drag, R rotates" : ""); bagLbl.appendChild(bagMeta)
     bagCol.appendChild(bagLbl)
     if (over) { const ob = document.createElement("div"); ob.className = "ah-overflow"; ob.innerHTML = "<b>Over capacity</b> — " + ahFmt(overflowPts) + " overflow point" + (overflowPts === 1 ? "" : "s"); bagCol.appendChild(ob) }
     const meter = document.createElement("div"); meter.className = "ah-meter" + (over ? " over" : (meterPct >= 100 ? " full" : ""))
@@ -2831,6 +2878,7 @@ function ahBuildPanel(actor) {
     const scroll = document.createElement("div"); scroll.className = "ah-scroll"
     const holder = document.createElement("div"); holder.className = "ah-svgholder"; ctx.holder = holder; scroll.appendChild(holder); bagCol.appendChild(scroll)
     const legend = document.createElement("div"); legend.className = "ah-legend"; ctx.legendEl = legend; bagCol.appendChild(legend)
+    if (ctx.canArrange) legend.addEventListener("click", (e) => { const u = e.target.closest("[data-use]"); if (u) { e.stopPropagation(); ahUseItem(actor, u.getAttribute("data-use")) } })
   } else {
     const hint = document.createElement("div"); hint.className = "ah-bag-empty"; hint.textContent = "No storage yet — equip a backpack/container or add storage gear below."; bagCol.appendChild(hint)
   }
@@ -2874,7 +2922,8 @@ function ahBuildPanel(actor) {
   const ghost = document.createElement("div"); ghost.className = "ah-ghost"; ghost.style.display = "none"; ctx.ghostEl = ghost; wrap.appendChild(ghost)
 
   if (ctx.canArrange) {
-    trayEl.addEventListener("mousedown", (e) => { const t = e.target.closest("[data-tray]"); if (t) ahDragItem(ctx, t.getAttribute("data-tray"), "tray", e) })
+    trayEl.addEventListener("mousedown", (e) => { if (e.target.closest("[data-use]")) return; const t = e.target.closest("[data-tray]"); if (t) ahDragItem(ctx, t.getAttribute("data-tray"), "tray", e) })
+    trayEl.addEventListener("click", (e) => { const u = e.target.closest("[data-use]"); if (u) { e.stopPropagation(); ahUseItem(actor, u.getAttribute("data-use")) } })
     if (ctx.holder) ctx.holder.addEventListener("mousedown", (e) => { const t = e.target.closest("[data-item]"); if (t) ahDragItem(ctx, t.getAttribute("data-item"), "bag", e) })
     dollEl.addEventListener("click", (e) => {
       const rm = e.target.closest("[data-rm]"); if (rm) { ahUnequip(ctx, rm.getAttribute("data-rm")); return }

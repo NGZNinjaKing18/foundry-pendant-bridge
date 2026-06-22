@@ -61,6 +61,10 @@
 .ah-panel .ah-bagcol { flex: 1 1 300px; min-width: 0; }
 .ah-panel .ah-bag-lbl { display: flex; align-items: baseline; gap: 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: #9a9888; margin-bottom: 6px; }
 .ah-panel .ah-bag-meta { margin-left: auto; font-size: 10px; text-transform: none; letter-spacing: 0; color: #8c8a7e; }
+.ah-panel .ah-tidy { font-size: 10px; text-transform: none; letter-spacing: 0; padding: 2px 9px; border-radius: 999px; cursor: pointer; background: rgba(201, 139, 58, 0.16); border: 1px solid rgba(201, 139, 58, 0.5); color: #e8c891; line-height: 1.4; }
+.ah-panel .ah-tidy:hover { background: rgba(201, 139, 58, 0.3); color: #f3dcae; }
+.ah-panel .ah-use { font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 7px; border-radius: 999px; cursor: pointer; background: rgba(90, 130, 90, 0.18); border: 1px solid rgba(110, 160, 110, 0.5); color: #cfe6cf; line-height: 1.5; }
+.ah-panel .ah-use:hover { background: rgba(110, 160, 110, 0.34); color: #e6f5e6; }
 /* paperdoll — figure flanked by two tidy columns of labelled slot cards */
 .ah-panel .ah-doll { display: flex; gap: 8px; align-items: stretch; }
 .ah-panel .ah-dollcol { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
