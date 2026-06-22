@@ -54,6 +54,7 @@ const AH = {
     roundEachItem: true,     // ceil each item up to a whole slot
     ignoreTypes: ["feat", "spell", "class", "subclass", "background", "race", "feature", "facility", "trait"],
     sizeSpaces: { tiny: 0.5, sm: 1, med: 1, lg: 2, huge: 4, grg: 8 },  // by dnd5e item size code (size mode)
+    bundleSize: 0,           // stackable items bundle every N (0 = off); per-item override available
   },
 
   /** The active config = saved world setting merged over defaults (so a missing key is safe). */
@@ -98,6 +99,9 @@ const AH = {
     if (override != null && override !== "" && !Number.isNaN(Number(override))) return Number(override)
     const qty = this.itemQty(it)
     if (qty <= 0) return 0
+    // bundled stackable → count × per-bundle cells (replaces the weight/size×qty cost)
+    const bi = ahBundleInfo(it, cfg)
+    if (bi.active) return bi.count * bi.per
     let s
     if (cfg.costMode === "count") s = 1
     else if (cfg.costMode === "size") { const code = it?.system?.size || "med"; s = (cfg.sizeSpaces[code] ?? 1) * qty }
@@ -127,8 +131,9 @@ const AH = {
       used += spaces
       let m = null; try { m = ahMeta(it) } catch {}
       const meta = m ? { size: m.size, carryType: m.carryType, equipSlots: m.equipSlots, needsBackPoint: m.needsBackPoint, twoHanded: m.twoHanded, longItem: m.longItem, baggable: m.baggable, ignoreSlot: m.ignoreSlot, override: m.override } : null
-      let shape = null; try { shape = ahEffectiveShape(it, Math.max(1, Math.ceil(spaces))) } catch {}
-      items.push({ id: it.id, name: it.name, type: it.type, img: resolveImg(it.img), color: ahColorFor(it.id), weight: this.itemWeight(it), qty: this.itemQty(it), spaces, override: flagOv, ruleKey: ahItemRuleKey(it), hasRule: !!rule, shape, meta })
+      let bi = { active: false, count: 1, size: 0 }; try { bi = ahBundleInfo(it, cfg) } catch {}
+      let shape = null; try { shape = bi.active ? ahBundleShape(it) : ahEffectiveShape(it, Math.max(1, Math.ceil(spaces))) } catch {}
+      items.push({ id: it.id, name: it.name, type: it.type, img: resolveImg(it.img), color: ahColorFor(it.id), weight: this.itemWeight(it), qty: this.itemQty(it), spaces, override: flagOv, ruleKey: ahItemRuleKey(it), hasRule: !!rule, shape, bundleSize: bi.size || 0, bundleCount: bi.count || 1, meta })
     }
     used = Math.round(used * 100) / 100
     const { capacity, override } = this.capacityOf(actor, cfg)
@@ -1905,7 +1910,7 @@ async function handleCommand(msg) {
       if (!ahFreeBody(ctx, m).has(slot)) throw new Error("That slot isn't available for this item")
       if (slot === "Back") { if (ctx.back.indexOf(msg.itemId) < 0) ctx.back.push(msg.itemId) } else ctx.worn[msg.itemId] = slot
       await a.setFlag(MOD, "ahEquip", { worn: ctx.worn, back: ctx.back })
-      try { const pl = a.getFlag(MOD, "ahPlace") || {}; if (pl[msg.itemId]) { delete pl[msg.itemId]; await a.setFlag(MOD, "ahPlace", pl) } } catch {}
+      try { const pl = a.getFlag(MOD, "ahPlace") || {}; let ch = false; for (const k of Object.keys(pl)) { if (k === msg.itemId || k.startsWith(msg.itemId + "#")) { delete pl[k]; ch = true } } if (ch) await a.setFlag(MOD, "ahPlace", pl) } catch {}   // clear the item's placement + every bundle uid
       try { if (it.system && ("equipped" in it.system)) await it.update({ "system.equipped": true }) } catch {}
       await ahRecomputeActor(a)
       return bridge.reply(msg.reqId, { type: "antihammer.actor", actor: AH.actorSummary(a, AH.cfg()) })
@@ -2124,12 +2129,12 @@ function ahPts(cx, cy, s) { let p = ""; for (let i = 0; i < 6; i++) { const a = 
 function ahEscX(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;") }
 
 /** Read the saved placements, keeping only ones that still fit (in-board, no overlap). */
-function ahBuildPlaced(actor, byId, validSet) {
+function ahBuildPlaced(actor, unitById, validSet) {
   let place = {}; try { place = actor.getFlag(MOD, "ahPlace") || {} } catch {}
   if (!place || typeof place !== "object") place = {}
   const placed = new Map(), occ = new Set()
   for (const id of Object.keys(place)) {
-    const it = byId[id]; if (!it) continue
+    const it = unitById[id]; if (!it) continue   // id is a unit id (bundle "itemId#k" or plain itemId)
     const p = place[id]; if (!p || p.col == null) continue
     const cs = ahCellsFor(it, { col: p.col, row: p.row }, p.rot | 0)
     let ok = true
@@ -2142,7 +2147,7 @@ function ahBuildPlaced(actor, byId, validSet) {
 }
 function ahOcc(ctx, excludeId) {
   const m = new Set()
-  ctx.placed.forEach((p, id) => { if (id === excludeId) return; for (const c of ahCellsFor(ctx.byId[id], p, p.rot)) m.add(c.col + "," + c.row) })
+  ctx.placed.forEach((p, id) => { if (id === excludeId) return; const u = ctx.unitById[id]; if (!u) return; for (const c of ahCellsFor(u, p, p.rot)) m.add(c.col + "," + c.row) })
   return m
 }
 function ahValid(ctx, cs, excludeId) {
@@ -2152,14 +2157,14 @@ function ahValid(ctx, cs, excludeId) {
 }
 // Can this item be packed in the bag at all? Worn-only gear (armor/clothing/containers,
 // or a DM `baggable:false` override) can't — it must be worn, never bagged.
-function ahCanBag(ctx, id) { const m = ctx.metaById && ctx.metaById[id]; return !m || m.baggable !== false }
+function ahCanBag(ctx, id) { const u = ctx.unitById && ctx.unitById[id]; const m = ctx.metaById && ctx.metaById[u ? u.itemId : id]; return !m || m.baggable !== false }
 
 function ahBoardSVG(ctx) {
   const g = ctx.geom
   let s = '<svg class="ah-svg" width="' + g.width.toFixed(0) + '" height="' + g.height.toFixed(0) + '">'
   for (const c of ctx.validList) { const ct = ahCenter(g, c.col, c.row); s += '<polygon points="' + ahPts(ct.x, ct.y, g.S) + '" fill="#181920" stroke="#4a4e60" stroke-width="2"/>' }
   ctx.placed.forEach((p, id) => {
-    const it = ctx.byId[id]; const cs = ahCellsFor(it, p, p.rot)
+    const it = ctx.unitById[id]; if (!it) return; const cs = ahCellsFor(it, p, p.rot)
     let sx = 0, sy = 0, n = 0
     for (const c of cs) {
       if (!ctx.validSet.has(c.col + "," + c.row)) continue
@@ -2170,7 +2175,10 @@ function ahBoardSVG(ctx) {
     if (n) s += '<text x="' + (sx / n).toFixed(1) + '" y="' + (sy / n + 3).toFixed(1) + '" text-anchor="middle" font-size="10" font-weight="700" fill="rgba(0,0,0,.62)" style="pointer-events:none">' + ahEscX(ahMark(it.name)) + '</text>'
   })
   if (ctx.held && ctx.hover) {
-    const cs = ahCellsFor(ctx.held.item, ctx.hover, ctx.held.rot); const ok = ahCanBag(ctx, ctx.held.item.id) && ahValid(ctx, cs, null)
+    const canBag = ahCanBag(ctx, ctx.held.item.id)
+    const fit = canBag ? ahSnapPlace(ctx, ctx.held.item, ctx.hover, ctx.held.rot) : null
+    const cs = fit ? ahCellsFor(ctx.held.item, fit, ctx.held.rot) : ahCellsFor(ctx.held.item, ctx.hover, ctx.held.rot)
+    const ok = !!fit
     for (const c of cs) {
       if (!ctx.validSet.has(c.col + "," + c.row)) continue
       const ct = ahCenter(g, c.col, c.row)
@@ -2201,10 +2209,10 @@ function ahMiniSVG(it) {
 /** Colour legend under the bag: each packed item = swatch + full name + space cost. */
 function ahLegendHTML(ctx) {
   const rows = []
-  ctx.placed.forEach((p, id) => { const it = ctx.byId[id]; if (it) rows.push(it) })
+  ctx.placed.forEach((p, id) => { const it = ctx.unitById[id]; if (it) rows.push(it) })
   if (!rows.length) return '<span class="ah-leg-empty">Nothing packed yet — drag items onto the grid.</span>'
   rows.sort((a, b) => (a.name || "").localeCompare(b.name || ""))
-  return rows.map(it => '<span class="ah-leg"><i class="ah-leg-sw" style="background:' + it.color + '"></i><span class="ah-leg-nm">' + ahEscX(it.name) + '</span><span class="ah-leg-sz">' + ahFmt(it.spaces) + "</span></span>").join("")
+  return rows.map(it => '<span class="ah-leg"><i class="ah-leg-sw" style="background:' + it.color + '"></i><span class="ah-leg-nm">' + ahEscX(it.name) + (it.bundleQty != null ? ' <span class="ah-leg-bq">·' + it.bundleQty + "</span>" : "") + '</span><span class="ah-leg-sz">' + ahFmt(it.spaces) + "</span></span>").join("")
 }
 function ahRenderBoard(ctx) {
   if (ctx.holder) ctx.holder.innerHTML = ahBoardSVG(ctx)
@@ -2227,26 +2235,27 @@ async function ahSetMetaField(item, field, value) {
 }
 function ahRenderTray(ctx) {
   if (!ctx.trayEl) return
-  // loose = not worn, not on a back point, not packed in the bag
-  const used = {}; for (const id in ctx.worn) used[id] = 1; ctx.back.forEach(i => { used[i] = 1 }); ctx.placed.forEach((p, id) => { used[id] = 1 })
-  const items = ctx.items.filter(it => !used[it.id] && !(ctx.held && ctx.held.id === it.id))
-  if (!items.length) { ctx.trayEl.innerHTML = '<span class="ah-tray-empty">Nothing loose — all worn or packed.</span>'; return }
+  // loose = bag units not packed (and not the one being dragged). Bundled stacks show
+  // one chip per bundle.
+  const units = (ctx.units || []).filter(u => !ctx.placed.has(u.uid) && !(ctx.held && ctx.held.id === u.uid))
+  if (!units.length) { ctx.trayEl.innerHTML = '<span class="ah-tray-empty">Nothing loose — all worn or packed.</span>'; return }
   const groups = {}
-  for (const it of items) { const ct = (ctx.metaById[it.id] && ctx.metaById[it.id].carryType) || "Miscellaneous"; (groups[ct] = groups[ct] || []).push(it) }
+  for (const u of units) { const ct = (ctx.metaById[u.itemId] && ctx.metaById[u.itemId].carryType) || "Miscellaneous"; (groups[ct] = groups[ct] || []).push(u) }
   let h = ""
   for (const g of AH_CARRY_ORDER) {
     const arr = groups[g]; if (!arr || !arr.length) continue
-    arr.sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+    arr.sort((a, b) => (a.name || "").localeCompare(b.name || "") || (a.bundleIdx || 0) - (b.bundleIdx || 0))
     // each carry type is a collapsible group; big stacks (lots of consumables) start
     // COLLAPSED so they never flood the sheet.
     const open = arr.length <= 8 ? " open" : ""
     h += '<details class="ah-tgroup"' + open + '><summary class="ah-tray-group">' + ahEscX(g === "Miscellaneous" ? "Other" : g) + ' <span class="ah-tray-gn">' + arr.length + '</span></summary><div class="ah-tray-row">'
-    for (const it of arr) {
-      const m = ctx.metaById[it.id] || {}
+    for (const u of arr) {
+      const m = ctx.metaById[u.itemId] || {}
       const tag = (m.baggable === false ? '<span class="ah-tray-tag wear" title="Worn-only — can only be equipped on the body, never put in the bag">worn only</span>' : "")
         + (m.ignoreSlot ? '<span class="ah-tray-tag free" title="Doesn\'t need a slot — won\'t count as overflow">no slot</span>' : "")
-      const tip = (m.size || "") + (m.baggable === false ? " · wear only" : "") + (m.ignoreSlot ? " · no slot needed" : "") + (m.needsBackPoint ? " · needs a Back point" : "")
-      h += '<div class="ah-tray-it" data-tray="' + ahEscX(it.id) + '"' + (ctx.canArrange ? ' style="cursor:grab"' : "") + ' title="' + ahEscX(tip) + '">' + ahMiniSVG(it) + '<span class="ah-tray-nm">' + ahEscX(it.name) + "</span>" + tag + '<span class="ah-tray-sz">' + ahFmt(it.spaces) + "</span></div>"
+        + (u.bundleCount > 1 ? '<span class="ah-tray-tag bundle" title="One bundle of ' + u.bundleQty + ' (' + (u.bundleIdx + 1) + ' of ' + u.bundleCount + ')">×' + u.bundleQty + "</span>" : "")
+      const tip = (m.size || "") + (u.bundleCount > 1 ? " · bundle " + (u.bundleIdx + 1) + "/" + u.bundleCount + " (" + u.bundleQty + ")" : "") + (m.baggable === false ? " · wear only" : "") + (m.ignoreSlot ? " · no slot needed" : "") + (m.needsBackPoint ? " · needs a Back point" : "")
+      h += '<div class="ah-tray-it" data-tray="' + ahEscX(u.uid) + '"' + (ctx.canArrange ? ' style="cursor:grab"' : "") + ' title="' + ahEscX(tip) + '">' + ahMiniSVG(u) + '<span class="ah-tray-nm">' + ahEscX(u.name) + "</span>" + tag + '<span class="ah-tray-sz">' + ahFmt(u.spaces) + "</span></div>"
     }
     h += "</div></details>"
   }
@@ -2258,46 +2267,36 @@ function ahPixelCell(ctx, e) {
   const r = svg.getBoundingClientRect()
   if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) return null
   const g = ctx.geom
-  const x = (e.clientX - r.left) * (g.width / (r.width || g.width)), y = (e.clientY - r.top) * (g.height / (r.height || g.height))
-  let row = Math.round((y - g.originY) / (1.5 * g.S)); if (row < 0) row = 0; if (row > g.ROWS - 1) row = g.ROWS - 1
-  let col = Math.round((x - g.originX) / g.HW - 0.5 * (row & 1)); if (col < 0) col = 0
+  const px = (e.clientX - r.left) * (g.width / (r.width || g.width)) - g.originX
+  const py = (e.clientY - r.top) * (g.height / (r.height || g.height)) - g.originY
+  // pointy-top pixel → axial → cube → cube-round = the true nearest hex (accurate at edges,
+  // unlike the old rectangular-bin guess that could land a cell off and drop the item off-grid).
+  const qf = (Math.sqrt(3) / 3 * px - 1 / 3 * py) / g.S
+  const rf = (2 / 3 * py) / g.S
+  let cx = qf, cz = rf, cy = -cx - cz
+  let rx = Math.round(cx), ry = Math.round(cy), rz = Math.round(cz)
+  const dx = Math.abs(rx - cx), dy = Math.abs(ry - cy), dz = Math.abs(rz - cz)
+  if (dx > dy && dx > dz) rx = -ry - rz; else if (dy > dz) ry = -rx - rz; else rz = -rx - ry
+  const cell = ahCToO([rx, ry, rz])
+  let row = cell.row; if (row < 0) row = 0; if (row > g.ROWS - 1) row = g.ROWS - 1
+  let col = cell.col; if (col < 0) col = 0
   return { col, row }
 }
-function ahSavePlace(actor, place) { try { actor.setFlag(MOD, "ahPlace", place) } catch (e) { console.warn("[pendant-bridge] AH place save failed", e) } }
-
-function ahStartDrag(ctx, itemId, fromId, ev) {
-  if (!ctx.canArrange || ctx.held || !ctx.byId[itemId]) return
-  ev.preventDefault()
-  const orig = fromId != null ? ctx.placed.get(fromId) : null
-  if (fromId != null) ctx.placed.delete(fromId)
-  ctx.held = { item: ctx.byId[itemId], rot: orig ? orig.rot : 0, fromId, orig }
-  ctx.hover = ahPixelCell(ctx, ev)
-  ahRenderBoard(ctx); ahRenderTray(ctx)
-
-  const move = (e) => { if (!ctx.held) return; ctx.hover = ahPixelCell(ctx, e); ahRenderBoard(ctx) }
-  const key = (e) => { if (!ctx.held) return; if (e.key === "r" || e.key === "R") { ctx.held.rot = (ctx.held.rot + 1) % 6; ahRenderBoard(ctx) } else if (e.key === "Escape") finish(true) }
-  const up = (e) => finish(false, e)
-  function finish(cancel, e) {
-    document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); document.removeEventListener("keydown", key)
-    const held = ctx.held; ctx.held = null; ctx.hover = null
-    if (!held) return
-    let action = "revert", dropCell = null
-    if (!cancel && e) {
-      if (ctx.trayEl && e.target && ctx.trayEl.contains(e.target)) action = "unplace"
-      else { const hc = ahPixelCell(ctx, e); if (hc && ahValid(ctx, ahCellsFor(held.item, hc, held.rot), null)) { action = "place"; dropCell = hc } }
+/** The anchor where `item` (at `rot`) actually fits: the hovered cell, else the nearest
+ *  open spot within 2 cells. Lets an edge/overhanging drop snap in instead of vanishing. */
+function ahSnapPlace(ctx, item, anchor, rot) {
+  if (!anchor) return null
+  const fits = (col, row) => ahValid(ctx, ahCellsFor(item, { col, row }, rot), null)
+  if (fits(anchor.col, anchor.row)) return { col: anchor.col, row: anchor.row }
+  for (let d = 1; d <= 2; d++) {
+    for (let dr = -d; dr <= d; dr++) for (let dc = -d; dc <= d; dc++) {
+      if (Math.max(Math.abs(dr), Math.abs(dc)) !== d) continue
+      if (fits(anchor.col + dc, anchor.row + dr)) return { col: anchor.col + dc, row: anchor.row + dr }
     }
-    if (action === "unplace" && held.fromId == null) action = "revert"   // tray→tray, nothing to do
-    if (action === "revert") {
-      if (held.fromId != null && held.orig) ctx.placed.set(held.fromId, held.orig)
-      ahRenderBoard(ctx); ahRenderTray(ctx); return                       // no flag change
-    }
-    const place = {}
-    ctx.placed.forEach((p, id) => { place[id] = { col: p.col, row: p.row, rot: p.rot } })
-    if (action === "place") place[held.item.id] = { col: dropCell.col, row: dropCell.row, rot: held.rot }
-    ahSavePlace(ctx.actor, place)                                          // re-render rebuilds from the flag
   }
-  document.addEventListener("mousemove", move); document.addEventListener("mouseup", up); document.addEventListener("keydown", key)
+  return null
 }
+function ahSavePlace(actor, place) { try { actor.setFlag(MOD, "ahPlace", place) } catch (e) { console.warn("[pendant-bridge] AH place save failed", e) } }
 
 // ── world-wide per-item-name DM overrides ───────────────────────────────────
 // A rule keyed by lowercased item name overrides the derived metadata for EVERY
@@ -2310,6 +2309,42 @@ function ahEffectiveShape(item, cells) {
   const rule = ahRuleFor(item)
   if (rule && Array.isArray(rule.shape) && rule.shape.length) return rule.shape
   return ahShapeFor(Math.max(1, cells | 0), ahHashOf((item && item.id) || ""))
+}
+// ── stackable bundling ──────────────────────────────────────────────────────
+// A big stack splits into BUNDLES of N: a quiver of 50 arrows at bundle 20 = three
+// bundles (20·20·10), each its own slot-filler you pack separately. Effective size:
+// per-item override (rule/flag, 0 = force off) wins; else the world default — but the
+// global only auto-bundles naturally-stackable items (consumables / loot).
+function ahBundleSize(item, cfg) {
+  try {
+    const whole = (v) => { const n = Math.floor(Number(v) || 0); return n > 0 ? n : 0 }   // bundle sizes are whole item counts
+    const ov = (item && item.flags && item.flags[MOD] && item.flags[MOD].meta) || {}
+    if (typeof ov.bundle === "number") return whole(ov.bundle)
+    const rule = ahRuleFor(item) || {}
+    if (typeof rule.bundle === "number") return whole(rule.bundle)
+    const t = String((item && item.type) || "").toLowerCase()
+    if (t === "consumable" || t === "loot") return whole(cfg && cfg.bundleSize)
+    return 0
+  } catch { return 0 }
+}
+/** The per-bundle footprint shape (the DM's designed shape, else a single hex). */
+function ahBundleShape(item) { return ahEffectiveShape(item, 1) }
+/** Bundling state for an item: { active, size, count, per (cells/bundle), perShape }. */
+function ahBundleInfo(item, cfg) {
+  // an explicit total-spaces override (per-item flag or world rule) wins → don't bundle,
+  // so the unit split and the stored total never disagree.
+  let hasSpacesOv = false
+  try { if (AH.itemOverride(item) != null) hasSpacesOv = true; else { const r = ahRuleFor(item); if (r && r.spaces != null) hasSpacesOv = true } } catch {}
+  const size = ahBundleSize(item, cfg)
+  const qty = AH.itemQty(item)
+  if (hasSpacesOv || !size || qty <= 1) return { active: false, size: 0, count: 1, per: 1, perShape: null }
+  // count>=1: a single full bundle stays "active" so it still costs ONE bundle (per cells),
+  // not the weight/size cost — otherwise a heavy sub-bundle stack could cost MORE than a split
+  // one. The panel keeps count==1 on the plain itemId via its else-branch, so it stays equippable.
+  const count = Math.max(1, Math.ceil(qty / size))
+  let per = 1, perShape = null
+  try { perShape = ahBundleShape(item); per = Array.isArray(perShape) && perShape.length ? perShape.length : 1 } catch {}
+  return { active: true, size, count, per, perShape }
 }
 
 // ── rules engine: derive inventory metadata from a Foundry item ─────────────
@@ -2407,10 +2442,15 @@ function ahMeta(item) {
         case "light": return lightSet
         case "medium": return merge(lightSet, { Back: 1 })
         case "heavy": return merge(lightSet, { Back: 1 })
-        case "clothing": default: {
+        case "clothing": {
+          // ANY clothing grants at least a Back point, so a pack can be slung over plain clothes.
           if (/traveler|traveller|explorer|adventur/.test(name)) return { Chest: 1, Belt: 1, "Left Hip": 1, "Right Hip": 1, Feet: 1, Back: 1, Head: 1, Face: 1, Neck: 1 }
           if (/harness|bandolier|baldric/.test(name)) return { Belt: 1, "Left Hip": 1, "Right Hip": 1, Back: 2 }
-          if (/clothes|outfit|tunic|robe|garb|dress|shirt|trousers|vestment/.test(name)) return { Chest: 1, Belt: 1, Feet: 1, Head: 1, Face: 1, Neck: 1 }
+          if (/clothes|outfit|tunic|robe|garb|dress|shirt|trousers|vestment/.test(name)) return { Chest: 1, Belt: 1, Feet: 1, Back: 1, Head: 1, Face: 1, Neck: 1 }
+          return { Back: 1 }
+        }
+        default: {
+          if (/harness|bandolier|baldric/.test(name)) return { Belt: 1, "Left Hip": 1, "Right Hip": 1, Back: 2 }
           return null
         }
       }
@@ -2620,7 +2660,7 @@ function ahSlotCard(ctx, key, occ, caps) {
 function ahOpenSlotMenu(ctx, slotKey, anchorEl) {
   ahCloseMenu(ctx)
   const usedSet = new Set(ahEquippedIds(ctx)); ctx.placed.forEach((p, id) => usedSet.add(id))
-  const loose = ctx.items.filter(it => !usedSet.has(it.id) && ctx.metaById[it.id] && ahFreeBody(ctx, ctx.metaById[it.id]).has(slotKey))
+  const loose = ctx.items.filter(it => (ctx.bundleN[it.id] || 1) <= 1 && !usedSet.has(it.id) && ctx.metaById[it.id] && ahFreeBody(ctx, ctx.metaById[it.id]).has(slotKey))
   const menu = document.createElement("div"); menu.className = "ah-pickmenu"
   if (!loose.length) menu.innerHTML = '<div class="ah-pick-empty">Nothing you have fits here</div>'
   else for (const it of loose) {
@@ -2664,9 +2704,9 @@ function ahMoveGhost(ctx, e) { const el = ctx.ghostEl; if (!el) return; el.style
 /** Unified drag of an item from the tray (from:'tray') or the bag (from:'bag') →
  *  drop on a body slot to equip, or into the bag to pack (R rotates). */
 function ahDragItem(ctx, id, from, ev) {
-  if (!ctx.canArrange || ctx.held || !ctx.byId[id]) return
+  if (!ctx.canArrange || ctx.held || !ctx.unitById[id]) return
   ev.preventDefault()
-  const it = ctx.byId[id]
+  const it = ctx.unitById[id]
   let origPlace = null
   if (from === "bag") { origPlace = ctx.placed.get(id); ctx.placed.delete(id) }
   ctx.held = { id, item: it, rot: origPlace ? origPlace.rot : 0, from, origPlace }
@@ -2687,7 +2727,7 @@ function ahDragItem(ctx, id, from, ev) {
       const tgt = document.elementFromPoint(e.clientX, e.clientY)
       const slotEl = tgt && tgt.closest && tgt.closest("[data-slot]")
       if (slotEl && vb.has(slotEl.getAttribute("data-slot"))) { ahEquipItem(ctx, held.id, slotEl.getAttribute("data-slot")); done = true }
-      else if (hc && ahCanBag(ctx, held.id) && ahValid(ctx, ahCellsFor(held.item, hc, held.rot), null)) { ctx.placed.set(held.id, { col: hc.col, row: hc.row, rot: held.rot }); ahSavePlace(ctx.actor, ahPlaceObj(ctx)); done = true }
+      else if (hc && ahCanBag(ctx, held.id)) { const fit = ahSnapPlace(ctx, held.item, hc, held.rot); if (fit) { ctx.placed.set(held.id, { col: fit.col, row: fit.row, rot: held.rot }); ahSavePlace(ctx.actor, ahPlaceObj(ctx)); done = true } }
     }
     if (!done) { if (held.from === "bag" && held.origPlace) ctx.placed.set(held.id, held.origPlace); ahRenderDoll(ctx); ahRenderBoard(ctx); ahRenderTray(ctx) }
   }
@@ -2708,27 +2748,50 @@ function ahBuildPanel(actor) {
     actor, items, byId, metaById, validList: [], validSet: new Set(), geom: ahGeom(0),
     canArrange: !!(actor.isOwner || game.user?.isGM), placed: new Map(), worn: {}, back: [],
     held: null, hover: null, validBody: null, holder: null, trayEl: null, dollEl: null, ghostEl: null, bagCapacity: 0,
+    units: [], unitById: {}, bundleN: {},
   }
   const eq = ahBuildEquip(actor, metaById, byId); ctx.worn = eq.worn; ctx.back = eq.back
+  const wornSet = new Set(ahEquippedIds(ctx))
+  // expand each NON-worn item into bag UNITS: a bundled stackable becomes N separate
+  // slot-fillers (uid "itemId#k"); everything else is one unit (uid === itemId).
+  for (const it of items) {
+    if (wornSet.has(it.id)) continue
+    const real = actor.items.get(it.id)
+    const bi = real ? ahBundleInfo(real, cfg) : { active: false, count: 1 }
+    if (bi.active && bi.count > 1) {
+      ctx.bundleN[it.id] = bi.count
+      const qty = it.qty || 1
+      for (let k = 0; k < bi.count; k++) {
+        const uid = it.id + "#" + k
+        const u = { uid, id: uid, itemId: it.id, name: it.name, color: it.color, shape: bi.perShape, spaces: bi.per, bundleIdx: k, bundleCount: bi.count, bundleQty: Math.min(bi.size, qty - k * bi.size) }
+        ctx.units.push(u); ctx.unitById[uid] = u
+      }
+    } else {
+      ctx.bundleN[it.id] = 1
+      const u = { uid: it.id, id: it.id, itemId: it.id, name: it.name, color: it.color, shape: it.shape, spaces: it.spaces }
+      ctx.units.push(u); ctx.unitById[u.uid] = u
+    }
+  }
   // the bag exists ONLY when a container is equipped; size = per-container slots × #containers
   const containerN = ahEquippedIds(ctx).filter(id => metaById[id] && metaById[id].carryType === "Container").length
   const bagCapacity = (containerN > 0 ? capacity * containerN : 0) + ahGearStorage(actor)   // + add-on storage gear
   ctx.bagCapacity = bagCapacity
   const vc = ahValidCells(bagCapacity); ctx.validList = vc.list; ctx.validSet = vc.set; ctx.geom = ahGeom(bagCapacity)
-  ctx.placed = ahBuildPlaced(actor, byId, vc.set)
-  for (const id of ahEquippedIds(ctx)) ctx.placed.delete(id)   // an item can't be both worn and packed
-  { const drop = []; ctx.placed.forEach((p, id) => { if (!ahCanBag(ctx, id)) drop.push(id) }); for (const id of drop) ctx.placed.delete(id); if (drop.length && ctx.canArrange) ahSavePlace(actor, ahPlaceObj(ctx)) }   // worn-only gear can't stay packed (persist the cleanup so it can't silently revive)
+  let savedPlace = {}; try { savedPlace = actor.getFlag(MOD, "ahPlace") || {} } catch {}
+  ctx.placed = ahBuildPlaced(actor, ctx.unitById, vc.set)   // worn items have no unit → never packed
+  { const drop = []; ctx.placed.forEach((p, id) => { if (!ahCanBag(ctx, id)) drop.push(id) }); for (const id of drop) ctx.placed.delete(id) }   // worn-only gear can't stay packed
+  // self-heal: if the live placements differ from the stored flag (worn-only gear removed, or
+  // orphaned bundle uids after a quantity drop / item delete), persist the pruned set so stale
+  // keys can't accumulate or silently revive when a uid reappears. Owner only.
+  if (ctx.canArrange && ctx.placed.size !== Object.keys(savedPlace).length) ahSavePlace(actor, ahPlaceObj(ctx))
 
   // counts + space totals (overflow = baggable load that exceeds the bag)
-  const used = {}; for (const id in ctx.worn) used[id] = 1; ctx.back.forEach(i => { used[i] = 1 }); ctx.placed.forEach((p, id) => { used[id] = 1 })
   const wornN = Object.keys(ctx.worn).length + ctx.back.length, packedN = ctx.placed.size
-  const wornSet = new Set(ahEquippedIds(ctx))
-  // bag load = non-worn items that actually belong in the bag (baggable + not exempt).
-  // worn-only gear and DM-exempted items never count toward overflow.
+  const looseN = ctx.units.filter(u => !ctx.placed.has(u.uid)).length
+  // bag load = bag units that actually belong in the bag (baggable + not exempt).
   let nonWornSpaces = 0
-  for (const it of items) { if (wornSet.has(it.id)) continue; const m = metaById[it.id] || {}; if (m.ignoreSlot || m.baggable === false) continue; nonWornSpaces += (Number(it.spaces) || 0) }
+  for (const u of ctx.units) { const m = metaById[u.itemId] || {}; if (m.ignoreSlot || m.baggable === false) continue; nonWornSpaces += (Number(u.spaces) || 0) }
   nonWornSpaces = Math.round(nonWornSpaces * 100) / 100
-  const looseN = items.filter(it => !used[it.id]).length   // matches the tray (ignore-slot items still show there, tagged)
   const overflowPts = bagCapacity > 0 ? Math.max(0, Math.round((nonWornSpaces - bagCapacity) * 100) / 100) : 0
   const over = overflowPts > 0
   const meterPct = bagCapacity > 0 ? Math.min(100, Math.round((nonWornSpaces / bagCapacity) * 100)) : 0
