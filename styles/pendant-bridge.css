@@ -56,33 +56,56 @@
 .ah-panel .ah-cap-input { width: 50px; height: 22px; padding: 0 5px; font-size: 12px; text-align: center;
   border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 5px; background: #11131a; color: #ece9df; }
 /* two layers: body (left) + bag (right) */
-.ah-panel .ah-cols { display: flex; gap: 12px; align-items: flex-start; }
-.ah-panel .ah-dollwrap { flex: 0 0 auto; }
-.ah-panel .ah-bagcol { flex: 1; min-width: 0; }
-.ah-panel .ah-bag-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: #9a9888; margin-bottom: 6px; }
-/* paperdoll — figure art with readable slot pills placed over it */
-.ah-panel .ah-doll { position: relative; width: 208px; height: 328px; flex: 0 0 auto; }
-.ah-panel .ah-doll-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0.9; pointer-events: none; -webkit-user-drag: none; user-select: none; }
-.ah-panel .ah-bslot { position: absolute; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 5px;
-  box-sizing: border-box; min-width: 46px; max-width: 96px; height: 22px; padding: 0 7px; border-radius: 999px;
-  font-size: 10px; line-height: 1; white-space: nowrap; color: #cfcbbd;
-  background: rgba(20, 21, 27, 0.88); border: 1px solid #54545f; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45); }
-.ah-panel .ah-bslot .ah-bslot-lbl { opacity: 0.72; overflow: hidden; text-overflow: ellipsis; }
-.ah-panel .ah-bslot.empty { border-style: dashed; border-color: rgba(120, 120, 135, 0.5); color: #8f8b7e; cursor: pointer; }
-.ah-panel .ah-bslot.empty:hover { border-color: #c98b3a; border-style: solid; color: #ece9df; background: rgba(42, 34, 22, 0.92); }
-.ah-panel .ah-bslot.filled { background: rgba(34, 35, 44, 0.96); border-color: #6a6a78; color: #f0ede2; padding-right: 3px; }
-.ah-panel .ah-bswatch { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); }
-.ah-panel .ah-bname { overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
-.ah-panel .ah-bx { flex: 0 0 auto; width: 16px; height: 16px; border-radius: 50%; border: none; cursor: pointer; padding: 0;
+.ah-panel .ah-cols { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+.ah-panel .ah-dollwrap { flex: 1 1 300px; min-width: 0; }
+.ah-panel .ah-bagcol { flex: 1 1 300px; min-width: 0; }
+.ah-panel .ah-bag-lbl { display: flex; align-items: baseline; gap: 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: #9a9888; margin-bottom: 6px; }
+.ah-panel .ah-bag-meta { margin-left: auto; font-size: 10px; text-transform: none; letter-spacing: 0; color: #8c8a7e; }
+/* paperdoll — figure flanked by two tidy columns of labelled slot cards */
+.ah-panel .ah-doll { display: flex; gap: 8px; align-items: stretch; }
+.ah-panel .ah-dollcol { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.ah-panel .ah-dollfig { flex: 0 0 60px; display: flex; align-items: center; justify-content: center; }
+.ah-panel .ah-doll-img { width: 60px; max-height: 300px; object-fit: contain; opacity: 0.9; -webkit-user-drag: none; user-select: none; }
+.ah-panel .ah-slot { position: relative; background: #1c1e27; border: 1px solid #2f3242; border-radius: 9px; padding: 4px 8px; min-width: 0; }
+.ah-panel .ah-slab { display: block; font-size: 9px; letter-spacing: 0.04em; text-transform: uppercase; color: #787667; line-height: 1.5; }
+.ah-panel .ah-scap { font-style: normal; font-variant-numeric: tabular-nums; color: #9a9888; }
+.ah-panel .ah-sval { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #ece9df; min-width: 0; min-height: 16px; }
+.ah-panel .ah-slot.empty { background: #15161d; border-style: dashed; border-color: #2a2c39; cursor: pointer; }
+.ah-panel .ah-slot.empty:hover { border-color: #c98b3a; border-style: solid; }
+.ah-panel .ah-sempty { font-size: 11px; color: #5d5b51; }
+.ah-panel .ah-sadd { font-size: 11px; color: #8c8a7e; }
+.ah-panel .ah-slot.empty:hover .ah-sadd { color: #e5c07a; }
+.ah-panel .ah-slot.valid { border: 2px solid #6cc457; border-style: solid; background: rgba(90, 168, 74, 0.18); }
+.ah-panel .ah-bswatch { width: 11px; height: 11px; border-radius: 3px; flex: 0 0 auto; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); }
+.ah-panel .ah-bname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ah-panel .ah-bx { margin-left: auto; flex: 0 0 auto; width: 16px; height: 16px; border-radius: 50%; border: none; cursor: pointer; padding: 0;
   background: transparent; color: #b9b6a8; font-size: 14px; line-height: 1; }
 .ah-panel .ah-bx:hover { background: #c0413f; color: #fff; }
-.ah-panel .ah-bslot.valid { border: 2px solid #6cc457; border-style: solid; background: rgba(90, 168, 74, 0.22); color: #eafff0; }
-.ah-panel .ah-bcap { font-variant-numeric: tabular-nums; opacity: 0.85; }
-.ah-panel .ah-bdots { display: flex; gap: 3px; align-items: center; }
-.ah-panel .ah-bdot { width: 11px; height: 11px; border-radius: 3px; cursor: pointer; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4); }
+.ah-panel .ah-bdot { width: 12px; height: 12px; border-radius: 3px; cursor: pointer; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4); }
 .ah-panel .ah-bdot:hover { outline: 1px solid #c0413f; }
-/* click-an-empty-slot picker */
-.ah-panel .ah-pickmenu { position: absolute; transform: translateX(-50%); z-index: 30; min-width: 122px; max-width: 184px;
+/* bag capacity meter + overflow */
+.ah-panel .ah-meter { height: 6px; background: #0f1016; border-radius: 99px; overflow: hidden; margin-bottom: 9px; }
+.ah-panel .ah-meter-fill { height: 100%; background: #6f9e54; transition: width 0.15s; }
+.ah-panel .ah-meter.full .ah-meter-fill { background: #caa64a; }
+.ah-panel .ah-meter.over .ah-meter-fill { background: #c0413f; }
+.ah-panel .ah-overflow { font-size: 11px; color: #e79a9a; background: rgba(192, 65, 63, 0.14); border: 1px solid rgba(192, 65, 63, 0.45); border-radius: 7px; padding: 4px 9px; margin-bottom: 8px; }
+.ah-panel .ah-overflow b { color: #f4b9b9; }
+/* bag legend — colour → item name */
+.ah-panel .ah-legend { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.ah-panel .ah-leg { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: #bdbaad; }
+.ah-panel .ah-leg-sw { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); }
+.ah-panel .ah-leg-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ah-panel .ah-leg-sz { margin-left: auto; font-size: 10px; color: #807e72; }
+.ah-panel .ah-leg-empty { font-size: 10.5px; font-style: italic; color: #8c8a7e; }
+/* containers & storage row (worn packs + add-on gear, side by side) */
+.ah-panel .ah-cont { position: relative; margin-top: 12px; }
+.ah-panel .ah-cont-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.ah-panel .ah-cont-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; padding: 3px 4px 3px 9px; border-radius: 999px; border: 1px solid; }
+.ah-panel .ah-cont-chip.worn { background: rgba(58, 110, 84, 0.18); border-color: rgba(74, 150, 110, 0.5); color: #d6f0e0; }
+.ah-panel .ah-cont-chip.gear { background: rgba(124, 92, 191, 0.16); border-color: rgba(124, 92, 191, 0.45); color: #e6dcff; }
+.ah-panel .ah-cont-sw { width: 9px; height: 9px; border-radius: 3px; flex: 0 0 auto; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); }
+/* click-an-empty-slot picker (anchored under the clicked slot card) */
+.ah-panel .ah-pickmenu { position: absolute; left: 0; top: 100%; margin-top: 4px; z-index: 30; min-width: 132px; max-width: 200px;
   max-height: 168px; overflow-y: auto; padding: 4px; border-radius: 9px; background: #15161d; border: 1px solid #5a5a66;
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.6); display: flex; flex-direction: column; gap: 2px; }
 .ah-panel .ah-pick-it { display: flex; align-items: center; gap: 7px; width: 100%; text-align: left; padding: 5px 7px;
