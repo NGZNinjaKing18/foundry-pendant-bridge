@@ -2560,6 +2560,7 @@ const AH_SLOT_KEY = { "Head": "Head", "Face": "Face", "Neck": "Neck", "Chest": "
 const AH_DOLL_LEFT = ["Head", "Neck", "Clothes", "LHand", "Belt", "LHip", "LRing"]
 const AH_DOLL_RIGHT = ["Face", "Back", "Chest", "RHand", "Feet", "RHip", "RRing"]
 const AH_SLOT_LABEL = { Head: "Head", Face: "Face", Neck: "Neck", Clothes: "Clothes", Chest: "Armor", Back: "Back", Belt: "Belt", LHip: "Left hip", RHip: "Right hip", LHand: "Main hand", RHand: "Off hand", Feet: "Feet", LRing: "Left ring", RRing: "Right ring" }
+const AH_SLOT_ICON = { Head: "⛑️", Face: "🥽", Neck: "📿", Clothes: "👕", Chest: "🦺", Back: "🎒", Belt: "🎗️", LHip: "👝", RHip: "👝", LHand: "✋", RHand: "🤚", Feet: "👢", LRing: "💍", RRing: "💍" }
 
 // ── add-on storage gear (player-added belts/packs that grant slots + bag space) ──
 // Stored on the actor flag `ahGear` = [{ id, kind }]. Each grants attachment points
@@ -2604,7 +2605,18 @@ function ahCaps(ctx) {
   const c = Object.assign({}, AH_BASE_CAP)
   for (const id of ahEquippedIds(ctx)) { const m = ctx.metaById[id]; const g = m && m.grantsSlots; if (g) for (const gk of Object.keys(g)) { const key = AH_SLOT_KEY[gk] || gk; if (AH_GRANTABLE.indexOf(key) >= 0) c[key] = (c[key] || 0) + g[gk] } }
   if (ctx.actor) { const gg = ahGearGrants(ctx.actor); for (const k of Object.keys(gg)) if (AH_GRANTABLE.indexOf(k) >= 0) c[k] = (c[k] || 0) + gg[k] }   // add-on storage gear
+  // grants UNLOCK a single attachment point — only Back is genuinely multi-capacity, so
+  // a second grantor on Head/Face/Neck/Belt/Hip doesn't advertise a 2nd (unusable) slot.
+  for (const k of AH_GRANTABLE) if (k !== "Back" && c[k] > 1) c[k] = 1
   return c
+}
+/** Which worn item(s) grant each body slot — for the "granted by …" hints. */
+function ahGrantSources(ctx) {
+  const src = {}
+  const add = (gk, name) => { const key = AH_SLOT_KEY[gk] || gk; if (AH_GRANTABLE.indexOf(key) >= 0) { (src[key] = src[key] || []); if (src[key].indexOf(name) < 0) src[key].push(name) } }
+  for (const id of ahEquippedIds(ctx)) { const m = ctx.metaById[id]; const g = m && m.grantsSlots; if (g) { const nm = (ctx.byId[id] && ctx.byId[id].name) || ""; for (const gk of Object.keys(g)) add(gk, nm) } }
+  if (ctx.actor) { const cat = ahGearCatalog(); for (const g of ahGearList(ctx.actor)) { const c = cat[g.kind]; if (c && c.grants) for (const gk of Object.keys(c.grants)) add(gk, c.name) } }
+  return src
 }
 function ahOccupancy(ctx) {
   const occ = {}
@@ -2630,19 +2642,43 @@ function ahBuildEquip(actor, metaById, byId) {
   const sw = (saved.worn && typeof saved.worn === "object") ? saved.worn : {}
   const sb = Array.isArray(saved.back) ? saved.back : []
   const worn = {}, back = []
-  const ids = Object.keys(sw).filter(id => byId[id])
-  ids.sort((a, b) => ((metaById[a] && metaById[a].grantsSlots) ? 0 : 1) - ((metaById[b] && metaById[b].grantsSlots) ? 0 : 1))  // grantors first
-  for (const id of ids) {
-    const slot = sw[id], m = metaById[id]; if (!m) continue
-    if (!(m.equipSlots || []).some(s => (AH_SLOT_KEY[s] || s) === slot)) continue
+  // FIXPOINT placement: keep placing not-yet-placed items while any succeeds, recomputing
+  // caps/occ each round — this orders providers before dependents (chained grants) and lets
+  // a coverer occupy its covered slot before a dependent tries it.
+  let remaining = Object.keys(sw).filter(id => byId[id] && metaById[id])
+  let progress = true
+  while (progress && remaining.length) {
+    progress = false
     const occ = ahOccupancy({ worn, metaById }), caps = ahCaps({ worn, back, metaById, actor })
-    if (m.twoHanded && (slot === "LHand" || slot === "RHand")) { if (occ.LHand || occ.RHand) continue }
-    else if (occ[slot]) continue
-    else if (AH_GRANTABLE.indexOf(slot) >= 0 && (caps[slot] || 0) <= 0) continue
-    worn[id] = slot
+    const next = []
+    for (const id of remaining) {
+      const slot = sw[id], m = metaById[id]
+      if (!(m.equipSlots || []).some(s => (AH_SLOT_KEY[s] || s) === slot)) continue   // invalid slot → drop
+      let ok = true
+      if (m.twoHanded && (slot === "LHand" || slot === "RHand")) { if (occ.LHand || occ.RHand) ok = false }
+      else if (occ[slot]) ok = false
+      else if (AH_GRANTABLE.indexOf(slot) >= 0 && (caps[slot] || 0) <= 0) ok = false
+      if (ok) { worn[id] = slot; progress = true } else next.push(id)
+    }
+    remaining = next
   }
-  const caps2 = ahCaps({ worn, back, metaById, actor })
-  for (const id of sb) { if (!byId[id]) continue; if (back.length >= caps2.Back) break; if (back.indexOf(id) < 0) back.push(id) }
+  // covers post-filter FIRST (before the back pass): an item in a slot COVERED by a different
+  // co-equipped coverer (plate's helm/sabatons over a separate hat/boots) can't also be worn
+  // there → drop it. Doing this before the back pass keeps Back caps consistent with the final
+  // worn set even if a dropped coverer-victim happened to grant a Back point.
+  for (const id of Object.keys(worn)) {
+    const slot = worn[id]
+    for (const oid of Object.keys(worn)) {
+      if (oid === id) continue
+      const om = metaById[oid]
+      if (om && Array.isArray(om.covers) && om.covers.some(c => (AH_SLOT_KEY[c] || c) === slot)) { delete worn[id]; break }
+    }
+  }
+  // back items: grantors (packs) first, recompute Back cap each push so a pack's own straps
+  // raise the cap for its siblings (bedroll + weapon).
+  const sbIds = sb.filter(id => byId[id] && metaById[id])
+  sbIds.sort((a, b) => ((metaById[a].grantsSlots ? 0 : 1) - (metaById[b].grantsSlots ? 0 : 1)))
+  for (const id of sbIds) { const caps2 = ahCaps({ worn, back, metaById, actor }); if (back.indexOf(id) < 0 && back.length < caps2.Back) back.push(id) }
   return { worn, back }
 }
 function ahSaveEquip(ctx) { try { ctx.actor.setFlag(MOD, "ahEquip", { worn: ctx.worn, back: ctx.back }) } catch (e) { console.warn("[pendant-bridge] AH equip save failed", e) } }
@@ -2659,54 +2695,136 @@ function ahEquipItem(ctx, id, slotKey) {
 }
 function ahUnequip(ctx, id) { delete ctx.worn[id]; ctx.back = ctx.back.filter(x => x !== id); ahSaveEquip(ctx); ahSetEquipped(ctx, id, false) }
 
+/** Auto-equip the obvious WORN kit — clothes, armor, and non-weapon back items (packs, cloaks,
+ *  bedrolls). Never weapons (the player places those). Grantors first so packs get a Back point. */
+function ahSuitUp(ctx) {
+  const isCand = (it) => {
+    if (it.type === "weapon" || (ctx.bundleN[it.id] || 1) > 1) return false
+    const m = ctx.metaById[it.id]; if (!m || !(m.equipSlots || []).length) return false
+    if (m.carryType === "Clothing" || m.carryType === "Armor" || m.carryType === "Container") return true
+    const slots = (m.equipSlots || []).map(s => AH_SLOT_KEY[s] || s)
+    return slots.length > 0 && slots.every(s => s === "Back")   // cloak / bedroll
+  }
+  // clothing/armor first, then grantor packs, then plain back items (bedroll/cloak)
+  const pri = (it) => { const m = ctx.metaById[it.id]; return (m.carryType === "Clothing" || m.carryType === "Armor") ? 0 : (m.grantsSlots ? 1 : 2) }
+  let pending = ctx.items.filter(isCand).sort((a, b) => pri(a) - pri(b) || (a.name || "").localeCompare(b.name || ""))
+  // FIXPOINT: keep equipping while any succeeds — a pack equips (raising Back) before its sibling.
+  let any = false, progress = true
+  while (progress && pending.length) {
+    progress = false
+    const next = []
+    for (const it of pending) {
+      if (ahEquippedIds(ctx).indexOf(it.id) >= 0) continue
+      const m = ctx.metaById[it.id], free = ahFreeBody(ctx, m)
+      if (!free.size) { next.push(it); continue }
+      let slot = null; for (const s of (m.equipSlots || [])) { const k = AH_SLOT_KEY[s] || s; if (free.has(k)) { slot = k; break } }
+      if (!slot) slot = [...free][0]
+      if (slot === "Back") { if (ctx.back.indexOf(it.id) < 0) ctx.back.push(it.id) } else ctx.worn[it.id] = slot
+      ctx.placed.delete(it.id); ahSetEquipped(ctx, it.id, true); any = true; progress = true
+    }
+    pending = next
+  }
+  if (any) { ahSaveEquip(ctx); ahSavePlace(ctx.actor, ahPlaceObj(ctx)) }
+}
+/** Unequip everything to loose. */
+function ahStripAll(ctx) {
+  const ids = ahEquippedIds(ctx); if (!ids.length) return
+  ctx.worn = {}; ctx.back = []
+  for (const id of ids) ahSetEquipped(ctx, id, false)
+  ahSaveEquip(ctx)
+}
+// ── loadout presets ("outfits") ──────────────────────────────────────────────
+function ahOutfits(actor) { try { const o = actor.getFlag(MOD, "ahOutfits"); return Array.isArray(o) ? o : [] } catch { return [] } }
+async function ahPromptName(def) {
+  try { const D = foundry && foundry.applications && foundry.applications.api && foundry.applications.api.DialogV2
+    if (D) { const v = await D.prompt({ window: { title: "Name this outfit" }, content: '<input type="text" name="n" value="' + ahEscX(def) + '" style="width:100%" autofocus>', ok: { label: "Save", callback: (e, btn) => (btn.form.elements.n.value || "").trim() }, rejectClose: false }); return v == null ? null : v }
+  } catch {}
+  try { return await new Promise(res => { new Dialog({ title: "Name this outfit", content: '<input type="text" id="ah-otf-name" value="' + ahEscX(def) + '" style="width:100%">', buttons: { ok: { label: "Save", callback: (html) => { try { const v = html.find ? html.find("#ah-otf-name").val() : (html[0] || html).querySelector("#ah-otf-name").value; res((v || "").trim()) } catch { res(def) } } }, cancel: { label: "Cancel", callback: () => res(null) } }, default: "ok", close: () => res(null) }).render(true) }) } catch { return null }
+}
+async function ahSaveOutfit(ctx) {
+  const name = await ahPromptName("Outfit " + (ahOutfits(ctx.actor).length + 1)); if (name == null) return
+  const list = ahOutfits(ctx.actor).slice()
+  list.push({ id: "o" + Math.random().toString(36).slice(2, 8), name: String(name || "Outfit").slice(0, 30), worn: Object.assign({}, ctx.worn), back: ctx.back.slice() })
+  try { await ctx.actor.setFlag(MOD, "ahOutfits", list) } catch (e) { console.warn("[pendant-bridge] AH outfit save failed", e) }
+}
+function ahApplyOutfit(ctx, outfit) {
+  const prev = ahEquippedIds(ctx)
+  ctx.worn = Object.assign({}, outfit.worn || {}); ctx.back = Array.isArray(outfit.back) ? outfit.back.slice() : []
+  const now = ahEquippedIds(ctx)
+  for (const id of prev) if (now.indexOf(id) < 0) ahSetEquipped(ctx, id, false)
+  for (const id of now) { ahSetEquipped(ctx, id, true); ctx.placed.delete(id) }
+  ahSaveEquip(ctx); ahSavePlace(ctx.actor, ahPlaceObj(ctx))   // ahBuildEquip re-validates on rebuild
+}
+async function ahDeleteOutfit(ctx, oid) { try { await ctx.actor.setFlag(MOD, "ahOutfits", ahOutfits(ctx.actor).filter(o => o.id !== oid)) } catch {} }
+
 function ahRenderDoll(ctx) {
   if (!ctx.dollEl) return
-  const occ = ahOccupancy(ctx), caps = ahCaps(ctx)
-  const col = (keys) => keys.map(k => ahSlotCard(ctx, k, occ, caps)).filter(Boolean).join("")
+  const occ = ahOccupancy(ctx), caps = ahCaps(ctx), gsrc = ahGrantSources(ctx)
+  const col = (keys) => keys.map(k => ahSlotCard(ctx, k, occ, caps, gsrc)).filter(Boolean).join("")
   ctx.dollEl.innerHTML =
     '<div class="ah-dollcol">' + col(AH_DOLL_LEFT) + "</div>" +
     '<div class="ah-dollfig"><img class="ah-doll-img" src="' + ahDollImg(ctx.actor) + '" alt="" draggable="false"/></div>' +
     '<div class="ah-dollcol">' + col(AH_DOLL_RIGHT) + "</div>"
 }
-/** One labelled body-slot card (filled / empty / hidden when ungranted). */
-function ahSlotCard(ctx, key, occ, caps) {
+/** How many of the actor's not-worn items can actually go in this slot (matches the picker). */
+function ahCountFits(ctx, key) {
+  const used = new Set(ahEquippedIds(ctx)); let n = 0
+  for (const it of ctx.items) {
+    if (used.has(it.id) || (ctx.bundleN[it.id] || 1) > 1) continue
+    const m = ctx.metaById[it.id]; if (m && ahFreeBody(ctx, m).has(key)) n++
+  }
+  return n
+}
+/** One labelled body-slot card: filled / empty(+fit count) / locked(reason) / covered(read-only). */
+function ahSlotCard(ctx, key, occ, caps, gsrc) {
   const label = AH_SLOT_LABEL[key] || key
+  const ico = '<span class="ah-sico">' + (AH_SLOT_ICON[key] || "") + "</span>"
+  const gby = (gsrc && gsrc[key] && gsrc[key].length) ? "granted by " + gsrc[key].join(", ") : ""
   if (key === "Back") {
     const n = ctx.back.length, cap = caps.Back
-    if (cap <= 0) return ""
+    if (cap <= 0) return '<div class="ah-slot locked" title="' + ahEscX("Back — needs clothing, armor, or a pack") + '"><span class="ah-slab">' + ico + label + '</span><span class="ah-sval ah-slock">🔒 needs clothing/armor</span></div>'
     let val = ""
     if (n) val += ctx.back.map(bid => '<i class="ah-bdot" data-rm="' + ahEscX(bid) + '" title="' + ahEscX(ctx.byId[bid].name) + ' — remove" style="background:' + ctx.byId[bid].color + '"></i>').join("")
     const canAdd = ctx.canArrange && n < cap
     val += canAdd ? '<span class="ah-sadd">+ add</span>' : (n ? "" : '<span class="ah-sempty">empty</span>')
-    let cls = "ah-slot" + (n ? " filled" : " empty") + (ctx.validBody && ctx.validBody.has("Back") ? " valid" : "")
-    return '<div class="' + cls + '" data-slot="Back"' + (canAdd ? ' data-pick="Back"' : "") + '><span class="ah-slab">' + label + ' <i class="ah-scap">' + n + "/" + cap + '</i></span><span class="ah-sval">' + val + "</span></div>"
+    const cls = "ah-slot" + (n ? " filled" : " empty") + (ctx.validBody && ctx.validBody.has("Back") ? " valid" : "")
+    return '<div class="' + cls + '" data-slot="Back"' + (canAdd ? ' data-pick="Back"' : "") + ' title="' + ahEscX(gby) + '"><span class="ah-slab">' + ico + label + ' <i class="ah-scap">' + n + "/" + cap + '</i></span><span class="ah-sval">' + val + "</span></div>"
   }
   const cap = AH_GRANTABLE.indexOf(key) >= 0 ? (caps[key] || 0) : 1
-  if (cap <= 0 && !AH_BASE_MOUNTS.has(key)) return ""   // ungranted → hidden
   const id = occ[key]
-  let cls = "ah-slot", val
-  if (id) {
-    cls += " filled"
-    val = '<i class="ah-bswatch" style="background:' + ctx.byId[id].color + '"></i><span class="ah-bname">' + ahEscX(ctx.byId[id].name) + "</span>" + (ctx.canArrange ? '<button class="ah-bx" data-rm="' + ahEscX(id) + '" title="Remove">×</button>' : "")
-  } else {
-    cls += " empty"
-    val = ctx.canArrange ? '<span class="ah-sadd">+ add</span>' : '<span class="ah-sempty">empty</span>'
+  // covered: an item whose PRIMARY slot is elsewhere is occupying this slot (plate over Feet/Head)
+  if (id && ctx.worn[id] && ctx.worn[id] !== key && !(ctx.metaById[id] && ctx.metaById[id].twoHanded && (key === "LHand" || key === "RHand"))) {
+    const nm = ctx.byId[id] ? ctx.byId[id].name : ""
+    return '<div class="ah-slot covered" title="' + ahEscX("Covered by " + nm) + '"><span class="ah-slab">' + ico + label + '</span><span class="ah-sval ah-scover">covered by ' + ahEscX(ahShort(nm)) + "</span></div>"
   }
-  if (ctx.validBody && ctx.validBody.has(key)) cls += " valid"
-  const extra = (!id && ctx.canArrange) ? ' data-pick="' + ahEscX(key) + '"' : ""
-  return '<div class="' + cls + '" data-slot="' + ahEscX(key) + '"' + extra + '><span class="ah-slab">' + ahEscX(label) + '</span><span class="ah-sval">' + val + "</span></div>"
+  if (!id && cap <= 0 && !AH_BASE_MOUNTS.has(key)) {   // ungranted + empty grantable → LOCKED with a reason
+    return '<div class="ah-slot locked" title="' + ahEscX(label + " — needs clothing or armor") + '"><span class="ah-slab">' + ico + label + '</span><span class="ah-sval ah-slock">🔒 needs clothing/armor</span></div>'
+  }
+  if (id) {
+    const it = ctx.byId[id]
+    const swap = (ctx.validSwap && ctx.validSwap.has(key)) ? " swap" : ""
+    const val = '<i class="ah-bswatch" style="background:' + it.color + '"></i><span class="ah-bname">' + ahEscX(it.name) + "</span>" + (ctx.canArrange ? '<button class="ah-bx" data-rm="' + ahEscX(id) + '" title="Remove">×</button>' : "")
+    return '<div class="ah-slot filled' + swap + '" data-slot="' + ahEscX(key) + '" title="' + ahEscX(swap ? "drop to swap" : gby) + '"><span class="ah-slab">' + ico + label + '</span><span class="ah-sval">' + val + "</span></div>"
+  }
+  const valid = ctx.validBody && ctx.validBody.has(key)
+  const fitN = ctx.canArrange ? ahCountFits(ctx, key) : 0
+  const add = ctx.canArrange ? '<span class="ah-sadd">+ add' + (fitN ? ' <i class="ah-sfit">' + fitN + " fit</i>" : "") + "</span>" : '<span class="ah-sempty">empty</span>'
+  const cls = "ah-slot empty" + (valid ? " valid" : "")
+  const tip = gby || (fitN ? fitN + " of your items fit here" : "")
+  return '<div class="' + cls + '" data-slot="' + ahEscX(key) + '"' + (ctx.canArrange ? ' data-pick="' + ahEscX(key) + '"' : "") + ' title="' + ahEscX(tip) + '"><span class="ah-slab">' + ico + label + '</span><span class="ah-sval">' + add + "</span></div>"
 }
 
-/** Click an empty slot → a little menu of loose items that fit it; click one to equip. */
+/** Click an empty slot → a menu of fitting items (loose AND in the bag); click one to equip. */
 function ahOpenSlotMenu(ctx, slotKey, anchorEl) {
   ahCloseMenu(ctx)
-  const usedSet = new Set(ahEquippedIds(ctx)); ctx.placed.forEach((p, id) => usedSet.add(id))
-  const loose = ctx.items.filter(it => (ctx.bundleN[it.id] || 1) <= 1 && !usedSet.has(it.id) && ctx.metaById[it.id] && ahFreeBody(ctx, ctx.metaById[it.id]).has(slotKey))
+  const equipped = new Set(ahEquippedIds(ctx))   // bag items ARE candidates now (equip pulls them out)
+  const cands = ctx.items.filter(it => (ctx.bundleN[it.id] || 1) <= 1 && !equipped.has(it.id) && ctx.metaById[it.id] && ahFreeBody(ctx, ctx.metaById[it.id]).has(slotKey))
+  cands.sort((a, b) => (ctx.placed.has(a.id) ? 1 : 0) - (ctx.placed.has(b.id) ? 1 : 0) || (a.name || "").localeCompare(b.name || ""))   // loose first, then bag
   const menu = document.createElement("div"); menu.className = "ah-pickmenu"
-  if (!loose.length) menu.innerHTML = '<div class="ah-pick-empty">Nothing you have fits here</div>'
-  else for (const it of loose) {
+  if (!cands.length) menu.innerHTML = '<div class="ah-pick-empty">Nothing you have fits here</div>'
+  else for (const it of cands) {
     const b = document.createElement("button"); b.className = "ah-pick-it"
-    b.innerHTML = '<i style="background:' + it.color + '"></i><span>' + ahEscX(it.name) + "</span>"
+    b.innerHTML = '<i style="background:' + it.color + '"></i><span>' + ahEscX(it.name) + "</span>" + (ctx.placed.has(it.id) ? '<em class="ah-pick-bag">in bag</em>' : "")
     b.addEventListener("click", (e) => { e.stopPropagation(); ahCloseMenu(ctx); ahEquipItem(ctx, it.id, slotKey) })
     menu.appendChild(b)
   }
@@ -2748,11 +2866,16 @@ function ahDragItem(ctx, id, from, ev) {
   if (!ctx.canArrange || ctx.held || !ctx.unitById[id]) return
   ev.preventDefault()
   const it = ctx.unitById[id]
+  const realId = it.itemId || id          // bundle uids ("itemId#k") resolve to the real item for equip
+  const m = ctx.metaById[realId] || { equipSlots: [] }
   let origPlace = null
   if (from === "bag") { origPlace = ctx.placed.get(id); ctx.placed.delete(id) }
-  ctx.held = { id, item: it, rot: origPlace ? origPlace.rot : 0, from, origPlace }
+  ctx.held = { id, realId, item: it, rot: origPlace ? origPlace.rot : 0, from, origPlace }
   ctx.hover = null
-  ctx.validBody = ahFreeBody(ctx, ctx.metaById[id] || { equipSlots: [] })
+  ctx.validBody = ahFreeBody(ctx, m)
+  // slots the item COULD take that are currently occupied → drop there to SWAP
+  const occ0 = ahOccupancy(ctx); ctx.validSwap = new Set()
+  for (const s of (m.equipSlots || [])) { const k = AH_SLOT_KEY[s] || s; if (k !== "Back" && occ0[k] && !ctx.validBody.has(k)) ctx.validSwap.add(k) }
   if (ctx.ghostEl) { ctx.ghostEl.textContent = it.name; ctx.ghostEl.style.display = "block"; ahMoveGhost(ctx, ev) }
   ahRenderDoll(ctx); ahRenderBoard(ctx); ahRenderTray(ctx)
   const move = (e) => { if (!ctx.held) return; ahMoveGhost(ctx, e); ctx.hover = ahPixelCell(ctx, e); ahRenderBoard(ctx) }
@@ -2761,13 +2884,20 @@ function ahDragItem(ctx, id, from, ev) {
   function finish(cancel, e) {
     document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); document.removeEventListener("keydown", key)
     if (ctx.ghostEl) ctx.ghostEl.style.display = "none"
-    const held = ctx.held; ctx.held = null; const vb = ctx.validBody || new Set(); ctx.validBody = null; const hc = ctx.hover; ctx.hover = null
+    const held = ctx.held; ctx.held = null; const vb = ctx.validBody || new Set(); const vs = ctx.validSwap || new Set(); ctx.validBody = null; ctx.validSwap = null; const hc = ctx.hover; ctx.hover = null
     if (!held) return
     let done = false
     if (!cancel && e) {
       const tgt = document.elementFromPoint(e.clientX, e.clientY)
       const slotEl = tgt && tgt.closest && tgt.closest("[data-slot]")
-      if (slotEl && vb.has(slotEl.getAttribute("data-slot"))) { ahEquipItem(ctx, held.id, slotEl.getAttribute("data-slot")); done = true }
+      const slot = slotEl && slotEl.getAttribute("data-slot")
+      if (slot && vb.has(slot)) { ahEquipItem(ctx, held.realId, slot); done = true }
+      else if (slot && vs.has(slot)) {   // swap: clear the occupant (+ other hand if 2-handed), then equip
+        const occ = ahOccupancy(ctx), occId = occ[slot]; if (occId) ahUnequip(ctx, occId)
+        const hm = ctx.metaById[held.realId]
+        if (hm && hm.twoHanded && (slot === "LHand" || slot === "RHand")) { const oth = slot === "LHand" ? "RHand" : "LHand"; const o2 = ahOccupancy(ctx)[oth]; if (o2) ahUnequip(ctx, o2) }
+        ahEquipItem(ctx, held.realId, slot); done = true
+      }
       else if (hc && ahCanBag(ctx, held.id)) { const fit = ahSnapPlace(ctx, held.item, hc, held.rot); if (fit) { ctx.placed.set(held.id, { col: fit.col, row: fit.row, rot: held.rot }); ahSavePlace(ctx.actor, ahPlaceObj(ctx)); done = true } }
     }
     if (!done) { if (held.from === "bag" && held.origPlace) ctx.placed.set(held.id, held.origPlace); ahRenderDoll(ctx); ahRenderBoard(ctx); ahRenderTray(ctx) }
@@ -2792,6 +2922,17 @@ function ahBuildPanel(actor) {
     units: [], unitById: {}, bundleN: {},
   }
   const eq = ahBuildEquip(actor, metaById, byId); ctx.worn = eq.worn; ctx.back = eq.back
+  // self-heal: any item the validator EVICTED (grantor removed, slot stolen, covered, Back
+  // overflowed, or deleted) must lose dnd5e system.equipped + drop out of the stored flag —
+  // otherwise it keeps granting AC while shown unworn, and could silently revive. Owner only.
+  if (ctx.canArrange) {
+    let savedEq = {}; try { savedEq = actor.getFlag(MOD, "ahEquip") || {} } catch {}
+    const savedIds = new Set([...Object.keys(savedEq.worn || {}), ...(Array.isArray(savedEq.back) ? savedEq.back : [])])
+    const nowIds = new Set(ahEquippedIds(ctx))
+    let changed = savedIds.size !== nowIds.size
+    for (const id of savedIds) if (!nowIds.has(id)) { changed = true; const it = actor.items.get(id); if (it && it.system && ("equipped" in it.system) && it.system.equipped) { try { it.update({ "system.equipped": false }) } catch {} } }
+    if (changed) ahSaveEquip(ctx)
+  }
   const wornSet = new Set(ahEquippedIds(ctx))
   // expand each NON-worn item into bag UNITS: a bundled stackable becomes N separate
   // slot-fillers (uid "itemId#k"); everything else is one unit (uid === itemId).
@@ -2860,6 +3001,26 @@ function ahBuildPanel(actor) {
   // body (left) + bag (right)
   const cols = document.createElement("div"); cols.className = "ah-cols"
   const dollWrap = document.createElement("div"); dollWrap.className = "ah-dollwrap"
+  if (ctx.canArrange) {
+    const bar = document.createElement("div"); bar.className = "ah-dollbar"
+    const suit = document.createElement("button"); suit.type = "button"; suit.className = "ah-act"; suit.textContent = "✨ Suit up"; suit.title = "Auto-equip clothes, armor & packs (not weapons)"
+    suit.addEventListener("click", (e) => { e.stopPropagation(); ahSuitUp(ctx) }); bar.appendChild(suit)
+    const strip = document.createElement("button"); strip.type = "button"; strip.className = "ah-act"; strip.textContent = "Strip"; strip.title = "Unequip everything to loose"
+    strip.addEventListener("click", (e) => { e.stopPropagation(); ahStripAll(ctx) }); bar.appendChild(strip)
+    const oWrap = document.createElement("div"); oWrap.className = "ah-outfits"
+    const oLbl = document.createElement("span"); oLbl.className = "ah-outfits-lbl"; oLbl.textContent = "Outfits"; oWrap.appendChild(oLbl)
+    for (const o of ahOutfits(actor)) {
+      const chip = document.createElement("button"); chip.type = "button"; chip.className = "ah-outfit"; chip.title = "Wear this outfit"
+      chip.appendChild(document.createTextNode(o.name || "Outfit"))
+      chip.addEventListener("click", (e) => { e.stopPropagation(); ahApplyOutfit(ctx, o) })
+      const x = document.createElement("span"); x.className = "ah-outfit-x"; x.textContent = "×"; x.title = "Delete outfit"
+      x.addEventListener("click", (e) => { e.stopPropagation(); ahDeleteOutfit(ctx, o.id) }); chip.appendChild(x)
+      oWrap.appendChild(chip)
+    }
+    const save = document.createElement("button"); save.type = "button"; save.className = "ah-outfit-save"; save.textContent = "＋ Save"; save.title = "Save the current gear as an outfit"
+    save.addEventListener("click", (e) => { e.stopPropagation(); ahSaveOutfit(ctx) }); oWrap.appendChild(save)
+    bar.appendChild(oWrap); dollWrap.appendChild(bar)
+  }
   const dollEl = document.createElement("div"); dollEl.className = "ah-doll"; ctx.dollEl = dollEl; dollWrap.appendChild(dollEl); cols.appendChild(dollWrap)
   const bagCol = document.createElement("div"); bagCol.className = "ah-bagcol"
   if (bagCapacity > 0) {

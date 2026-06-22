@@ -72,6 +72,26 @@
 .ah-panel .ah-doll-img { width: 60px; max-height: 300px; object-fit: contain; opacity: 0.9; -webkit-user-drag: none; user-select: none; }
 .ah-panel .ah-slot { position: relative; background: #1c1e27; border: 1px solid #2f3242; border-radius: 9px; padding: 4px 8px; min-width: 0; }
 .ah-panel .ah-slab { display: block; font-size: 9px; letter-spacing: 0.04em; text-transform: uppercase; color: #787667; line-height: 1.5; }
+.ah-panel .ah-sico { font-size: 10px; margin-right: 3px; filter: grayscale(0.25); opacity: 0.9; }
+.ah-panel .ah-sfit { font-style: normal; font-size: 9px; color: #6f8f5f; background: rgba(90, 130, 80, 0.18); border-radius: 999px; padding: 0 5px; margin-left: 4px; }
+.ah-panel .ah-slot.locked { background: #14151a; border-style: dashed; border-color: #26283200; opacity: 0.62; }
+.ah-panel .ah-slock { font-size: 10px; color: #6a6860; }
+.ah-panel .ah-slot.covered { background: #181922; border-color: #2c2f3a; }
+.ah-panel .ah-scover { font-size: 10.5px; font-style: italic; color: #8a8a9a; }
+.ah-panel .ah-slot.swap { border: 2px solid #d8a23c; background: rgba(201, 139, 58, 0.2); }
+.ah-panel .ah-pick-bag { font-style: normal; font-size: 8.5px; color: #8c8a7e; margin-left: auto; background: rgba(255, 255, 255, 0.06); border-radius: 999px; padding: 0 6px; }
+/* body toolbar: suit up / strip / outfits */
+.ah-panel .ah-dollbar { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-bottom: 8px; }
+.ah-panel .ah-act { font-size: 10.5px; padding: 3px 10px; border-radius: 999px; cursor: pointer; background: rgba(201, 139, 58, 0.16); border: 1px solid rgba(201, 139, 58, 0.5); color: #e8c891; }
+.ah-panel .ah-act:hover { background: rgba(201, 139, 58, 0.3); color: #f3dcae; }
+.ah-panel .ah-outfits { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; width: 100%; margin-top: 2px; }
+.ah-panel .ah-outfits-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: #807e72; margin-right: 2px; }
+.ah-panel .ah-outfit { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; padding: 2px 4px 2px 9px; border-radius: 999px; cursor: pointer; background: rgba(124, 92, 191, 0.16); border: 1px solid rgba(124, 92, 191, 0.45); color: #e6dcff; }
+.ah-panel .ah-outfit:hover { border-color: #a07cd6; }
+.ah-panel .ah-outfit-x { width: 14px; height: 14px; border-radius: 50%; font-size: 11px; line-height: 1; color: #b9b6a8; }
+.ah-panel .ah-outfit-x:hover { background: #c0413f; color: #fff; }
+.ah-panel .ah-outfit-save { font-size: 10px; padding: 2px 9px; border-radius: 999px; cursor: pointer; background: transparent; border: 1px solid rgba(255, 255, 255, 0.2); color: #c8c4b6; }
+.ah-panel .ah-outfit-save:hover { border-color: #c98b3a; color: #ece9df; }
 .ah-panel .ah-scap { font-style: normal; font-variant-numeric: tabular-nums; color: #9a9888; }
 .ah-panel .ah-sval { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #ece9df; min-width: 0; min-height: 16px; }
 .ah-panel .ah-slot.empty { background: #15161d; border-style: dashed; border-color: #2a2c39; cursor: pointer; }
