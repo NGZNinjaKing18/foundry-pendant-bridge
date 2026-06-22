@@ -75,16 +75,19 @@
 .ah-panel .ah-tray-it, .ah-panel .ah-bdot, .ah-panel .ah-pick-it, .ah-panel .ah-gear-mi {
   transition: background var(--ah-ease), border-color var(--ah-ease), color var(--ah-ease), box-shadow var(--ah-ease);
 }
-/* one focus treatment everywhere */
-.ah-panel button:focus-visible, .ah-panel input:focus-visible, .ah-panel summary:focus-visible {
+/* one focus treatment everywhere (incl. role-less tabindex items like loose tray chips) */
+.ah-panel button:focus-visible, .ah-panel input:focus-visible, .ah-panel summary:focus-visible,
+.ah-panel [role="button"]:focus-visible, .ah-panel .ah-tray-it:focus-visible {
   outline: 2px solid var(--ah-action); outline-offset: 1px;
 }
+/* one monochrome inline-SVG icon family (inherits currentColor + the token palette) */
+.ah-panel .ah-ico { display: inline-block; width: 1em; height: 1em; vertical-align: -0.14em; flex: 0 0 auto; }
 /* header */
 .ah-panel .ah-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; padding-bottom: 9px; border-bottom: 1px solid var(--ah-line); }
-.ah-panel .ah-title { font-weight: 600; font-size: 13px; letter-spacing: 0.02em; }
+.ah-panel .ah-title { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px; letter-spacing: 0.02em; }
+.ah-panel .ah-title .ah-ico { width: 15px; height: 15px; color: var(--ah-action); }
 .ah-panel .ah-stat { font-size: 12px; color: var(--ah-dim); }
 .ah-panel .ah-stat b { color: var(--ah-ink); }
-.ah-panel .ah-stat-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ah-mute); }
 .ah-panel .ah-over { color: var(--ah-bad); font-weight: 600; }
 .ah-panel .ah-cap { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ah-mute); }
 .ah-panel .ah-cap-input { width: 50px; height: 22px; padding: 0 5px; font-size: 12px; text-align: center;
@@ -97,7 +100,7 @@
 .ah-panel .ah-bag-lbl { display: flex; align-items: baseline; gap: 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ah-mute); margin-bottom: 6px; }
 .ah-panel .ah-bag-meta { margin-left: auto; font-size: 10px; text-transform: none; letter-spacing: 0; color: var(--ah-faint); }
 /* primary action buttons (amber/forge) */
-.ah-panel .ah-tidy, .ah-panel .ah-act { font-size: 10.5px; text-transform: none; letter-spacing: 0; padding: 3px 10px; border-radius: var(--ah-pill); cursor: pointer; background: var(--ah-action-bg); border: 1px solid rgba(217, 156, 70, 0.5); color: var(--ah-action-ink); line-height: 1.4; }
+.ah-panel .ah-tidy, .ah-panel .ah-act { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; text-transform: none; letter-spacing: 0; padding: 3px 10px; border-radius: var(--ah-pill); cursor: pointer; background: var(--ah-action-bg); border: 1px solid rgba(217, 156, 70, 0.5); color: var(--ah-action-ink); line-height: 1.4; }
 .ah-panel .ah-tidy:hover, .ah-panel .ah-act:hover { background: rgba(217, 156, 70, 0.3); color: #f6e2b6; box-shadow: 0 0 0 3px var(--ah-action-bg); }
 .ah-panel .ah-tidy:active, .ah-panel .ah-act:active { transform: translateY(0.5px); }
 .ah-panel .ah-use { font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 7px; border-radius: var(--ah-pill); cursor: pointer; background: var(--ah-good-bg); border: 1px solid rgba(121, 189, 102, 0.5); color: var(--ah-good-ink); line-height: 1.5; }
@@ -109,10 +112,12 @@
 .ah-panel .ah-doll-img { width: 60px; max-height: 300px; object-fit: contain; opacity: 0.9; -webkit-user-drag: none; user-select: none; }
 .ah-panel .ah-slot { position: relative; background: var(--ah-raise); border: 1px solid var(--ah-line); border-radius: var(--ah-r); padding: 4px 8px; min-width: 0; }
 .ah-panel .ah-slab { display: block; font-size: 9px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ah-mute); line-height: 1.5; }
-.ah-panel .ah-sico { font-size: 10px; margin-right: 3px; filter: grayscale(0.25); opacity: 0.92; }
+.ah-panel .ah-sico { display: inline-flex; align-items: center; margin-right: 4px; font-size: 11px; color: var(--ah-mute); }
 .ah-panel .ah-sfit { font-style: normal; font-size: 9px; color: var(--ah-good); background: var(--ah-good-bg); border-radius: var(--ah-pill); padding: 0 5px; margin-left: 4px; }
 .ah-panel .ah-slot.locked { background: var(--ah-sink); border-style: dashed; border-color: var(--ah-line); }
-.ah-panel .ah-slock { font-size: 10px; color: var(--ah-faint); }
+.ah-panel .ah-slock { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; color: var(--ah-faint); }
+.ah-panel .ah-sdrop { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--ah-good); }
+.ah-panel .ah-sswap { margin-left: 2px; font-size: 10px; color: var(--ah-action-ink); }
 .ah-panel .ah-slot.covered { background: var(--ah-sink); border-color: var(--ah-line); }
 .ah-panel .ah-scover { font-size: 10.5px; font-style: italic; color: var(--ah-mute); }
 .ah-panel .ah-slot.swap { border: 1px solid var(--ah-action); box-shadow: 0 0 0 3px var(--ah-action-bg); }
@@ -121,11 +126,12 @@
 .ah-panel .ah-dollbar { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-bottom: 8px; }
 .ah-panel .ah-outfits { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; width: 100%; margin-top: 2px; }
 .ah-panel .ah-outfits-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ah-mute); margin-right: 2px; }
-.ah-panel .ah-outfit { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; padding: 2px 4px 2px 9px; border-radius: var(--ah-pill); cursor: pointer; background: var(--ah-store-bg); border: 1px solid rgba(154, 127, 224, 0.45); color: var(--ah-store-ink); }
+.ah-panel .ah-outfit { display: inline-flex; align-items: center; gap: 2px; font-size: 10.5px; padding: 2px 4px 2px 9px; border-radius: var(--ah-pill); background: var(--ah-store-bg); border: 1px solid rgba(154, 127, 224, 0.45); color: var(--ah-store-ink); }
 .ah-panel .ah-outfit:hover { border-color: var(--ah-store); box-shadow: 0 0 0 3px var(--ah-store-bg); }
-.ah-panel .ah-outfit-x { width: 14px; height: 14px; border-radius: 50%; font-size: 11px; line-height: 1; color: var(--ah-dim); }
+.ah-panel .ah-outfit-apply { background: none; border: none; padding: 0; margin: 0; font: inherit; line-height: inherit; color: inherit; cursor: pointer; -webkit-appearance: none; appearance: none; }
+.ah-panel .ah-outfit-x { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border: none; background: transparent; padding: 0; -webkit-appearance: none; appearance: none; border-radius: 50%; font-size: 11px; line-height: 1; color: var(--ah-dim); cursor: pointer; }
 .ah-panel .ah-outfit-x:hover { background: var(--ah-bad); color: #fff; }
-.ah-panel .ah-outfit-save { font-size: 10px; padding: 2px 9px; border-radius: var(--ah-pill); cursor: pointer; background: transparent; border: 1px solid var(--ah-line-2); color: var(--ah-dim); }
+.ah-panel .ah-outfit-save { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; padding: 2px 9px; border-radius: var(--ah-pill); cursor: pointer; background: transparent; border: 1px solid var(--ah-line-2); color: var(--ah-dim); }
 .ah-panel .ah-outfit-save:hover { border-color: var(--ah-action); color: var(--ah-ink); }
 .ah-panel .ah-scap { font-style: normal; font-variant-numeric: tabular-nums; color: var(--ah-mute); }
 .ah-panel .ah-sval { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ah-ink); min-width: 0; min-height: 16px; }
@@ -133,6 +139,7 @@
 .ah-panel .ah-slot.empty:hover { border-color: var(--ah-action); border-style: solid; background: var(--ah-raise); }
 .ah-panel .ah-sempty { font-size: 11px; color: var(--ah-faint); }
 .ah-panel .ah-sadd { font-size: 11px; color: var(--ah-mute); }
+.ah-panel button.ah-addbtn { background: none; border: none; padding: 0; cursor: pointer; font: inherit; line-height: inherit; }
 .ah-panel .ah-slot.empty:hover .ah-sadd { color: var(--ah-action-ink); }
 .ah-panel .ah-slot.valid { border: 1px solid var(--ah-good); border-style: solid; background: var(--ah-good-bg); box-shadow: 0 0 0 3px var(--ah-good-bg); }
 .ah-panel .ah-bswatch { width: 11px; height: 11px; border-radius: 3px; flex: 0 0 auto; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); }
@@ -140,7 +147,7 @@
 .ah-panel .ah-bx { margin-left: auto; flex: 0 0 auto; width: 16px; height: 16px; border-radius: 50%; border: none; cursor: pointer; padding: 0;
   background: transparent; color: var(--ah-dim); font-size: 14px; line-height: 1; }
 .ah-panel .ah-bx:hover { background: var(--ah-bad); color: #fff; }
-.ah-panel .ah-bdot { width: 12px; height: 12px; border-radius: 3px; cursor: pointer; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4); }
+.ah-panel .ah-bdot { width: 13px; height: 13px; border-radius: 3px; cursor: pointer; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4); border: none; padding: 0; -webkit-appearance: none; appearance: none; }
 .ah-panel .ah-bdot:hover { outline: 1px solid var(--ah-bad); outline-offset: 1px; }
 /* bag capacity meter + overflow */
 .ah-panel .ah-meter { height: 6px; background: var(--ah-sink); border-radius: var(--ah-pill); overflow: hidden; margin-bottom: 9px; box-shadow: inset 0 0 0 1px var(--ah-line); }
@@ -155,6 +162,10 @@
 .ah-panel .ah-leg-sw { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); }
 .ah-panel .ah-leg-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ah-panel .ah-leg-sz { margin-left: auto; font-size: 10px; color: var(--ah-mute); }
+.ah-panel .ah-leg-x { width: 18px; height: 18px; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; border: none; border-radius: 50%; background: transparent; color: var(--ah-mute); cursor: pointer; padding: 0; font-size: 11px; }
+.ah-panel .ah-leg-x:hover { background: var(--ah-raise-2); color: var(--ah-ink); }
+.ah-panel .ah-leg .ah-leg-sz { margin-left: auto; }
+.ah-panel .ah-leg .ah-leg-x { margin-left: 2px; }
 .ah-panel .ah-leg-bq { color: var(--ah-mute); font-variant-numeric: tabular-nums; }
 .ah-panel .ah-leg-empty { font-size: 10.5px; font-style: italic; color: var(--ah-faint); }
 /* containers & storage row (worn packs + add-on gear, side by side) */

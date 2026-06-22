@@ -2211,8 +2211,10 @@ function ahCanBag(ctx, id) { const u = ctx.unitById && ctx.unitById[id]; const m
 
 function ahBoardSVG(ctx) {
   const g = ctx.geom
-  let s = '<svg class="ah-svg" width="' + g.width.toFixed(0) + '" height="' + g.height.toFixed(0) + '">'
-  for (const c of ctx.validList) { const ct = ahCenter(g, c.col, c.row); s += '<polygon points="' + ahPts(ct.x, ct.y, g.S) + '" fill="#181920" stroke="#4a4e60" stroke-width="2"/>' }
+  const names = []; ctx.placed.forEach((p, id) => { const u = ctx.unitById[id]; if (u) names.push(u.name) })
+  const aria = "Item bag, " + (names.length ? names.length + " packed: " + names.join(", ") : "empty")
+  let s = '<svg class="ah-svg" role="img" aria-label="' + ahEscX(aria) + '" width="' + g.width.toFixed(0) + '" height="' + g.height.toFixed(0) + '">'
+  for (const c of ctx.validList) { const ct = ahCenter(g, c.col, c.row); s += '<polygon points="' + ahPts(ct.x, ct.y, g.S) + '" fill="#101118" stroke="#3a3d4c" stroke-width="2"/>' }
   ctx.placed.forEach((p, id) => {
     const it = ctx.unitById[id]; if (!it) return; const cs = ahCellsFor(it, p, p.rot)
     let sx = 0, sy = 0, n = 0
@@ -2222,18 +2224,23 @@ function ahBoardSVG(ctx) {
       s += '<polygon points="' + ahPts(ct.x, ct.y, g.S) + '" fill="' + it.color + '" stroke="rgba(0,0,0,.5)" stroke-width="2" data-item="' + ahEscX(id) + '" style="cursor:' + (ctx.canArrange ? "grab" : "default") + '"/>'
       sx += ct.x; sy += ct.y; n++
     }
-    if (n) s += '<text x="' + (sx / n).toFixed(1) + '" y="' + (sy / n + 3).toFixed(1) + '" text-anchor="middle" font-size="10" font-weight="700" fill="rgba(0,0,0,.62)" style="pointer-events:none">' + ahEscX(ahMark(it.name)) + '</text>'
+    // white mark with a dark halo so the 1–2 letter label stays legible on ANY item colour
+    if (n) s += '<text x="' + (sx / n).toFixed(1) + '" y="' + (sy / n + 3).toFixed(1) + '" text-anchor="middle" font-size="10" font-weight="700" fill="#fff" stroke="rgba(0,0,0,.62)" stroke-width="2.6" stroke-linejoin="round" paint-order="stroke" style="pointer-events:none">' + ahEscX(ahMark(it.name)) + "</text>"
   })
   if (ctx.held && ctx.hover) {
     const canBag = ahCanBag(ctx, ctx.held.item.id)
     const fit = canBag ? ahSnapPlace(ctx, ctx.held.item, ctx.hover, ctx.held.rot) : null
     const cs = fit ? ahCellsFor(ctx.held.item, fit, ctx.held.rot) : ahCellsFor(ctx.held.item, ctx.hover, ctx.held.rot)
     const ok = !!fit
+    let hx = 0, hy = 0, hn = 0
     for (const c of cs) {
       if (!ctx.validSet.has(c.col + "," + c.row)) continue
       const ct = ahCenter(g, c.col, c.row)
-      s += '<polygon points="' + ahPts(ct.x, ct.y, g.S) + '" fill="' + (ok ? "rgba(90,168,74,.5)" : "rgba(192,65,63,.5)") + '" stroke="' + (ok ? "#6cc457" : "#d24b4b") + '" stroke-width="2.5" style="pointer-events:none"/>'
+      s += '<polygon points="' + ahPts(ct.x, ct.y, g.S) + '" fill="' + (ok ? "rgba(121,189,102,.45)" : "rgba(216,97,95,.45)") + '" stroke="' + (ok ? "#79bd66" : "#d8615f") + '" stroke-width="2.5" style="pointer-events:none"/>'
+      hx += ct.x; hy += ct.y; hn++
     }
+    // non-colour drop cue: ✓ fits / ✕ no room at the preview centroid
+    if (hn) s += '<text x="' + (hx / hn).toFixed(1) + '" y="' + (hy / hn + 5).toFixed(1) + '" text-anchor="middle" font-size="15" font-weight="700" fill="#fff" stroke="rgba(0,0,0,.6)" stroke-width="3" stroke-linejoin="round" paint-order="stroke" style="pointer-events:none">' + (ok ? "✓" : "✕") + "</text>"
   }
   return s + "</svg>"
 }
@@ -2262,7 +2269,12 @@ function ahLegendHTML(ctx) {
   ctx.placed.forEach((p, id) => { const it = ctx.unitById[id]; if (it) rows.push(it) })
   if (!rows.length) return '<span class="ah-leg-empty">Nothing packed yet — drag items onto the grid.</span>'
   rows.sort((a, b) => (a.name || "").localeCompare(b.name || ""))
-  return rows.map(it => { const bi = ctx.byId[it.itemId]; const use = (ctx.canArrange && bi && bi.type === "consumable" && (bi.qty || 0) >= 1) ? '<button class="ah-use" data-use="' + ahEscX(it.itemId) + '" title="Use one (−1)">use</button>' : ""; return '<span class="ah-leg"><i class="ah-leg-sw" style="background:' + it.color + '"></i><span class="ah-leg-nm">' + ahEscX(it.name) + (it.bundleQty != null ? ' <span class="ah-leg-bq">·' + it.bundleQty + "</span>" : "") + '</span><span class="ah-leg-sz">' + ahFmt(it.spaces) + "</span>" + use + "</span>" }).join("")
+  return rows.map(it => {
+    const bi = ctx.byId[it.itemId]
+    const use = (ctx.canArrange && bi && bi.type === "consumable" && (bi.qty || 0) >= 1) ? '<button type="button" class="ah-use" data-use="' + ahEscX(it.itemId) + '" aria-label="' + ahEscX("Use one " + it.name) + '" title="Use one (−1)">use</button>' : ""
+    const unpack = ctx.canArrange ? '<button type="button" class="ah-leg-x" data-unpack="' + ahEscX(it.uid) + '" aria-label="' + ahEscX("Take " + it.name + " out of the bag") + '" title="Unpack to loose">' + ahIcon("undo") + "</button>" : ""
+    return '<span class="ah-leg"><i class="ah-leg-sw" style="background:' + it.color + '"></i><span class="ah-leg-nm">' + ahEscX(it.name) + (it.bundleQty != null ? ' <span class="ah-leg-bq">·' + it.bundleQty + "</span>" : "") + '</span><span class="ah-leg-sz">' + ahFmt(it.spaces) + "</span>" + use + unpack + "</span>"
+  }).join("")
 }
 function ahRenderBoard(ctx) {
   if (ctx.holder) ctx.holder.innerHTML = ahBoardSVG(ctx)
@@ -2306,8 +2318,9 @@ function ahRenderTray(ctx) {
         + (u.bundleCount > 1 ? '<span class="ah-tray-tag bundle" title="One bundle of ' + u.bundleQty + ' (' + (u.bundleIdx + 1) + ' of ' + u.bundleCount + ')">×' + u.bundleQty + "</span>" : "")
       const tip = (m.size || "") + (u.bundleCount > 1 ? " · bundle " + (u.bundleIdx + 1) + "/" + u.bundleCount + " (" + u.bundleQty + ")" : "") + (m.baggable === false ? " · wear only" : "") + (m.ignoreSlot ? " · no slot needed" : "") + (m.needsBackPoint ? " · needs a Back point" : "")
       const bi = ctx.byId[u.itemId]
-      const useBtn = (ctx.canArrange && bi && bi.type === "consumable" && (bi.qty || 0) >= 1) ? '<button class="ah-use" data-use="' + ahEscX(u.itemId) + '" title="Use one (−1)">use</button>' : ""
-      h += '<div class="ah-tray-it" data-tray="' + ahEscX(u.uid) + '"' + (ctx.canArrange ? ' style="cursor:grab"' : "") + ' title="' + ahEscX(tip) + '">' + ahMiniSVG(u) + '<span class="ah-tray-nm">' + ahEscX(u.name) + "</span>" + tag + '<span class="ah-tray-sz">' + ahFmt(u.spaces) + "</span>" + useBtn + "</div>"
+      const useBtn = (ctx.canArrange && bi && bi.type === "consumable" && (bi.qty || 0) >= 1) ? '<button type="button" class="ah-use" data-use="' + ahEscX(u.itemId) + '" aria-label="' + ahEscX("Use one " + u.name) + '" title="Use one (−1)">use</button>' : ""
+      const kb = ctx.canArrange ? ' tabindex="0" aria-label="' + ahEscX("Stow " + u.name + " — press Enter to pack it into the bag") + '"' : ""
+      h += '<div class="ah-tray-it" data-tray="' + ahEscX(u.uid) + '"' + (ctx.canArrange ? ' style="cursor:grab"' : "") + kb + ' title="' + ahEscX(tip) + '">' + ahMiniSVG(u) + '<span class="ah-tray-nm">' + ahEscX(u.name) + "</span>" + tag + '<span class="ah-tray-sz">' + ahFmt(u.spaces) + "</span>" + useBtn + "</div>"
     }
     h += "</div></details>"
   }
@@ -2368,6 +2381,28 @@ function ahAutoPack(ctx) {
   }
   return place
 }
+/** First valid anchor+rotation where one unit fits the bag (for the keyboard "stow" action). */
+function ahFitOne(ctx, unit) {
+  if (!ahCanBag(ctx, unit.uid)) return null
+  for (const cell of ctx.validList) for (let rot = 0; rot < 6; rot++) {
+    if (ahValid(ctx, ahCellsFor(unit, cell, rot), null)) return { col: cell.col, row: cell.row, rot }
+  }
+  return null
+}
+/** Keyboard "stow" (no drag): pack the unit into the bag if it fits, else equip it to a free slot. */
+function ahStowItem(ctx, uid) {
+  const u = ctx.unitById[uid]; if (!u) return
+  const fit = ahFitOne(ctx, u)
+  if (fit) { ctx.placed.set(uid, fit); ahSavePlace(ctx.actor, ahPlaceObj(ctx)); return }
+  const realId = u.itemId || uid, m = ctx.metaById[realId]
+  if (m && (ctx.bundleN[realId] || 1) <= 1) {
+    const free = ahFreeBody(ctx, m)
+    if (free.size) { let slot = null; for (const s of (m.equipSlots || [])) { const k = AH_SLOT_KEY[s] || s; if (free.has(k)) { slot = k; break } } if (!slot) slot = [...free][0]; ahEquipItem(ctx, realId, slot); return }
+  }
+  try { if (typeof ui !== "undefined" && ui.notifications) ui.notifications.warn(u.name + ": no room in the bag and no free body slot.") } catch {}
+}
+/** Keyboard "unpack" (no drag): pull a packed item back out to the loose tray. */
+function ahUnplaceItem(ctx, uid) { if (ctx.placed.has(uid)) { ctx.placed.delete(uid); ahSavePlace(ctx.actor, ahPlaceObj(ctx)) } }
 
 /** Spend one of a consumable (owner action): quantity − 1 (deletes the last one) + a chat line. */
 const _ahUsing = new Set()
@@ -2610,7 +2645,29 @@ const AH_SLOT_KEY = { "Head": "Head", "Face": "Face", "Neck": "Neck", "Chest": "
 const AH_DOLL_LEFT = ["Head", "Neck", "Clothes", "LHand", "Belt", "LHip", "LRing"]
 const AH_DOLL_RIGHT = ["Face", "Back", "Chest", "RHand", "Feet", "RHip", "RRing"]
 const AH_SLOT_LABEL = { Head: "Head", Face: "Face", Neck: "Neck", Clothes: "Clothes", Chest: "Armor", Back: "Back", Belt: "Belt", LHip: "Left hip", RHip: "Right hip", LHand: "Main hand", RHand: "Off hand", Feet: "Feet", LRing: "Left ring", RRing: "Right ring" }
-const AH_SLOT_ICON = { Head: "⛑️", Face: "🥽", Neck: "📿", Clothes: "👕", Chest: "🦺", Back: "🎒", Belt: "🎗️", LHip: "👝", RHip: "👝", LHand: "✋", RHand: "🤚", Feet: "👢", LRing: "💍", RRing: "💍" }
+// Inline-SVG icon set (one monochrome family, inherits currentColor + the token palette) —
+// replaces emoji so the panel renders identically on every OS and matches the forged dark theme.
+const AH_ICON_PATHS = {
+  head: '<path d="M5 13a7 7 0 0 1 14 0"/><path d="M3.5 13h17"/>',
+  face: '<circle cx="8" cy="12" r="2.6"/><circle cx="16" cy="12" r="2.6"/><path d="M10.6 12h2.8"/>',
+  neck: '<path d="M7 5l5 7 5-7"/><circle cx="12" cy="16.5" r="2.3"/>',
+  clothes: '<path d="M9 4 4 7l2 3 2-1v8h8v-8l2 1 2-3-5-3-2 2.2z"/>',
+  chest: '<path d="M7 5l5 2 5-2v8a5 5 0 0 1-10 0z"/><path d="M12 7v10"/>',
+  back: '<rect x="6" y="7.5" width="12" height="12.5" rx="3"/><path d="M9 7.5V6a3 3 0 0 1 6 0v1.5"/><path d="M9.5 13h5"/>',
+  belt: '<rect x="3" y="9.5" width="18" height="5" rx="1.4"/><rect x="10" y="9.5" width="4" height="5"/>',
+  hip: '<path d="M7.5 9.5h9l-.8 8.5a2 2 0 0 1-2 1.8h-3.4a2 2 0 0 1-2-1.8z"/><path d="M9.5 9.5V8a2.5 2.5 0 0 1 5 0v1.5"/>',
+  hand: '<path d="M12 3.5v9"/><path d="M8.5 8h7"/><circle cx="12" cy="16.5" r="3.6"/>',
+  feet: '<path d="M9 4v8.5l-3 1.2V18a2 2 0 0 0 2 2h8.5a2.5 2.5 0 0 0 2.5-2.5c0-1.8-1.6-2.7-3.4-3.2L13 13.3V4z"/>',
+  ring: '<circle cx="12" cy="14.5" r="4.6"/><path d="M9.6 10l2.4-3.6 2.4 3.6"/>',
+  lock: '<rect x="5" y="11" width="14" height="8.5" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  spark: '<path d="M12 3l1.7 5L19 9.7 13.7 11.4 12 16.5l-1.7-5.1L5 9.7 10.3 8z"/>',
+  plus: '<path d="M12 5.5v13M5.5 12h13"/>',
+  undo: '<path d="M5 9.5h7.5a5 5 0 1 1 0 10H8"/><path d="M5 9.5 8 6.5M5 9.5 8 12.5"/>',
+  check: '<path d="M5 12.5l4 4 10-10"/>',
+  cross: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
+}
+function ahIcon(name, cls) { const p = AH_ICON_PATHS[name]; if (!p) return ""; return '<svg class="' + (cls || "ah-ico") + '" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + p + "</svg>" }
+const AH_SLOT_ICON = { Head: "head", Face: "face", Neck: "neck", Clothes: "clothes", Chest: "chest", Back: "back", Belt: "belt", LHip: "hip", RHip: "hip", LHand: "hand", RHand: "hand", Feet: "feet", LRing: "ring", RRing: "ring" }
 
 // ── add-on storage gear (player-added belts/packs that grant slots + bag space) ──
 // Stored on the actor flag `ahGear` = [{ id, kind }]. Each grants attachment points
@@ -2843,17 +2900,19 @@ function ahCountFits(ctx, key) {
 /** One labelled body-slot card: filled / empty(+fit count) / locked(reason) / covered(read-only). */
 function ahSlotCard(ctx, key, occ, caps, gsrc) {
   const label = AH_SLOT_LABEL[key] || key
-  const ico = '<span class="ah-sico">' + (AH_SLOT_ICON[key] || "") + "</span>"
+  const ico = '<span class="ah-sico">' + ahIcon(AH_SLOT_ICON[key]) + "</span>"
+  const lock = '<span class="ah-slock">' + ahIcon("lock") + " needs clothing/armor</span>"
   const gby = (gsrc && gsrc[key] && gsrc[key].length) ? "granted by " + gsrc[key].join(", ") : ""
+  const dropCue = '<span class="ah-sdrop">' + ahIcon("check") + " drop here</span>"   // non-colour drop cue
   if (key === "Back") {
     const n = ctx.back.length, cap = caps.Back
-    if (cap <= 0) return '<div class="ah-slot locked" title="' + ahEscX("Back — needs clothing, armor, or a pack") + '"><span class="ah-slab">' + ico + label + '</span><span class="ah-sval ah-slock">🔒 needs clothing/armor</span></div>'
+    if (cap <= 0) return '<div class="ah-slot locked" title="' + ahEscX("Back — needs clothing, armor, or a pack") + '"><span class="ah-slab">' + ico + label + '</span><span class="ah-sval">' + lock + "</span></div>"
     let val = ""
-    if (n) val += ctx.back.map(bid => '<i class="ah-bdot" data-rm="' + ahEscX(bid) + '" title="' + ahEscX(ctx.byId[bid].name) + ' — remove" style="background:' + ctx.byId[bid].color + '"></i>').join("")
-    const canAdd = ctx.canArrange && n < cap
-    val += canAdd ? '<span class="ah-sadd">+ add</span>' : (n ? "" : '<span class="ah-sempty">empty</span>')
-    const cls = "ah-slot" + (n ? " filled" : " empty") + (ctx.validBody && ctx.validBody.has("Back") ? " valid" : "")
-    return '<div class="' + cls + '" data-slot="Back"' + (canAdd ? ' data-pick="Back"' : "") + ' title="' + ahEscX(gby) + '"><span class="ah-slab">' + ico + label + ' <i class="ah-scap">' + n + "/" + cap + '</i></span><span class="ah-sval">' + val + "</span></div>"
+    if (n) val += ctx.back.map(bid => '<button type="button" class="ah-bdot" data-rm="' + ahEscX(bid) + '" aria-label="' + ahEscX("Remove " + ctx.byId[bid].name + " from Back") + '" title="' + ahEscX(ctx.byId[bid].name + " — remove") + '" style="background:' + ctx.byId[bid].color + '"></button>').join("")
+    const valid = ctx.validBody && ctx.validBody.has("Back"), canAdd = ctx.canArrange && n < cap
+    val += valid ? dropCue : (canAdd ? '<button type="button" class="ah-sadd ah-addbtn" data-pick="Back" aria-label="' + ahEscX("Add an item to Back, " + n + " of " + cap + " used") + '">+ add</button>' : (n ? "" : '<span class="ah-sempty">empty</span>'))
+    const cls = "ah-slot" + (n ? " filled" : " empty") + (valid ? " valid" : "")
+    return '<div class="' + cls + '" data-slot="Back" title="' + ahEscX(gby) + '"><span class="ah-slab">' + ico + label + ' <i class="ah-scap">' + n + "/" + cap + '</i></span><span class="ah-sval">' + val + "</span></div>"
   }
   const cap = AH_GRANTABLE.indexOf(key) >= 0 ? (caps[key] || 0) : 1
   const id = occ[key]
@@ -2863,20 +2922,21 @@ function ahSlotCard(ctx, key, occ, caps, gsrc) {
     return '<div class="ah-slot covered" title="' + ahEscX("Covered by " + nm) + '"><span class="ah-slab">' + ico + label + '</span><span class="ah-sval ah-scover">covered by ' + ahEscX(ahShort(nm)) + "</span></div>"
   }
   if (!id && cap <= 0 && !AH_BASE_MOUNTS.has(key)) {   // ungranted + empty grantable → LOCKED with a reason
-    return '<div class="ah-slot locked" title="' + ahEscX(label + " — needs clothing or armor") + '"><span class="ah-slab">' + ico + label + '</span><span class="ah-sval ah-slock">🔒 needs clothing/armor</span></div>'
+    return '<div class="ah-slot locked" title="' + ahEscX(label + " — needs clothing or armor") + '"><span class="ah-slab">' + ico + label + '</span><span class="ah-sval">' + lock + "</span></div>"
   }
   if (id) {
     const it = ctx.byId[id]
     const swap = (ctx.validSwap && ctx.validSwap.has(key)) ? " swap" : ""
-    const val = '<i class="ah-bswatch" style="background:' + it.color + '"></i><span class="ah-bname">' + ahEscX(it.name) + "</span>" + (ctx.canArrange ? '<button class="ah-bx" data-rm="' + ahEscX(id) + '" title="Remove">×</button>' : "")
+    const val = '<i class="ah-bswatch" style="background:' + it.color + '"></i><span class="ah-bname">' + ahEscX(it.name) + "</span>" + (swap ? '<span class="ah-sswap">↔ swap</span>' : "") + (ctx.canArrange ? '<button type="button" class="ah-bx" data-rm="' + ahEscX(id) + '" aria-label="' + ahEscX("Remove " + it.name) + '" title="Remove">×</button>' : "")
     return '<div class="ah-slot filled' + swap + '" data-slot="' + ahEscX(key) + '" title="' + ahEscX(swap ? "drop to swap" : gby) + '"><span class="ah-slab">' + ico + label + '</span><span class="ah-sval">' + val + "</span></div>"
   }
   const valid = ctx.validBody && ctx.validBody.has(key)
   const fitN = ctx.canArrange ? ahCountFits(ctx, key) : 0
-  const add = ctx.canArrange ? '<span class="ah-sadd">+ add' + (fitN ? ' <i class="ah-sfit">' + fitN + " fit</i>" : "") + "</span>" : '<span class="ah-sempty">empty</span>'
+  const add = valid ? dropCue : (ctx.canArrange ? '<span class="ah-sadd">+ add' + (fitN ? ' <i class="ah-sfit">' + fitN + " fit</i>" : "") + "</span>" : '<span class="ah-sempty">empty</span>')
   const cls = "ah-slot empty" + (valid ? " valid" : "")
+  const pick = ctx.canArrange ? ' data-pick="' + ahEscX(key) + '" role="button" tabindex="0" aria-label="' + ahEscX(label + " slot, empty" + (fitN ? ", " + fitN + " items fit" : "") + " — add an item") + '"' : ""
   const tip = gby || (fitN ? fitN + " of your items fit here" : "")
-  return '<div class="' + cls + '" data-slot="' + ahEscX(key) + '"' + (ctx.canArrange ? ' data-pick="' + ahEscX(key) + '"' : "") + ' title="' + ahEscX(tip) + '"><span class="ah-slab">' + ico + label + '</span><span class="ah-sval">' + add + "</span></div>"
+  return '<div class="' + cls + '" data-slot="' + ahEscX(key) + '"' + pick + ' title="' + ahEscX(tip) + '"><span class="ah-slab">' + ico + label + '</span><span class="ah-sval">' + add + "</span></div>"
 }
 
 /** Click an empty slot → a menu of fitting items (loose AND in the bag); click one to equip. */
@@ -2893,17 +2953,38 @@ function ahOpenSlotMenu(ctx, slotKey, anchorEl) {
     b.addEventListener("click", (e) => { e.stopPropagation(); ahCloseMenu(ctx); ahEquipItem(ctx, it.id, slotKey) })
     menu.appendChild(b)
   }
-  const host = (anchorEl && anchorEl.appendChild) ? anchorEl : ctx.dollEl
+  menu.setAttribute("aria-label", "Items that fit " + (AH_SLOT_LABEL[slotKey] || slotKey))
+  // host on the .ah-slot CARD (a positioned div), never inside a native button (Back "+ add"),
+  // so we don't nest button>menu>button — and the menu still anchors to the slot via position:absolute.
+  const host = (anchorEl && anchorEl.closest && anchorEl.closest(".ah-slot")) || ctx.dollEl
   host.appendChild(menu); ctx._menu = menu
+  ahWireMenu(menu, anchorEl, () => ahCloseMenu(ctx))
   setTimeout(() => {
     const onDoc = (e) => { if (ctx._menu && !ctx._menu.contains(e.target)) ahCloseMenu(ctx) }
     document.addEventListener("mousedown", onDoc); ctx._menuOff = () => document.removeEventListener("mousedown", onDoc)
   }, 0)
 }
 function ahCloseMenu(ctx) { if (ctx._menuOff) { ctx._menuOff(); ctx._menuOff = null } if (ctx._menu) { ctx._menu.remove(); ctx._menu = null } }
+/** Give a popup the ARIA menu pattern: role=menu/menuitem, focus first item, arrow-key nav,
+ *  Escape closes + returns focus to the trigger. */
+function ahWireMenu(menu, trigger, close) {
+  menu.setAttribute("role", "menu"); menu.setAttribute("tabindex", "-1")
+  const items = Array.prototype.slice.call(menu.querySelectorAll("button"))
+  items.forEach(b => b.setAttribute("role", "menuitem"))
+  setTimeout(() => { (items[0] || menu).focus() }, 0)
+  menu.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.preventDefault(); if (close) close(); if (trigger && trigger.focus) trigger.focus(); return }
+    if (!items.length) return
+    const i = items.indexOf(document.activeElement)
+    if (e.key === "ArrowDown") { e.preventDefault(); (items[i + 1] || items[0]).focus() }
+    else if (e.key === "ArrowUp") { e.preventDefault(); (items[i - 1] || items[items.length - 1]).focus() }
+    else if (e.key === "Home") { e.preventDefault(); items[0].focus() }
+    else if (e.key === "End") { e.preventDefault(); items[items.length - 1].focus() }
+  })
+}
 
 /** "+ Add" storage gear → a menu of belts/packs/pouches; click adds one to the actor. */
-function ahOpenGearMenu(actor, anchorEl) {
+function ahOpenGearMenu(actor, anchorEl, triggerEl) {
   anchorEl.querySelectorAll(".ah-gear-menu").forEach(n => n.remove())
   const menu = document.createElement("div"); menu.className = "ah-gear-menu"
   const catalog = ahGearCatalog()
@@ -2920,8 +3001,13 @@ function ahOpenGearMenu(actor, anchorEl) {
     })
     menu.appendChild(b)
   }
+  menu.setAttribute("aria-label", "Add storage gear")
+  const trigger = triggerEl || ((typeof document !== "undefined") ? document.activeElement : null)
   anchorEl.appendChild(menu)
-  setTimeout(() => { const onDoc = (e) => { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener("mousedown", onDoc) } }; document.addEventListener("mousedown", onDoc) }, 0)
+  const close = () => { menu.remove(); document.removeEventListener("mousedown", onDoc) }
+  const onDoc = (e) => { if (!menu.contains(e.target)) close() }
+  ahWireMenu(menu, trigger, close)
+  setTimeout(() => { document.addEventListener("mousedown", onDoc) }, 0)
 }
 
 function ahMoveGhost(ctx, e) { const el = ctx.ghostEl; if (!el) return; el.style.left = (e.clientX + 12) + "px"; el.style.top = (e.clientY + 8) + "px" }
@@ -3045,10 +3131,12 @@ function ahBuildPanel(actor) {
 
   const wrap = document.createElement("div")
   wrap.className = "ah-panel" + (over ? " is-over" : "")
+  const titleId = "ah-title-" + actor.id
+  wrap.setAttribute("role", "region"); wrap.setAttribute("aria-labelledby", titleId)
 
   // header: title · worn/packed/loose · (GM) bag capacity
   const head = document.createElement("div"); head.className = "ah-head"
-  const title = document.createElement("span"); title.className = "ah-title"; title.textContent = "🎒 Anti-Hammer Space"; head.appendChild(title)
+  const title = document.createElement("span"); title.className = "ah-title"; title.id = titleId; title.setAttribute("role", "heading"); title.setAttribute("aria-level", "2"); title.innerHTML = ahIcon("back", "ah-ico") + " Anti-Hammer Space"; head.appendChild(title)
   const stat = document.createElement("span"); stat.className = "ah-stat"
   stat.innerHTML = "<b>" + wornN + "</b> worn · <b>" + packedN + "</b> packed" + (looseN ? " · <b>" + looseN + "</b> loose" : "")
   head.appendChild(stat)
@@ -3068,21 +3156,22 @@ function ahBuildPanel(actor) {
   const dollWrap = document.createElement("div"); dollWrap.className = "ah-dollwrap"
   if (ctx.canArrange) {
     const bar = document.createElement("div"); bar.className = "ah-dollbar"
-    const suit = document.createElement("button"); suit.type = "button"; suit.className = "ah-act"; suit.textContent = "✨ Suit up"; suit.title = "Auto-equip clothes, armor & packs (not weapons)"
+    const suit = document.createElement("button"); suit.type = "button"; suit.className = "ah-act"; suit.innerHTML = ahIcon("spark") + " Suit up"; suit.title = "Auto-equip clothes, armor & packs (not weapons)"
     suit.addEventListener("click", (e) => { e.stopPropagation(); ahSuitUp(ctx) }); bar.appendChild(suit)
     const strip = document.createElement("button"); strip.type = "button"; strip.className = "ah-act"; strip.textContent = "Strip"; strip.title = "Unequip everything to loose"
     strip.addEventListener("click", (e) => { e.stopPropagation(); ahStripAll(ctx) }); bar.appendChild(strip)
     const oWrap = document.createElement("div"); oWrap.className = "ah-outfits"
     const oLbl = document.createElement("span"); oLbl.className = "ah-outfits-lbl"; oLbl.textContent = "Outfits"; oWrap.appendChild(oLbl)
     for (const o of ahOutfits(actor)) {
-      const chip = document.createElement("button"); chip.type = "button"; chip.className = "ah-outfit"; chip.title = "Wear this outfit"
-      chip.appendChild(document.createTextNode(o.name || "Outfit"))
-      chip.addEventListener("click", (e) => { e.stopPropagation(); ahApplyOutfit(ctx, o) })
-      const x = document.createElement("span"); x.className = "ah-outfit-x"; x.textContent = "×"; x.title = "Delete outfit"
+      const chip = document.createElement("div"); chip.className = "ah-outfit"   // wrapper (not a button → no nested-button)
+      const apply = document.createElement("button"); apply.type = "button"; apply.className = "ah-outfit-apply"; apply.title = "Wear this outfit"; apply.setAttribute("aria-label", "Wear outfit " + (o.name || "Outfit"))
+      apply.appendChild(document.createTextNode(o.name || "Outfit"))
+      apply.addEventListener("click", (e) => { e.stopPropagation(); ahApplyOutfit(ctx, o) }); chip.appendChild(apply)
+      const x = document.createElement("button"); x.type = "button"; x.className = "ah-outfit-x"; x.textContent = "×"; x.title = "Delete outfit"; x.setAttribute("aria-label", "Delete outfit " + (o.name || "Outfit"))
       x.addEventListener("click", (e) => { e.stopPropagation(); ahDeleteOutfit(ctx, o.id) }); chip.appendChild(x)
       oWrap.appendChild(chip)
     }
-    const save = document.createElement("button"); save.type = "button"; save.className = "ah-outfit-save"; save.textContent = "＋ Save"; save.title = "Save the current gear as an outfit"
+    const save = document.createElement("button"); save.type = "button"; save.className = "ah-outfit-save"; save.innerHTML = ahIcon("plus") + " Save"; save.title = "Save the current gear as an outfit"
     save.addEventListener("click", (e) => { e.stopPropagation(); ahSaveOutfit(ctx) }); oWrap.appendChild(save)
     bar.appendChild(oWrap); dollWrap.appendChild(bar)
   }
@@ -3092,7 +3181,7 @@ function ahBuildPanel(actor) {
     const bagLbl = document.createElement("div"); bagLbl.className = "ah-bag-lbl"
     const bagTitle = document.createElement("span"); bagTitle.textContent = "Bag"; bagLbl.appendChild(bagTitle)
     if (ctx.canArrange) {
-      const tidy = document.createElement("button"); tidy.type = "button"; tidy.className = "ah-tidy"; tidy.textContent = "✨ Tidy"; tidy.title = "Auto-pack your loose items into the bag"
+      const tidy = document.createElement("button"); tidy.type = "button"; tidy.className = "ah-tidy"; tidy.innerHTML = ahIcon("spark") + " Tidy"; tidy.title = "Auto-pack your loose items into the bag"
       tidy.addEventListener("click", (e) => { e.stopPropagation(); ctx.placed = ahAutoPack(ctx); ahSavePlace(ctx.actor, ahPlaceObj(ctx)) })   // setFlag re-renders the whole panel with consistent counts
       bagLbl.appendChild(tidy)
     }
@@ -3104,7 +3193,7 @@ function ahBuildPanel(actor) {
     const scroll = document.createElement("div"); scroll.className = "ah-scroll"
     const holder = document.createElement("div"); holder.className = "ah-svgholder"; ctx.holder = holder; scroll.appendChild(holder); bagCol.appendChild(scroll)
     const legend = document.createElement("div"); legend.className = "ah-legend"; ctx.legendEl = legend; bagCol.appendChild(legend)
-    if (ctx.canArrange) legend.addEventListener("click", (e) => { const u = e.target.closest("[data-use]"); if (u) { e.stopPropagation(); ahUseItem(actor, u.getAttribute("data-use")) } })
+    if (ctx.canArrange) legend.addEventListener("click", (e) => { const u = e.target.closest("[data-use]"); if (u) { e.stopPropagation(); ahUseItem(actor, u.getAttribute("data-use")); return } const p = e.target.closest("[data-unpack]"); if (p) { e.stopPropagation(); ahUnplaceItem(ctx, p.getAttribute("data-unpack")) } })
   } else {
     const hint = document.createElement("div"); hint.className = "ah-bag-empty"; hint.textContent = "No storage yet — equip a backpack/container or add storage gear below."; bagCol.appendChild(hint)
   }
@@ -3115,14 +3204,14 @@ function ahBuildPanel(actor) {
   const contWrap = document.createElement("div"); contWrap.className = "ah-cont"
   const contHead = document.createElement("div"); contHead.className = "ah-gear-head"
   const contLbl = document.createElement("span"); contLbl.className = "ah-gear-lbl"; contLbl.textContent = "Containers & storage"; contHead.appendChild(contLbl)
-  if (ctx.canArrange) { const add = document.createElement("button"); add.className = "ah-gear-add"; add.textContent = "+ Add"; add.title = "Add a belt, backpack, pouch…"; add.addEventListener("click", (e) => { e.stopPropagation(); ahOpenGearMenu(actor, contWrap) }); contHead.appendChild(add) }
+  if (ctx.canArrange) { const add = document.createElement("button"); add.className = "ah-gear-add"; add.textContent = "+ Add"; add.title = "Add a belt, backpack, pouch…"; add.addEventListener("click", (e) => { e.stopPropagation(); ahOpenGearMenu(actor, contWrap, add) }); contHead.appendChild(add) }
   contWrap.appendChild(contHead)
   const contRow = document.createElement("div"); contRow.className = "ah-cont-row"
   for (const id of contItems) {
     const it = byId[id]; if (!it) continue
     const chip = document.createElement("span"); chip.className = "ah-cont-chip worn"
     chip.innerHTML = '<i class="ah-cont-sw" style="background:' + it.color + '"></i>' + ahEscX(it.name) + ' <span class="ah-gear-n">+' + ahFmt(capacity) + " bag</span>"
-    if (ctx.canArrange) { const x = document.createElement("button"); x.className = "ah-gear-x"; x.textContent = "×"; x.title = "Unequip"; x.addEventListener("click", (e) => { e.stopPropagation(); ahUnequip(ctx, id) }); chip.appendChild(x) }
+    if (ctx.canArrange) { const x = document.createElement("button"); x.type = "button"; x.className = "ah-gear-x"; x.textContent = "×"; x.title = "Unequip"; x.setAttribute("aria-label", "Unequip " + it.name); x.addEventListener("click", (e) => { e.stopPropagation(); ahUnequip(ctx, id) }); chip.appendChild(x) }
     contRow.appendChild(chip)
   }
   for (const g of gearList) {
@@ -3130,7 +3219,7 @@ function ahBuildPanel(actor) {
     const bits = []; if (cat.storage) bits.push("+" + cat.storage + " bag"); for (const k of Object.keys(cat.grants || {})) bits.push("+" + cat.grants[k] + " " + k)
     const chip = document.createElement("span"); chip.className = "ah-cont-chip gear"
     chip.innerHTML = ahEscX(cat.name) + (bits.length ? ' <span class="ah-gear-n">' + ahEscX(bits.join(" · ")) + "</span>" : "")
-    if (ctx.canArrange) { const x = document.createElement("button"); x.className = "ah-gear-x"; x.textContent = "×"; x.title = "Remove"; x.addEventListener("click", async () => { try { await actor.setFlag(MOD, "ahGear", ahGearList(actor).filter(z => z.id !== g.id)) } catch (e) { console.warn("[pendant-bridge] AH gear remove failed", e) } }); chip.appendChild(x) }
+    if (ctx.canArrange) { const x = document.createElement("button"); x.type = "button"; x.className = "ah-gear-x"; x.textContent = "×"; x.title = "Remove"; x.setAttribute("aria-label", "Remove " + cat.name); x.addEventListener("click", async () => { try { await actor.setFlag(MOD, "ahGear", ahGearList(actor).filter(z => z.id !== g.id)) } catch (e) { console.warn("[pendant-bridge] AH gear remove failed", e) } }); chip.appendChild(x) }
     contRow.appendChild(chip)
   }
   if (!contItems.length && !gearList.length) { const e = document.createElement("span"); e.className = "ah-gear-empty"; e.textContent = ctx.canArrange ? "None — equip a pack or add storage gear." : "None."; contRow.appendChild(e) }
@@ -3150,10 +3239,17 @@ function ahBuildPanel(actor) {
   if (ctx.canArrange) {
     trayEl.addEventListener("mousedown", (e) => { if (e.target.closest("[data-use]")) return; const t = e.target.closest("[data-tray]"); if (t) ahDragItem(ctx, t.getAttribute("data-tray"), "tray", e) })
     trayEl.addEventListener("click", (e) => { const u = e.target.closest("[data-use]"); if (u) { e.stopPropagation(); ahUseItem(actor, u.getAttribute("data-use")) } })
+    trayEl.addEventListener("keydown", (e) => { if (e.key !== "Enter" && e.key !== " ") return; if (e.target.closest("[data-use]")) return; const t = e.target.closest("[data-tray]"); if (t) { e.preventDefault(); ahStowItem(ctx, t.getAttribute("data-tray")) } })   // keyboard stow
     if (ctx.holder) ctx.holder.addEventListener("mousedown", (e) => { const t = e.target.closest("[data-item]"); if (t) ahDragItem(ctx, t.getAttribute("data-item"), "bag", e) })
     dollEl.addEventListener("click", (e) => {
+      if (e.target.closest(".ah-pickmenu")) return   // events inside an open picker are the menu's own
       const rm = e.target.closest("[data-rm]"); if (rm) { ahUnequip(ctx, rm.getAttribute("data-rm")); return }
       const pk = e.target.closest("[data-pick]"); if (pk) ahOpenSlotMenu(ctx, pk.getAttribute("data-pick"), pk)
+    })
+    dollEl.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return
+      if (e.target.closest(".ah-pickmenu")) return   // don't let a menuitem keydown bubble up and re-open the picker
+      const pk = e.target.closest("[data-pick]"); if (pk && pk.getAttribute("role") === "button") { e.preventDefault(); ahOpenSlotMenu(ctx, pk.getAttribute("data-pick"), pk) }   // role=button slot DIVs only (native buttons self-fire)
     })
   }
   ahRenderDoll(ctx); ahRenderBoard(ctx); ahRenderTray(ctx)
