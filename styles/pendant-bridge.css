@@ -117,6 +117,8 @@
 .ah-panel .ah-tidy:active, .ah-panel .ah-act:active { transform: translateY(0.5px); }
 .ah-panel .ah-use { font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 7px; border-radius: var(--ah-pill); cursor: pointer; background: var(--ah-good-bg); border: 1px solid var(--ah-good-line); color: var(--ah-good-ink); line-height: 1.5; }
 .ah-panel .ah-use:hover { background: rgba(121, 189, 102, 0.32); color: #e6f5e6; }
+.ah-panel .ah-draw { font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 7px; border-radius: var(--ah-pill); cursor: pointer; background: var(--ah-action-bg); border: 1px solid var(--ah-action-line); color: var(--ah-action-ink); line-height: 1.5; }
+.ah-panel .ah-draw:hover { background: rgba(217, 156, 70, 0.3); color: #f6e2b6; }
 /* paperdoll — figure flanked by two tidy columns of labelled slot cards */
 .ah-panel .ah-doll { display: flex; gap: 8px; align-items: stretch; }
 .ah-panel .ah-dollcol { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
@@ -279,16 +281,16 @@
    (44px on coarse pointers) hit target via ::after, so the dense desktop layout
    doesn't shift. GM number inputs/controls clear 24px on every pointer. */
 .ah-panel .ah-bx, .ah-panel .ah-gear-x, .ah-panel .ah-outfit-x,
-.ah-panel .ah-bdot, .ah-panel .ah-leg-x, .ah-panel .ah-use { position: relative; }
+.ah-panel .ah-bdot, .ah-panel .ah-leg-x, .ah-panel .ah-use, .ah-panel .ah-draw { position: relative; }
 .ah-panel .ah-bx::after, .ah-panel .ah-gear-x::after, .ah-panel .ah-outfit-x::after,
-.ah-panel .ah-bdot::after, .ah-panel .ah-leg-x::after, .ah-panel .ah-use::after {
+.ah-panel .ah-bdot::after, .ah-panel .ah-leg-x::after, .ah-panel .ah-use::after, .ah-panel .ah-draw::after {
   content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
   width: 100%; height: 100%; min-width: 24px; min-height: 24px;
 }
 .ah-panel .ah-cap-input, .ah-panel .ah-row-sp, .ah-panel .ah-row-sel, .ah-panel .ah-row-rst { min-height: 24px; }
 @media (pointer: coarse) {
   .ah-panel .ah-bx::after, .ah-panel .ah-gear-x::after, .ah-panel .ah-outfit-x::after,
-  .ah-panel .ah-bdot::after, .ah-panel .ah-leg-x::after, .ah-panel .ah-use::after { min-width: 44px; min-height: 44px; }
+  .ah-panel .ah-bdot::after, .ah-panel .ah-leg-x::after, .ah-panel .ah-use::after, .ah-panel .ah-draw::after { min-width: 44px; min-height: 44px; }
   .ah-panel .ah-cap-input, .ah-panel .ah-row-sp, .ah-panel .ah-row-sel, .ah-panel .ah-row-rst { min-height: 40px; }
   .ah-panel .ah-row-rst { width: 40px; }
   .ah-panel .ah-slotchip { padding: 7px 11px; }

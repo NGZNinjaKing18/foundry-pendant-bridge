@@ -59,6 +59,7 @@ const AH = {
     strCapacity: false,      // off until the DM turns it on in the app
     strPer: 1,               // extra bag spaces per unit of the chosen basis
     strBasis: "mod",         // "mod" (STR modifier) | "over10" (STR − 10) | "score" (full STR score)
+    ammoAutoSpend: false,    // OPT-IN: spend ammo only for weapons that DON'T have ammo set up in dnd5e
   },
 
   /** The active config = saved world setting merged over defaults (so a missing key is safe). */
@@ -2437,6 +2438,73 @@ async function ahUseItem(actor, itemId) {
   } catch {}
 }
 
+// ── ammo auto-spend ─────────────────────────────────────────────────────────
+// Firing a ranged weapon spends one matching ammo. dnd5e already does this when a
+// weapon has ammunition configured (and the bag reflects it live) — so we ONLY step
+// in when it doesn't, and only when the ammo is unambiguous. Best-effort + fully
+// guarded; toggle off in the app if a sheet/version misbehaves.
+function ahHasProp(props, p) { try { return props && (props.has ? props.has(p) : (Array.isArray(props) ? props.includes(p) : !!props[p])) } catch { return false } }
+function ahIsRangedWeapon(item) {
+  if (!item || item.type !== "weapon") return false
+  const sys = item.system || {}
+  const t = String((sys.type && sys.type.value) || sys.weaponType || "").toLowerCase()
+  if (t === "simpler" || t === "martialr" || t === "ranged" || t === "siege") return true
+  return ahHasProp(sys.properties, "amm") || ahHasProp(sys.properties, "ammunition")
+}
+/** Does this weapon ALREADY have ammo/consumption set up that dnd5e (or the player) handles?
+ *  Broad + conservative across dnd5e v3 (system.consume) and v4/v5 (activities) — when in ANY
+ *  doubt we treat it as configured and DON'T auto-spend (better to skip than to double-spend). */
+function ahWeaponHasAmmoConfig(item) {
+  try {
+    const sys = item.system || {}
+    if (sys.consume && sys.consume.target) return true                       // v3 linked consumption
+    if (sys.ammunition && (sys.ammunition.target || sys.ammunition.type)) return true
+    const acts = sys.activities
+    if (acts) {
+      const list = typeof acts.values === "function" ? Array.from(acts.values()) : Object.values(acts)
+      for (const a of list) {
+        const c = a && a.consumption; if (!c) continue
+        if (Array.isArray(c.targets) ? c.targets.length : (c.targets || c.amount)) return true   // v4/v5: any consumption
+      }
+    }
+  } catch { return true }   // any uncertainty → assume configured, don't auto-spend (fail to under-spend, never double)
+  return false
+}
+/** The ammo to spend for a BARE ranged weapon: only the ONE ammo type a character carries (else null). */
+function ahAmmoForWeapon(actor) {
+  try {
+    const ammo = actor.items.filter(i => i.type === "consumable" && (() => { const st = String((((i.system || {}).type) || {}).value || "").toLowerCase(); return st === "ammo" || st === "ammunition" })())
+    return ammo.length === 1 ? ammo[0] : null
+  } catch { return null }
+}
+const _ahAmmoFired = new Map()   // actor:weapon → last-fire ms, to de-dupe overlapping attack hooks
+async function ahOnWeaponAttack(item) {
+  try {
+    if (!item || item.type !== "weapon" || !item.parent || item.parent.documentName !== "Actor") return
+    const actor = item.parent
+    if (!actor.isOwner) return                       // the rolling owner acts; the hook is client-local → fires once per client
+    const cfg = AH.cfg(); if (!cfg.ammoAutoSpend) return
+    if (!ahIsRangedWeapon(item)) return
+    if (ahWeaponHasAmmoConfig(item)) return          // dnd5e / the player already spend it; the bag reflects live
+    const key = actor.id + ":" + item.id, now = Date.now()
+    if (now - (_ahAmmoFired.get(key) || 0) < 1200) return   // v4/v5 raises >1 attack hook per shot → spend once
+    const ammo = ahAmmoForWeapon(actor); if (!ammo || AH.itemQty(ammo) <= 0) return
+    _ahAmmoFired.set(key, now)
+    await ahUseItem(actor, ammo.id)                  // guarded −1 (+ delete on last) + chat line
+  } catch (e) { console.warn("[pendant-bridge] AH ammo auto-spend failed", e) }
+}
+/** Pull the fired Item out of whatever shape the dnd5e attack hook hands us (v3 item, v4/v5 activity). */
+function ahAttackItem() {
+  for (const a of arguments) {
+    if (!a || typeof a !== "object") continue
+    if (a.documentName === "Item") return a
+    if (a.item && a.item.documentName === "Item") return a.item
+    if (a.subject && a.subject.item && a.subject.item.documentName === "Item") return a.subject.item
+    if (a.activity && a.activity.item) return a.activity.item
+  }
+  return null
+}
+
 // ── world-wide per-item-name DM overrides ───────────────────────────────────
 // A rule keyed by lowercased item name overrides the derived metadata for EVERY
 // copy of that item in the world (size/carryType/equipSlots/spaces/shape).
@@ -2841,6 +2909,22 @@ function ahEquipItem(ctx, id, slotKey) {
   ahSaveEquip(ctx); ahSavePlace(ctx.actor, ahPlaceObj(ctx)); ahSetEquipped(ctx, id, true)
 }
 function ahUnequip(ctx, id) { delete ctx.worn[id]; ctx.back = ctx.back.filter(x => x !== id); ahSaveEquip(ctx); ahSetEquipped(ctx, id, false) }
+/** One-click DRAW (stow → free hand) / SHEATHE (hand → free belt/hip/back) for a one-handed weapon.
+ *  Stays "equipped" either way — it just relocates on the body, so dnd5e's equipped flag is untouched. */
+function ahDrawSheathe(ctx, id) {
+  const m = ctx.metaById[id]; if (!m || m.twoHanded) return
+  const cur = ctx.worn[id] || (ctx.back.indexOf(id) >= 0 ? "Back" : null); if (!cur) return
+  const slots = (m.equipSlots || []).map(s => AH_SLOT_KEY[s] || s)
+  const inHand = cur === "LHand" || cur === "RHand"
+  const free = ahFreeBody(ctx, m)
+  const want = inHand ? ["RHip", "LHip", "Belt", "Back"] : ["RHand", "LHand"]
+  let target = null
+  for (const s of want) { if (slots.indexOf(s) >= 0 && free.has(s) && s !== cur) { target = s; break } }
+  if (!target) { try { if (typeof ui !== "undefined" && ui.notifications) ui.notifications.warn(inHand ? "No open belt, hip, or back slot to sheathe into." : "No free hand to draw to.") } catch {} return }
+  delete ctx.worn[id]; ctx.back = ctx.back.filter(x => x !== id)
+  if (target === "Back") ctx.back.push(id); else ctx.worn[id] = target
+  ahSaveEquip(ctx)   // one write; still equipped, just relocated
+}
 
 /** Auto-equip the obvious WORN kit — clothes, armor, and non-weapon back items (packs, cloaks,
  *  bedrolls). Never weapons (the player places those). Grantors first so packs get a Back point. */
@@ -2952,7 +3036,17 @@ function ahSlotCard(ctx, key, occ, caps, gsrc) {
   if (id) {
     const it = ctx.byId[id]
     const swap = (ctx.validSwap && ctx.validSwap.has(key)) ? " swap" : ""
-    const val = '<i class="ah-bswatch" style="background:' + it.color + '"></i><span class="ah-bname">' + ahEscX(it.name) + "</span>" + (swap ? '<span class="ah-sswap">↔ swap</span>' : "") + (ctx.canArrange ? '<button type="button" class="ah-bx" data-rm="' + ahEscX(id) + '" aria-label="' + ahEscX("Remove " + it.name) + '" title="Remove">×</button>' : "")
+    // one-handed weapon → a draw/sheathe quick-action (sheathe always offered; draw only if a hand is free)
+    const dm = ctx.metaById[id]; let dsBtn = ""
+    if (ctx.canArrange && dm && dm.carryType === "Weapon" && !dm.twoHanded) {
+      const inHand = key === "LHand" || key === "RHand"
+      // `occ` (the expanded occupancy passed in) sets BOTH hands for a 2-handed weapon, so this
+      // hides "draw" when no hand is truly free instead of dead-clicking.
+      if (inHand || !(occ.RHand && occ.LHand)) {
+        dsBtn = '<button type="button" class="ah-draw" data-draw="' + ahEscX(id) + '" aria-label="' + ahEscX((inHand ? "Sheathe " : "Draw ") + it.name) + '" title="' + (inHand ? "Sheathe — stow on belt/hip/back" : "Draw to a free hand") + '">' + (inHand ? "sheathe" : "draw") + "</button>"
+      }
+    }
+    const val = '<i class="ah-bswatch" style="background:' + it.color + '"></i><span class="ah-bname">' + ahEscX(it.name) + "</span>" + (swap ? '<span class="ah-sswap">↔ swap</span>' : "") + dsBtn + (ctx.canArrange ? '<button type="button" class="ah-bx" data-rm="' + ahEscX(id) + '" aria-label="' + ahEscX("Remove " + it.name) + '" title="Remove">×</button>' : "")
     return '<div class="ah-slot filled' + swap + '" data-slot="' + ahEscX(key) + '" title="' + ahEscX(swap ? "drop to swap" : gby) + '"><span class="ah-slab">' + ico + label + '</span><span class="ah-sval">' + val + "</span></div>"
   }
   const valid = ctx.validBody && ctx.validBody.has(key)
@@ -3274,6 +3368,7 @@ function ahBuildPanel(actor) {
     if (ctx.holder) ctx.holder.addEventListener("mousedown", (e) => { const t = e.target.closest("[data-item]"); if (t) ahDragItem(ctx, t.getAttribute("data-item"), "bag", e) })
     dollEl.addEventListener("click", (e) => {
       if (e.target.closest(".ah-pickmenu")) return   // events inside an open picker are the menu's own
+      const dr = e.target.closest("[data-draw]"); if (dr) { e.stopPropagation(); ahDrawSheathe(ctx, dr.getAttribute("data-draw")); return }
       const rm = e.target.closest("[data-rm]"); if (rm) { ahUnequip(ctx, rm.getAttribute("data-rm")); return }
       const pk = e.target.closest("[data-pick]"); if (pk) ahOpenSlotMenu(ctx, pk.getAttribute("data-pick"), pk)
     })
@@ -3594,6 +3689,12 @@ Hooks.once("ready", () => {
   Hooks.on("deleteItem", (it) => { const a = itemActor(it); if (a) ahRecomputeActor(a) })
   Hooks.on("createActor", (a) => ahRecomputeActor(a))
   Hooks.on("updateActor", (a, changes) => { if (ahCapacityChanged(changes)) ahRecomputeActor(a) })
+
+  // Ammo auto-spend: when a ranged weapon is fired, spend a matching ammo if dnd5e didn't.
+  // The attack hook is client-local (fires once, on the roller), so no cross-client de-dupe needed.
+  for (const h of ["dnd5e.rollAttack", "dnd5e.rollAttackV2", "dnd5e.postRollAttackV2"]) {
+    try { Hooks.on(h, function () { const it = ahAttackItem.apply(null, arguments); if (it) ahOnWeaponAttack(it) }) } catch (e) { console.warn("[pendant-bridge] AH attack hook " + h + " failed", e) }
+  }
 
   ahRecomputeAll()   // seed/refresh every bag's stored state on boot (GM only)
   ahRerenderSheets()
