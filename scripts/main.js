@@ -126,7 +126,7 @@ const AH = {
       const spaces = this.itemSpaces(it, cfg, effOv)
       used += spaces
       let m = null; try { m = ahMeta(it) } catch {}
-      const meta = m ? { size: m.size, carryType: m.carryType, equipSlots: m.equipSlots, needsBackPoint: m.needsBackPoint, twoHanded: m.twoHanded, longItem: m.longItem, override: m.override } : null
+      const meta = m ? { size: m.size, carryType: m.carryType, equipSlots: m.equipSlots, needsBackPoint: m.needsBackPoint, twoHanded: m.twoHanded, longItem: m.longItem, baggable: m.baggable, ignoreSlot: m.ignoreSlot, override: m.override } : null
       let shape = null; try { shape = ahEffectiveShape(it, Math.max(1, Math.ceil(spaces))) } catch {}
       items.push({ id: it.id, name: it.name, type: it.type, img: resolveImg(it.img), color: ahColorFor(it.id), weight: this.itemWeight(it), qty: this.itemQty(it), spaces, override: flagOv, ruleKey: ahItemRuleKey(it), hasRule: !!rule, shape, meta })
     }
@@ -2150,6 +2150,9 @@ function ahValid(ctx, cs, excludeId) {
   for (const c of cs) { const k = c.col + "," + c.row; if (!ctx.validSet.has(k) || occ.has(k)) return false }
   return true
 }
+// Can this item be packed in the bag at all? Worn-only gear (armor/clothing/containers,
+// or a DM `baggable:false` override) can't — it must be worn, never bagged.
+function ahCanBag(ctx, id) { const m = ctx.metaById && ctx.metaById[id]; return !m || m.baggable !== false }
 
 function ahBoardSVG(ctx) {
   const g = ctx.geom
@@ -2167,7 +2170,7 @@ function ahBoardSVG(ctx) {
     if (n) s += '<text x="' + (sx / n).toFixed(1) + '" y="' + (sy / n + 3).toFixed(1) + '" text-anchor="middle" font-size="10" font-weight="700" fill="rgba(0,0,0,.62)" style="pointer-events:none">' + ahEscX(ahMark(it.name)) + '</text>'
   })
   if (ctx.held && ctx.hover) {
-    const cs = ahCellsFor(ctx.held.item, ctx.hover, ctx.held.rot); const ok = ahValid(ctx, cs, null)
+    const cs = ahCellsFor(ctx.held.item, ctx.hover, ctx.held.rot); const ok = ahCanBag(ctx, ctx.held.item.id) && ahValid(ctx, cs, null)
     for (const c of cs) {
       if (!ctx.validSet.has(c.col + "," + c.row)) continue
       const ct = ahCenter(g, c.col, c.row)
@@ -2177,15 +2180,21 @@ function ahBoardSVG(ctx) {
   return s + "</svg>"
 }
 function ahMiniSVG(it) {
-  const s2 = 8, hw = Math.sqrt(3) * s2
   const cs = it.shape.map(o => ahCToO(o))
   const cols = cs.map(c => c.col), rows = cs.map(c => c.row)
   const minc = Math.min(...cols), maxc = Math.max(...cols), minr = Math.min(...rows), maxr = Math.max(...rows)
-  const ox = hw / 2 + 2, oy = s2 + 2
+  const colSpan = maxc - minc, rowSpan = maxr - minr
+  // shrink the hex so even a big/long shape stays a small chip — a bulky consumable
+  // must never balloon and fill its whole tray category.
+  const MAX_W = 50, MAX_H = 40
+  const wAt = (s) => Math.sqrt(3) * s * (colSpan + 1.5) + 4
+  const hAt = (s) => 1.5 * s * rowSpan + 2 * s + 4
+  let s2 = 8; while (s2 > 3 && (wAt(s2) > MAX_W || hAt(s2) > MAX_H)) s2 -= 0.5
+  const hw = Math.sqrt(3) * s2, ox = hw / 2 + 2, oy = s2 + 2
   const cen = (col, row) => ({ x: ox + hw * ((col - minc) + 0.5 * (row & 1)), y: oy + 1.5 * s2 * (row - minr) })
   const w = ox + hw * ((maxc - minc) + 0.5) + hw / 2 + 2, h = oy + 1.5 * s2 * (maxr - minr) + s2 + 2
-  let g = '<svg width="' + w.toFixed(0) + '" height="' + h.toFixed(0) + '" style="display:block">'
-  for (const c of cs) { const ct = cen(c.col, c.row); g += '<polygon points="' + ahPts(ct.x, ct.y, s2) + '" fill="' + it.color + '" stroke="rgba(0,0,0,.45)" stroke-width="1.3"/>' }
+  let g = '<svg viewBox="0 0 ' + w.toFixed(0) + ' ' + h.toFixed(0) + '" width="' + w.toFixed(0) + '" height="' + h.toFixed(0) + '" style="display:block">'
+  for (const c of cs) { const ct = cen(c.col, c.row); g += '<polygon points="' + ahPts(ct.x, ct.y, s2) + '" fill="' + it.color + '" stroke="rgba(0,0,0,.45)" stroke-width="1.1"/>' }
   return g + "</svg>"
 }
 
@@ -2234,7 +2243,10 @@ function ahRenderTray(ctx) {
     h += '<details class="ah-tgroup"' + open + '><summary class="ah-tray-group">' + ahEscX(g === "Miscellaneous" ? "Other" : g) + ' <span class="ah-tray-gn">' + arr.length + '</span></summary><div class="ah-tray-row">'
     for (const it of arr) {
       const m = ctx.metaById[it.id] || {}
-      h += '<div class="ah-tray-it" data-tray="' + ahEscX(it.id) + '"' + (ctx.canArrange ? ' style="cursor:grab"' : "") + ' title="' + ahEscX((m.size || "") + (m.needsBackPoint ? " · needs a Back point" : "")) + '">' + ahMiniSVG(it) + '<span class="ah-tray-nm">' + ahEscX(it.name) + '</span><span class="ah-tray-sz">' + ahFmt(it.spaces) + "</span></div>"
+      const tag = (m.baggable === false ? '<span class="ah-tray-tag wear" title="Worn-only — can only be equipped on the body, never put in the bag">worn only</span>' : "")
+        + (m.ignoreSlot ? '<span class="ah-tray-tag free" title="Doesn\'t need a slot — won\'t count as overflow">no slot</span>' : "")
+      const tip = (m.size || "") + (m.baggable === false ? " · wear only" : "") + (m.ignoreSlot ? " · no slot needed" : "") + (m.needsBackPoint ? " · needs a Back point" : "")
+      h += '<div class="ah-tray-it" data-tray="' + ahEscX(it.id) + '"' + (ctx.canArrange ? ' style="cursor:grab"' : "") + ' title="' + ahEscX(tip) + '">' + ahMiniSVG(it) + '<span class="ah-tray-nm">' + ahEscX(it.name) + "</span>" + tag + '<span class="ah-tray-sz">' + ahFmt(it.spaces) + "</span></div>"
     }
     h += "</div></details>"
   }
@@ -2407,11 +2419,11 @@ function ahMeta(item) {
   }, null)
   try {
     const type = lc(item && item.type), name = lc(item && item.name), sys = (item && item.system) || {}
-    if (!type || NON_PHYSICAL.has(type)) return { size: null, carryType: "Miscellaneous", equipSlots: [], allowedContainers: [], longItem: false, twoHanded: false, needsBackPoint: false, grantsSlots: null, covers: null, nonPhysical: true }
+    if (!type || NON_PHYSICAL.has(type)) return { size: null, carryType: "Miscellaneous", equipSlots: [], allowedContainers: [], longItem: false, twoHanded: false, needsBackPoint: false, grantsSlots: null, covers: null, baggable: false, ignoreSlot: true, nonPhysical: true }
     const sub = readSubtype(sys), props = readProps(sys), wLb = readWeightLb(sys)
     const cls = safe(() => { const t = lc((sys && sys.type && sys.type.value) ?? (sys && sys.weaponType) ?? ""); if (t === "simplem" || t === "martialm") return "melee"; if (t === "simpler" || t === "martialr") return "ranged"; if (t === "natural") return "natural"; return "" }, "")
     let size = sizeFromWeight(wLb); if (size == null) size = categorySizeDefault(type, sub, props, name)
-    const carryType = deriveCarryType(sys, type, sub, size, name, wLb)
+    let carryType = deriveCarryType(sys, type, sub, size, name, wLb)
     const eq = deriveEquipSlots(type, sub, name, props, cls)
     let longItem = isLongItem(type, name, props, eq.twoHanded)
     const covers = (type === "equipment" && sub === "heavy") ? ["Head", "Feet"] : null   // plate: integrated helm + sabatons
@@ -2432,9 +2444,16 @@ function ahMeta(item) {
       if (Array.isArray(ov.equipSlots)) { equipSlots = ov.equipSlots.slice(); needsBackPoint = equipSlots.indexOf("Back") >= 0 && equipSlots.length === 1 }
       if (typeof ov.longItem === "boolean") longItem = ov.longItem
     }
-    return { size, carryType, equipSlots, allowedContainers: containersForSize(size), longItem, twoHanded: eq.twoHanded, needsBackPoint, grantsSlots: deriveGrants(type, sub, name), covers, override: !!ov, nonPhysical: false }
+    // baggable = can this go in the hex bag at all? Worn-only gear (armor / clothing /
+    // a container itself) can't — it must be worn. ignoreSlot = the DM/player says
+    // "fine that this isn't slotted" → it won't count as overflow. Both DM-overridable.
+    let baggable = !(carryType === "Container" || carryType === "Armor" || carryType === "Clothing")
+    let ignoreSlot = false
+    if (rule) { if (typeof rule.baggable === "boolean") baggable = rule.baggable; if (typeof rule.ignoreSlot === "boolean") ignoreSlot = rule.ignoreSlot }
+    if (ov) { if (typeof ov.baggable === "boolean") baggable = ov.baggable; if (typeof ov.ignoreSlot === "boolean") ignoreSlot = ov.ignoreSlot }
+    return { size, carryType, equipSlots, allowedContainers: containersForSize(size), longItem, twoHanded: eq.twoHanded, needsBackPoint, grantsSlots: deriveGrants(type, sub, name), covers, baggable, ignoreSlot, override: !!ov, nonPhysical: false }
   } catch {
-    return { size: "Medium", carryType: "Miscellaneous", equipSlots: [], allowedContainers: ["Backpack", "Chest", "Wagon"], longItem: false, twoHanded: false, needsBackPoint: false, grantsSlots: null, covers: null, nonPhysical: false }
+    return { size: "Medium", carryType: "Miscellaneous", equipSlots: [], allowedContainers: ["Backpack", "Chest", "Wagon"], longItem: false, twoHanded: false, needsBackPoint: false, grantsSlots: null, covers: null, baggable: true, ignoreSlot: false, nonPhysical: false }
   }
 }
 
@@ -2668,7 +2687,7 @@ function ahDragItem(ctx, id, from, ev) {
       const tgt = document.elementFromPoint(e.clientX, e.clientY)
       const slotEl = tgt && tgt.closest && tgt.closest("[data-slot]")
       if (slotEl && vb.has(slotEl.getAttribute("data-slot"))) { ahEquipItem(ctx, held.id, slotEl.getAttribute("data-slot")); done = true }
-      else if (hc && ahValid(ctx, ahCellsFor(held.item, hc, held.rot), null)) { ctx.placed.set(held.id, { col: hc.col, row: hc.row, rot: held.rot }); ahSavePlace(ctx.actor, ahPlaceObj(ctx)); done = true }
+      else if (hc && ahCanBag(ctx, held.id) && ahValid(ctx, ahCellsFor(held.item, hc, held.rot), null)) { ctx.placed.set(held.id, { col: hc.col, row: hc.row, rot: held.rot }); ahSavePlace(ctx.actor, ahPlaceObj(ctx)); done = true }
     }
     if (!done) { if (held.from === "bag" && held.origPlace) ctx.placed.set(held.id, held.origPlace); ahRenderDoll(ctx); ahRenderBoard(ctx); ahRenderTray(ctx) }
   }
@@ -2698,14 +2717,18 @@ function ahBuildPanel(actor) {
   const vc = ahValidCells(bagCapacity); ctx.validList = vc.list; ctx.validSet = vc.set; ctx.geom = ahGeom(bagCapacity)
   ctx.placed = ahBuildPlaced(actor, byId, vc.set)
   for (const id of ahEquippedIds(ctx)) ctx.placed.delete(id)   // an item can't be both worn and packed
+  { const drop = []; ctx.placed.forEach((p, id) => { if (!ahCanBag(ctx, id)) drop.push(id) }); for (const id of drop) ctx.placed.delete(id); if (drop.length && ctx.canArrange) ahSavePlace(actor, ahPlaceObj(ctx)) }   // worn-only gear can't stay packed (persist the cleanup so it can't silently revive)
 
-  // counts + space totals (overflow = carrying more than the bag holds)
+  // counts + space totals (overflow = baggable load that exceeds the bag)
   const used = {}; for (const id in ctx.worn) used[id] = 1; ctx.back.forEach(i => { used[i] = 1 }); ctx.placed.forEach((p, id) => { used[id] = 1 })
   const wornN = Object.keys(ctx.worn).length + ctx.back.length, packedN = ctx.placed.size
-  const looseN = items.filter(it => !used[it.id]).length
   const wornSet = new Set(ahEquippedIds(ctx))
-  let nonWornSpaces = 0; for (const it of items) if (!wornSet.has(it.id)) nonWornSpaces += (Number(it.spaces) || 0)
+  // bag load = non-worn items that actually belong in the bag (baggable + not exempt).
+  // worn-only gear and DM-exempted items never count toward overflow.
+  let nonWornSpaces = 0
+  for (const it of items) { if (wornSet.has(it.id)) continue; const m = metaById[it.id] || {}; if (m.ignoreSlot || m.baggable === false) continue; nonWornSpaces += (Number(it.spaces) || 0) }
   nonWornSpaces = Math.round(nonWornSpaces * 100) / 100
+  const looseN = items.filter(it => !used[it.id]).length   // matches the tray (ignore-slot items still show there, tagged)
   const overflowPts = bagCapacity > 0 ? Math.max(0, Math.round((nonWornSpaces - bagCapacity) * 100) / 100) : 0
   const over = overflowPts > 0
   const meterPct = bagCapacity > 0 ? Math.min(100, Math.round((nonWornSpaces / bagCapacity) * 100)) : 0
