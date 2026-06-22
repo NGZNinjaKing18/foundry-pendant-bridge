@@ -1277,6 +1277,24 @@ async function handleCommand(msg) {
       })
     }
 
+    // ── World-map grid overlay: store a flattened grid as a scene flag and
+    // draw it on the canvas (toggled by the GM, optionally shared to players).
+    // overlay = { levels[], scale, mapId, versionId, imagePath } | null (clear).
+    case "overlay.set": {
+      if (!game.user?.isGM) throw new Error("Only the GM can set the grid overlay")
+      const scene = msg.sceneId ? game.scenes.get(msg.sceneId) : game.scenes.active
+      if (!scene) throw new Error("Scene not found: " + (msg.sceneId || "(no active scene)"))
+      const overlay = msg.overlay || null
+      if (overlay && Array.isArray(overlay.levels)) {
+        await scene.setFlag(MOD, "overlay", overlay)
+      } else {
+        await scene.unsetFlag(MOD, "overlay")
+        await scene.unsetFlag(MOD, "overlayShared")
+      }
+      if (scene.active) { ovlScheduleDraw(); ovlUpdateToggle() }
+      return bridge.reply(msg.reqId, { type: "overlay.stored", sceneId: scene.id, cleared: !overlay })
+    }
+
     // ── Place image tiles on a scene ──────────────────────────
     // Accepts a batch: { sceneId, tiles: [{ src, x, y, width, height,
     // rotation?, alpha?, hidden? }] }. Coords are in SCENE space
@@ -3174,11 +3192,205 @@ function ahRerenderSheets() {
 }
 
 // ──────────────────────────────────────────────────────────────
+// World-map grid overlay (driven by the COA World Map tool)
+// ──────────────────────────────────────────────────────────────
+// The app pushes a FLATTENED grid (overlay.set) which we store as a scene flag
+// and draw on the canvas, aligned to the scene background. Pure geometry below
+// is a verbatim port of the app's grid math (gridGeom/cellCenter, 'center'
+// origin for every flattened level) so the overlay reproduces the app exactly.
+// Visibility: the GM can show it for themselves only (a client-local flag) or
+// for EVERYONE (a scene flag that auto-syncs to every client). No socket needed.
+
+const OVL_MAX_EFFDIV = 8000, OVL_SQRT3 = Math.sqrt(3)
+const OVL_HEX_FLAT = [], OVL_HEX_POINT = []
+for (let k = 0; k < 6; k++) {
+  OVL_HEX_FLAT.push([Math.cos(k * Math.PI / 3), Math.sin(k * Math.PI / 3)])
+  OVL_HEX_POINT.push([Math.cos((k * 60 - 90) * Math.PI / 180), Math.sin((k * 60 - 90) * Math.PI / 180)])
+}
+const ovlState = { layer: null, localShow: false }
+let ovlRaf = 0
+
+function ovlColor(hex, fallback) {
+  if (typeof hex === "string") {
+    let h = hex.replace("#", "")
+    if (h.length === 3) h = h.split("").map(c => c + c).join("")
+    const n = parseInt(h, 16)
+    if (Number.isFinite(n)) return n
+  }
+  return fallback
+}
+// One flattened level's layout in scene coords. rect = the background rect
+// {x0,y0,cw,ch}. Always centred origin (matches the app's draw loop).
+function ovlGeom(shape, effDiv, offX, offY, rect) {
+  const div = Math.max(1, Math.min(OVL_MAX_EFFDIV, Math.round(effDiv || 8)))
+  const { x0, y0, cw, ch } = rect
+  const ox = x0 + cw / 2 + (offX || 0) * cw, oy = y0 + ch / 2 + (offY || 0) * ch
+  if (shape === "hex-h") { const r = cw / (1.5 * div + 0.5); return { shape, r, colStep: 1.5 * r, rowStep: OVL_SQRT3 * r, m: r, div, ox, oy } }
+  if (shape === "hex-v") { const r = cw / (OVL_SQRT3 * (div + 0.5)); return { shape, r, colStep: OVL_SQRT3 * r, rowStep: 1.5 * r, m: r, div, ox, oy } }
+  const cell = cw / div; return { shape: "square", cell, half: cell / 2, m: cell / 2, div, ox, oy }
+}
+function ovlCellCenter(g, i, j) {
+  if (g.shape === "square") return { cx: g.ox + (i + 0.5) * g.cell, cy: g.oy + (j + 0.5) * g.cell }
+  if (g.shape === "hex-h") return { cx: g.ox + i * g.colStep, cy: g.oy + j * g.rowStep + (i % 2 ? g.rowStep / 2 : 0) }
+  return { cx: g.ox + i * g.colStep + (j % 2 ? g.colStep / 2 : 0), cy: g.oy + j * g.rowStep }
+}
+function ovlCellPoly(g, cx, cy) {
+  if (g.shape === "square") { const h = g.half; return [cx - h, cy - h, cx + h, cy - h, cx + h, cy + h, cx - h, cy + h] }
+  const offs = g.shape === "hex-h" ? OVL_HEX_FLAT : OVL_HEX_POINT, r = g.r, p = []
+  for (let k = 0; k < 6; k++) p.push(cx + offs[k][0] * r, cy + offs[k][1] * r)
+  return p
+}
+
+function ovlGetPayload(scene) { try { return scene?.getFlag(MOD, "overlay") || null } catch { return null } }
+function ovlShared(scene) { try { return scene?.getFlag(MOD, "overlayShared") === true } catch { return false } }
+function ovlVisible(scene) { return ovlShared(scene) || (game.user?.isGM && ovlState.localShow) }
+function ovlParent() { return canvas?.interface || canvas?.stage || null }
+
+function ovlEnsureLayer() {
+  const parent = ovlParent(); if (!parent) return
+  if (ovlState.layer && !ovlState.layer.destroyed && ovlState.layer.parent === parent) return
+  if (ovlState.layer && !ovlState.layer.destroyed) { try { ovlState.layer.destroy({ children: true }) } catch {} }
+  const layer = new PIXI.Container()
+  try { layer.eventMode = "none" } catch {}        // never intercept clicks (PIXI v7 / Foundry v11+)
+  try { layer.interactive = false } catch {}
+  layer.interactiveChildren = false
+  layer.zIndex = 9000                              // above tokens for guaranteed visibility; lower this to sit under tokens
+  parent.sortableChildren = true
+  parent.addChild(layer)
+  ovlState.layer = layer
+}
+
+function ovlScheduleDraw() {
+  if (ovlRaf) return
+  ovlRaf = requestAnimationFrame(() => { ovlRaf = 0; try { ovlDraw() } catch (e) { console.warn("[pendant-bridge] overlay draw failed", e) } })
+}
+
+function ovlDraw() {
+  ovlEnsureLayer()
+  const layer = ovlState.layer; if (!layer) return
+  for (const c of layer.removeChildren()) { try { c.destroy({ children: true }) } catch {} }
+  const scene = canvas?.scene
+  if (!scene || !canvas?.ready) return
+  const payload = ovlGetPayload(scene)
+  if (!payload || !Array.isArray(payload.levels) || !ovlVisible(scene)) return
+
+  const dims = sceneDimensions(scene)
+  const rect = { x0: dims.sceneX, y0: dims.sceneY, cw: dims.sceneWidth, ch: dims.sceneHeight }
+  if (!(rect.cw > 0) || !(rect.ch > 0)) return
+  const scale = canvas.stage?.scale?.x || 1
+  const rx0 = rect.x0, ry0 = rect.y0, rx1 = rect.x0 + rect.cw, ry1 = rect.y0 + rect.ch
+  // Visible window in scene coords (cull), clamped to the background rect.
+  let vx0 = rx0, vy0 = ry0, vx1 = rx1, vy1 = ry1
+  try {
+    const scr = canvas.app.screen
+    const a = canvas.stage.toLocal(new PIXI.Point(0, 0))
+    const b = canvas.stage.toLocal(new PIXI.Point(scr.width, scr.height))
+    vx0 = Math.max(rx0, Math.min(a.x, b.x)); vy0 = Math.max(ry0, Math.min(a.y, b.y))
+    vx1 = Math.min(rx1, Math.max(a.x, b.x)); vy1 = Math.min(ry1, Math.max(a.y, b.y))
+  } catch {}
+  if (vx1 <= vx0 || vy1 <= vy0) return
+
+  const g = new PIXI.Graphics()
+  for (const lvl of payload.levels) {
+    if (lvl.visible === false) continue
+    const effDiv = Math.max(1, Math.min(OVL_MAX_EFFDIV, Math.round(lvl.effDiv || 8)))
+    const screenCell = (rect.cw / effDiv) * scale
+    if (screenCell < (lvl.revealPx || 4)) continue                       // LOD: too small → hide (zoom in to reveal)
+    if (lvl.hidePx && lvl.hidePx > 0 && screenCell > lvl.hidePx) continue // upper zoom bound
+    const geom = ovlGeom(lvl.shape, effDiv, lvl.offX, lvl.offY, rect)
+    const m = geom.m
+    // Terrain fills (under the gridlines), pre-resolved to hex colours by the app.
+    const fop = Math.max(0, Math.min(1, lvl.fillOpacity == null ? 0.5 : lvl.fillOpacity))
+    const fills = lvl.fills || {}
+    if (fop > 0) {
+      for (const key in fills) {
+        const ci = key.indexOf(","); if (ci < 0) continue
+        const i = +key.slice(0, ci), j = +key.slice(ci + 1)
+        if (!Number.isFinite(i) || !Number.isFinite(j)) continue
+        const c = ovlCellCenter(geom, i, j)
+        if (c.cx < vx0 - m || c.cx > vx1 + m || c.cy < vy0 - m || c.cy > vy1 + m) continue
+        const col = ovlColor(fills[key], null); if (col == null) continue
+        g.beginFill(col, fop); g.drawPolygon(ovlCellPoly(geom, c.cx, c.cy)); g.endFill()
+      }
+    }
+    // Gridlines: constant SCREEN thickness (÷scale) — matches the app.
+    const lw = Math.max(0.25, Math.min(6, lvl.lineWidth || 1)) / scale
+    g.lineStyle(lw, ovlColor(lvl.color, 0xffd166), Math.max(0, Math.min(1, lvl.opacity == null ? 0.6 : lvl.opacity)))
+    if (geom.shape === "square") {
+      const cell = geom.cell
+      const iA = Math.ceil((vx0 - geom.ox) / cell), iB = Math.floor((vx1 - geom.ox) / cell)
+      for (let i = iA; i <= iB; i++) { const x = geom.ox + i * cell; if (x < rx0 - 0.01 || x > rx1 + 0.01) continue; g.moveTo(x, vy0); g.lineTo(x, vy1) }
+      const jA = Math.ceil((vy0 - geom.oy) / cell), jB = Math.floor((vy1 - geom.oy) / cell)
+      for (let j = jA; j <= jB; j++) { const y = geom.oy + j * cell; if (y < ry0 - 0.01 || y > ry1 + 0.01) continue; g.moveTo(vx0, y); g.lineTo(vx1, y) }
+    } else {
+      const cs = geom.colStep, rs = geom.rowStep
+      const iA = Math.floor((vx0 - geom.ox) / cs) - 2, iB = Math.ceil((vx1 - geom.ox) / cs) + 2
+      const jA = Math.floor((vy0 - geom.oy) / rs) - 2, jB = Math.ceil((vy1 - geom.oy) / rs) + 2
+      for (let i = iA; i <= iB; i++) for (let j = jA; j <= jB; j++) {
+        const c = ovlCellCenter(geom, i, j)
+        if (c.cx < vx0 - m || c.cx > vx1 + m || c.cy < vy0 - m || c.cy > vy1 + m) continue
+        g.drawPolygon(ovlCellPoly(geom, c.cx, c.cy))
+      }
+    }
+  }
+  // Clip everything to the background rect (trims hex cells / off-image lines).
+  const mask = new PIXI.Graphics(); mask.beginFill(0xffffff); mask.drawRect(rx0, ry0, rect.cw, rect.ch); mask.endFill()
+  layer.addChild(g); layer.addChild(mask); g.mask = mask
+}
+
+// GM-only floating toggle (bottom-left, above the connection pill). Cycles
+// Off → Just me → Everyone. Only shown when the active scene carries an overlay.
+function ovlUpdateToggle() {
+  const scene = canvas?.scene
+  const has = !!(scene && ovlGetPayload(scene))
+  let el = document.getElementById("pendant-bridge-overlay-toggle")
+  if (!game.user?.isGM || !has) { if (el) el.remove(); return }
+  if (!el) {
+    el = document.createElement("div")
+    el.id = "pendant-bridge-overlay-toggle"
+    el.style.cssText = "position:fixed;left:8px;bottom:40px;z-index:60;padding:4px 9px;border-radius:6px;font:600 11px/1.2 sans-serif;cursor:pointer;user-select:none;border:1px solid;"
+    el.addEventListener("click", ovlCycle)
+    document.body.appendChild(el)
+  }
+  const state = ovlShared(scene) ? "all" : (ovlState.localShow ? "me" : "off")
+  const skin = state === "all" ? ["rgba(20,46,28,0.9)", "rgba(110,200,140,0.6)", "#9fe6b6"]
+    : state === "me" ? ["rgba(28,18,46,0.9)", "rgba(150,100,220,0.6)", "#d6bcff"]
+    : ["rgba(24,24,30,0.85)", "rgba(140,140,160,0.4)", "#b9b9c6"]
+  el.style.background = skin[0]; el.style.borderColor = skin[1]; el.style.color = skin[2]
+  el.textContent = state === "all" ? "▦ Grid: everyone" : state === "me" ? "▦ Grid: just me" : "▦ Grid: off"
+  el.title = "World-map grid overlay — click to cycle Off → Just me → Everyone"
+}
+async function ovlCycle() {
+  const scene = canvas?.scene; if (!scene) return
+  const state = ovlShared(scene) ? "all" : (ovlState.localShow ? "me" : "off")
+  try {
+    if (state === "off") ovlState.localShow = true
+    else if (state === "me") { ovlState.localShow = true; if (game.user?.isGM) await scene.setFlag(MOD, "overlayShared", true) }
+    else { ovlState.localShow = false; if (game.user?.isGM) await scene.unsetFlag(MOD, "overlayShared") }
+  } catch (e) { console.warn("[pendant-bridge] overlay toggle failed", e) }
+  ovlScheduleDraw(); ovlUpdateToggle()
+}
+
+function ovlInit() {
+  Hooks.on("canvasReady", () => { ovlState.layer = null; ovlScheduleDraw(); ovlUpdateToggle() })
+  Hooks.on("canvasPan", () => ovlScheduleDraw())
+  Hooks.on("canvasTearDown", () => { ovlState.layer = null })
+  Hooks.on("updateScene", (scene, changes) => {
+    if (!scene?.active) return
+    const flagged = changes && changes.flags && (MOD in changes.flags)
+    const geomChg = changes && ("grid" in changes || "background" in changes || "width" in changes || "height" in changes || "padding" in changes)
+    if (flagged || geomChg) { ovlScheduleDraw(); ovlUpdateToggle() }
+  })
+  if (canvas?.ready) { ovlScheduleDraw(); ovlUpdateToggle() }
+}
+
+// ──────────────────────────────────────────────────────────────
 // Boot
 // ──────────────────────────────────────────────────────────────
 
 Hooks.once("ready", () => {
   bridge.reconcile()
+  ovlInit()
 
   // Inject the Anti-Hammer bag onto every Actor sheet, across sheet generations.
   const onSheet = (app, html) => { try { ahInjectPanel(app, html) } catch (e) { console.warn("[pendant-bridge] AH inject failed", e) } }
