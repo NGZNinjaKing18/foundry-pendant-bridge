@@ -2753,16 +2753,48 @@ const AH_SLOT_ICON = { Head: "head", Face: "face", Neck: "neck", Clothes: "cloth
 // ── add-on storage gear (player-added belts/packs that grant slots + bag space) ──
 // Stored on the actor flag `ahGear` = [{ id, kind }]. Each grants attachment points
 // and/or hex storage on top of whatever real armor/clothing provides.
+// Wearable container catalog: each declares the body SLOT it's worn on, its STORAGE
+// (bag spaces it adds), and what it HOLDS (a type restriction, shown so players instantly
+// know what each does). `holds` = a single equipped item (sheath/sling). Slot capacity,
+// type enforcement, and mount/world containers come in later phases.
 const AH_GEAR = {
-  belt:      { name: "Belt",       grants: { Belt: 1 },                              storage: 0 },
-  pouch:     { name: "Belt Pouch", grants: {},                                       storage: 3 },
-  backpack:  { name: "Backpack",   grants: { Back: 2 },                              storage: 12 },
-  satchel:   { name: "Satchel",    grants: {},                                       storage: 8 },
-  harness:   { name: "Harness",    grants: { Back: 2, "Left Hip": 1, "Right Hip": 1 }, storage: 0 },
-  bandolier: { name: "Bandolier",  grants: { Belt: 1 },                              storage: 4 },
-  sack:      { name: "Sack",       grants: {},                                       storage: 6 },
+  // — Belt —
+  coinPurse:   { name: "Coin Purse",         slot: "Belt",       storage: 1,  restrict: "Tiny items only" },
+  pouch:       { name: "Belt Pouch",         slot: "Belt",       storage: 2 },
+  bigPouch:    { name: "Large Belt Pouch",   slot: "Belt",       storage: 4 },
+  scrollCase:  { name: "Scroll Case",        slot: "Belt / Back", storage: 6, restrict: "Scrolls only" },
+  waterskin:   { name: "Waterskin",          slot: "Belt",       storage: 1,  restrict: "Water only" },
+  toolHolster: { name: "Tool Holster",       slot: "Belt",       storage: 2,  restrict: "Small tools only" },
+  // — Chest —
+  bandolier:   { name: "Bandolier",          slot: "Chest",      storage: 4,  restrict: "Potions, scrolls, ammo, small tools" },
+  potionBand:  { name: "Potion Bandolier",   slot: "Chest",      storage: 6,  restrict: "Potions only" },
+  // — Back —
+  satchel:     { name: "Satchel",            slot: "Back",       storage: 8 },
+  backpack:    { name: "Backpack",           slot: "Back",       storage: 12, grants: { Back: 1 } },
+  bigBackpack: { name: "Large Backpack",     slot: "Back",       storage: 18, grants: { Back: 1 } },
+  huntingPack: { name: "Hunting / Frame Pack", slot: "Back",     storage: 24, grants: { Back: 1 } },
+  quiver:      { name: "Quiver",             slot: "Back",       storage: 4,  restrict: "Bow + arrows/bolts" },
+  boltCase:    { name: "Bolt Case",          slot: "Back",       storage: 4,  restrict: "Bolts only" },
+  // — single-item holders (worn; hold one equipped item, no bag space) —
+  sheath:      { name: "Sheath",             slot: "Hip / Belt", holds: "a one-handed weapon" },
+  gwSling:     { name: "Great Weapon Sling", slot: "Back",       holds: "a two-handed weapon" },
+  shieldSling: { name: "Shield Sling",       slot: "Back",       holds: "a shield" },
+  // — legacy keys (kept so existing equipped gear doesn't vanish) —
+  belt:        { name: "Belt",               slot: "Belt",       storage: 0,  grants: { Belt: 1 } },
+  harness:     { name: "Harness",            slot: "Back",       storage: 0,  grants: { Back: 2, "Left Hip": 1, "Right Hip": 1 } },
+  sack:        { name: "Sack",               storage: 8 },   // non-wearable (carried) — full world-container set is a later phase
 }
-const AH_GEAR_ORDER = ["belt", "pouch", "backpack", "satchel", "harness", "bandolier", "sack"]
+const AH_GEAR_ORDER = ["coinPurse", "pouch", "bigPouch", "scrollCase", "waterskin", "toolHolster", "bandolier", "potionBand", "satchel", "backpack", "bigBackpack", "huntingPack", "quiver", "boltCase", "sheath", "gwSling", "shieldSling", "belt", "harness", "sack"]
+/** Display chips for a container: body slot · +storage · what it holds · granted slots. */
+function ahGearBits(cat) {
+  const bits = []
+  if (cat.slot) bits.push(cat.slot)
+  if (cat.storage) bits.push("+" + cat.storage + " bag")
+  if (cat.holds) bits.push("holds " + cat.holds)
+  for (const k of Object.keys(cat.grants || {})) bits.push("+" + cat.grants[k] + " " + k)
+  if (cat.restrict) bits.push(cat.restrict)
+  return bits
+}
 // DM custom gear (world setting) merged ON TOP of the built-ins, so the DM can add
 // their own belts/packs (name + storage spaces + granted slots) from the app editor.
 function ahGearDefs() { try { const d = game.settings.get(MOD, "ahGearDefs"); return (d && typeof d === "object") ? d : {} } catch { return {} } }
@@ -3109,8 +3141,7 @@ function ahOpenGearMenu(actor, anchorEl, triggerEl) {
   const catalog = ahGearCatalog()
   for (const kind of ahGearOrder()) {
     const cat = catalog[kind]; if (!cat) continue
-    const bits = []; if (cat.storage) bits.push("+" + cat.storage + " bag")
-    for (const k of Object.keys(cat.grants || {})) bits.push("+" + cat.grants[k] + " " + k)
+    const bits = ahGearBits(cat)
     const b = document.createElement("button"); b.className = "ah-gear-mi"
     b.innerHTML = '<span class="ah-gear-mi-n">' + ahEscX(cat.name) + '</span>' + (bits.length ? '<span class="ah-gear-mi-m">' + ahEscX(bits.join(" · ")) + '</span>' : "")
     b.addEventListener("click", async (e) => {
@@ -3341,7 +3372,7 @@ function ahBuildPanel(actor) {
   }
   for (const g of gearList) {
     const cat = catalog[g.kind]; if (!cat) continue
-    const bits = []; if (cat.storage) bits.push("+" + cat.storage + " bag"); for (const k of Object.keys(cat.grants || {})) bits.push("+" + cat.grants[k] + " " + k)
+    const bits = ahGearBits(cat)
     const chip = document.createElement("span"); chip.className = "ah-cont-chip gear"
     chip.innerHTML = ahEscX(cat.name) + (bits.length ? ' <span class="ah-gear-n">' + ahEscX(bits.join(" · ")) + "</span>" : "")
     if (ctx.canArrange) { const x = document.createElement("button"); x.type = "button"; x.className = "ah-gear-x"; x.textContent = "×"; x.title = "Remove"; x.setAttribute("aria-label", "Remove " + cat.name); x.addEventListener("click", async () => { try { await actor.setFlag(MOD, "ahGear", ahGearList(actor).filter(z => z.id !== g.id)) } catch (e) { console.warn("[pendant-bridge] AH gear remove failed", e) } }); chip.appendChild(x) }
