@@ -67,17 +67,20 @@
   --ah-r-lg: 12px; --ah-r: 9px; --ah-r-sm: 6px; --ah-pill: 999px;
   --ah-ease: 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
 
-  margin: 8px 4px 12px;
-  padding: 12px 14px 14px;
-  border: 1px solid var(--ah-line);
-  border-radius: var(--ah-r-lg);
+  /* seamless: a flush section of the Inventory tab, not a floating card.
+     No outer border / radius / shadow / side margins; the dark surface stays so
+     the internal cards keep their contrast whatever theme the host sheet uses. */
+  margin: 0 0 10px;
+  padding: 8px 10px 14px;
+  border: none;
+  border-bottom: 1px solid var(--ah-line);   /* flush hairline delimits the section from the native list, any host theme */
+  border-radius: 0;
   background: var(--ah-bg);
   color: var(--ah-ink);
   font: 13px/1.4 "Signika", system-ui, -apple-system, "Segoe UI", sans-serif;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045), 0 2px 14px rgba(0, 0, 0, 0.35);
 }
-.ah-panel.is-full,
-.ah-panel.is-over { border-color: var(--ah-bad-line); }
+/* over-capacity: a 2px red underline instead of a full red card frame */
+.ah-panel.is-over { box-shadow: inset 0 -2px 0 var(--ah-bad); }
 /* state motion on every interactive surface (degrades to instant — see end) */
 .ah-panel button, .ah-panel input, .ah-panel summary,
 .ah-panel .ah-slot, .ah-panel .ah-cont-chip, .ah-panel .ah-outfit,

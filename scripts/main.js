@@ -3322,15 +3322,30 @@ function ahInjectPanel(app, html) {
   // A re-render replaces sheet content, but ApplicationV2 can patch in place —
   // clear any prior panel first so we never stack duplicates.
   root.querySelectorAll(".ah-panel").forEach(n => n.remove())
-  // Prefer the actor's INVENTORY tab so the bag lives with the rest of their gear;
-  // fall back to the sheet body for systems/sheets without a recognizable one.
-  const host = root.querySelector('.tab[data-tab="inventory"]')
-    || root.querySelector(".tab.inventory")
-    || root.querySelector('section[data-tab="inventory"]')
-    || root.querySelector(".sheet-body") || root.querySelector(".window-content") || root.querySelector("form") || root
+  // ONLY the INVENTORY tab — its CONTENT panel, never the nav link and never the
+  // always-visible sheet body (which would show the bag on every tab). If a sheet
+  // has no recognizable inventory tab we inject nothing rather than bleed elsewhere.
+  const host = ahInventoryHost(root)
+  if (!host) return
   let panel
   try { panel = ahBuildPanel(actor) } catch (e) { console.warn("[pendant-bridge] AH panel build failed", e); return }
   host.insertBefore(panel, host.firstChild)
+}
+/** Find the actor sheet's INVENTORY tab content container (not the clickable nav tab). */
+function ahInventoryHost(root) {
+  for (const sel of ['.tab[data-tab="inventory"]', 'section[data-tab="inventory"]',
+    'div[data-tab="inventory"]', '.tab-body[data-tab="inventory"]', '.tab.inventory',
+    '[data-tab-contents-for="inventory"]', '.tidy-tab.inventory']) {   // last two = Tidy5e (classic + quadrone)
+    const el = root.querySelector(sel); if (el) return el
+  }
+  // last resort: any [data-tab="inventory"] that is a real content container —
+  // skip <a>/nav items (the clickable tab) and anything without children.
+  for (const el of root.querySelectorAll('[data-tab="inventory"]')) {
+    if (el.tagName === "A") continue
+    if (/\b(item|control|nav|sheet-tabs)\b/i.test(el.getAttribute("class") || "")) continue
+    if (el.children && el.children.length) return el
+  }
+  return null
 }
 
 /** Re-render open Actor sheets so a rule/capacity change shows live. */
