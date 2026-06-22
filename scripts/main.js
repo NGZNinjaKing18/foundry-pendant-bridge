@@ -54,7 +54,11 @@ const AH = {
     roundEachItem: true,     // ceil each item up to a whole slot
     ignoreTypes: ["feat", "spell", "class", "subclass", "background", "race", "feature", "facility", "trait"],
     sizeSpaces: { tiny: 0.5, sm: 1, med: 1, lg: 2, huge: 4, grg: 8 },  // by dnd5e item size code (size mode)
-    bundleSize: 0,           // stackable items bundle every N (0 = off); per-item override available
+    bundleSize: 20,          // stackable items bundle every N (0 = off); per-item override available
+    // Strength scales the bag: extra spaces = strPer × (str basis), added to bagCapacity.
+    strCapacity: false,      // off until the DM turns it on in the app
+    strPer: 1,               // extra bag spaces per unit of the chosen basis
+    strBasis: "mod",         // "mod" (STR modifier) | "over10" (STR − 10) | "score" (full STR score)
   },
 
   /** The active config = saved world setting merged over defaults (so a missing key is safe). */
@@ -2147,7 +2151,16 @@ const AH_SHAPES = {
   5: [[[0, 0, 0], [1, -1, 0], [2, -2, 0], [1, 0, -1], [2, -1, -1]]],
   6: [[[0, 0, 0], [1, -1, 0], [2, -2, 0], [0, 1, -1], [1, 0, -1], [2, -1, -1]]],
 }
-function ahShapeFor(size, h) { const lib = AH_SHAPES[size]; if (lib) return lib[h % lib.length]; const a = []; for (let i = 0; i < size; i++) a.push([i, -i, 0]); return a }
+function ahShapeFor(size, h) {
+  size = Math.max(1, size | 0)
+  const lib = AH_SHAPES[size]; if (lib) return lib[(((h | 0) % lib.length) + lib.length) % lib.length]
+  // Any larger size → a COMPACT blob (≤4 tall, laid out column-major exactly like the
+  // bag's own cells) so it always fits the grid instead of a long unplaceable line.
+  const H = Math.min(4, size), cells = []
+  for (let i = 0; i < size; i++) cells.push(ahOToC(Math.floor(i / H), i % H))
+  const o = cells[0]
+  return cells.map(c => [c[0] - o[0], c[1] - o[1], c[2] - o[2]])
+}
 
 // cube ↔ odd-r offset, rotation, placement cells
 function ahOToC(col, row) { const x = col - (row - (row & 1)) / 2, z = row; return [x, -x - z, z] }
@@ -2694,6 +2707,18 @@ function ahGearGrants(actor) {
   return out
 }
 function ahGearStorage(actor) { const cat = ahGearCatalog(); let n = 0; for (const g of ahGearList(actor)) n += (Number(cat[g.kind] && cat[g.kind].storage) || 0); return n }
+/** Extra bag spaces granted by Strength (DM-configurable in the app; 0 when off / no STR). */
+function ahStrBonus(actor, cfg) {
+  if (!cfg || !cfg.strCapacity) return 0
+  const ab = actor?.system?.abilities?.str
+  if (!ab) return 0
+  const score = Number(ab.value) || 0
+  let basis
+  if (cfg.strBasis === "score") basis = score
+  else if (cfg.strBasis === "over10") basis = score - 10
+  else basis = (ab.mod != null ? Number(ab.mod) : Math.floor((score - 10) / 2))   // "mod"
+  return Math.max(0, Math.round((Number(cfg.strPer) || 0) * basis))
+}
 
 function ahDollGender(actor) {
   let g = ""; try { g = String(actor.system?.details?.gender || "").toLowerCase() } catch {}
@@ -3112,7 +3137,8 @@ function ahBuildPanel(actor) {
   }
   // the bag exists ONLY when a container is equipped; size = per-container slots × #containers
   const containerN = ahEquippedIds(ctx).filter(id => metaById[id] && metaById[id].carryType === "Container").length
-  const bagCapacity = (containerN > 0 ? capacity * containerN : 0) + ahGearStorage(actor)   // + add-on storage gear
+  const baseBag = (containerN > 0 ? capacity * containerN : 0) + ahGearStorage(actor)   // containers + add-on storage gear
+  const bagCapacity = baseBag > 0 ? baseBag + ahStrBonus(actor, cfg) : 0                // Strength upgrades a bag you actually have
   ctx.bagCapacity = bagCapacity
   const vc = ahValidCells(bagCapacity); ctx.validList = vc.list; ctx.validSet = vc.set; ctx.geom = ahGeom(bagCapacity)
   let savedPlace = {}; try { savedPlace = actor.getFlag(MOD, "ahPlace") || {} } catch {}
