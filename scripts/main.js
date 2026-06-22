@@ -3029,13 +3029,18 @@ function ahDragItem(ctx, id, from, ev) {
   for (const s of (m.equipSlots || [])) { const k = AH_SLOT_KEY[s] || s; if (k !== "Back" && occ0[k] && !ctx.validBody.has(k)) ctx.validSwap.add(k) }
   if (ctx.ghostEl) { ctx.ghostEl.textContent = it.name; ctx.ghostEl.style.display = "block"; ahMoveGhost(ctx, ev) }
   ahRenderDoll(ctx); ahRenderBoard(ctx); ahRenderTray(ctx)
-  const move = (e) => { if (!ctx.held) return; ahMoveGhost(ctx, e); ctx.hover = ahPixelCell(ctx, e); ahRenderBoard(ctx) }
-  const key = (e) => { if (!ctx.held) return; if (e.key === "r" || e.key === "R") { ctx.held.rot = (ctx.held.rot + 1) % 6; ahRenderBoard(ctx) } else if (e.key === "Escape") finish(true) }
+  // coalesce hover-recompute + board redraw to one paint per frame (mousemove can fire >100/s)
+  let raf = 0, lastE = null
+  const draw = () => { raf = 0; if (!ctx.held || !lastE) return; ahMoveGhost(ctx, lastE); ctx.hover = ahPixelCell(ctx, lastE); ahRenderBoard(ctx) }
+  const schedule = () => { if (!raf) raf = requestAnimationFrame(draw) }
+  const move = (e) => { if (!ctx.held) return; lastE = e; schedule() }
+  const key = (e) => { if (!ctx.held) return; if (e.key === "r" || e.key === "R") { ctx.held.rot = (ctx.held.rot + 1) % 6; schedule() } else if (e.key === "Escape") finish(true) }
   const up = (e) => finish(false, e)
   function finish(cancel, e) {
+    if (raf) { cancelAnimationFrame(raf); raf = 0 }
     document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); document.removeEventListener("keydown", key)
     if (ctx.ghostEl) ctx.ghostEl.style.display = "none"
-    const held = ctx.held; ctx.held = null; const vb = ctx.validBody || new Set(); const vs = ctx.validSwap || new Set(); ctx.validBody = null; ctx.validSwap = null; const hc = ctx.hover; ctx.hover = null
+    const held = ctx.held; ctx.held = null; const vb = ctx.validBody || new Set(); const vs = ctx.validSwap || new Set(); ctx.validBody = null; ctx.validSwap = null; const hc = (e ? ahPixelCell(ctx, e) : ctx.hover); ctx.hover = null
     if (!held) return
     let done = false
     if (!cancel && e) {

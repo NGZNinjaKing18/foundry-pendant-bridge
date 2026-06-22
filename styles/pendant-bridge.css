@@ -54,6 +54,15 @@
   --ah-store:  #9a7fe0;  --ah-store-ink:  #e6dcff;  --ah-store-bg:  rgba(154, 127, 224, 0.16);
   --ah-good:   #79bd66;  --ah-good-ink:   #cfe6cf;  --ah-good-bg:   rgba(121, 189, 102, 0.16);
   --ah-bad:    #d8615f;  --ah-bad-ink:    #f0b3b3;  --ah-bad-bg:    rgba(216, 97, 95, 0.15);
+  /* ── accent border alphas (every accent border resolves through one value) ── */
+  --ah-action-line: rgba(217, 156, 70, 0.5);
+  --ah-store-line:  rgba(154, 127, 224, 0.45);
+  --ah-good-line:   rgba(121, 189, 102, 0.5);
+  --ah-bad-line:    rgba(216, 97, 95, 0.5);
+  /* ── rings, popover shadow, inverse ink ── */
+  --ah-ring-dark:   0 0 0 1px rgba(0, 0, 0, 0.4);   /* 1px dark seam under colour swatches */
+  --ah-shadow-pop:  0 12px 28px rgba(0, 0, 0, 0.6); /* dropdown / picker elevation */
+  --ah-ink-inverse: #fff;                            /* text on a filled accent (hover destructive) */
   /* ── shape + motion ── */
   --ah-r-lg: 12px; --ah-r: 9px; --ah-r-sm: 6px; --ah-pill: 999px;
   --ah-ease: 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
@@ -68,7 +77,7 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045), 0 2px 14px rgba(0, 0, 0, 0.35);
 }
 .ah-panel.is-full,
-.ah-panel.is-over { border-color: rgba(216, 97, 95, 0.55); }
+.ah-panel.is-over { border-color: var(--ah-bad-line); }
 /* state motion on every interactive surface (degrades to instant — see end) */
 .ah-panel button, .ah-panel input, .ah-panel summary,
 .ah-panel .ah-slot, .ah-panel .ah-cont-chip, .ah-panel .ah-outfit,
@@ -100,10 +109,10 @@
 .ah-panel .ah-bag-lbl { display: flex; align-items: baseline; gap: 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ah-mute); margin-bottom: 6px; }
 .ah-panel .ah-bag-meta { margin-left: auto; font-size: 10px; text-transform: none; letter-spacing: 0; color: var(--ah-faint); }
 /* primary action buttons (amber/forge) */
-.ah-panel .ah-tidy, .ah-panel .ah-act { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; text-transform: none; letter-spacing: 0; padding: 3px 10px; border-radius: var(--ah-pill); cursor: pointer; background: var(--ah-action-bg); border: 1px solid rgba(217, 156, 70, 0.5); color: var(--ah-action-ink); line-height: 1.4; }
+.ah-panel .ah-tidy, .ah-panel .ah-act { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; text-transform: none; letter-spacing: 0; padding: 3px 10px; border-radius: var(--ah-pill); cursor: pointer; background: var(--ah-action-bg); border: 1px solid var(--ah-action-line); color: var(--ah-action-ink); line-height: 1.4; }
 .ah-panel .ah-tidy:hover, .ah-panel .ah-act:hover { background: rgba(217, 156, 70, 0.3); color: #f6e2b6; box-shadow: 0 0 0 3px var(--ah-action-bg); }
 .ah-panel .ah-tidy:active, .ah-panel .ah-act:active { transform: translateY(0.5px); }
-.ah-panel .ah-use { font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 7px; border-radius: var(--ah-pill); cursor: pointer; background: var(--ah-good-bg); border: 1px solid rgba(121, 189, 102, 0.5); color: var(--ah-good-ink); line-height: 1.5; }
+.ah-panel .ah-use { font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 7px; border-radius: var(--ah-pill); cursor: pointer; background: var(--ah-good-bg); border: 1px solid var(--ah-good-line); color: var(--ah-good-ink); line-height: 1.5; }
 .ah-panel .ah-use:hover { background: rgba(121, 189, 102, 0.32); color: #e6f5e6; }
 /* paperdoll — figure flanked by two tidy columns of labelled slot cards */
 .ah-panel .ah-doll { display: flex; gap: 8px; align-items: stretch; }
@@ -126,11 +135,11 @@
 .ah-panel .ah-dollbar { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-bottom: 8px; }
 .ah-panel .ah-outfits { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; width: 100%; margin-top: 2px; }
 .ah-panel .ah-outfits-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ah-mute); margin-right: 2px; }
-.ah-panel .ah-outfit { display: inline-flex; align-items: center; gap: 2px; font-size: 10.5px; padding: 2px 4px 2px 9px; border-radius: var(--ah-pill); background: var(--ah-store-bg); border: 1px solid rgba(154, 127, 224, 0.45); color: var(--ah-store-ink); }
+.ah-panel .ah-outfit { display: inline-flex; align-items: center; gap: 2px; font-size: 10.5px; padding: 2px 4px 2px 9px; border-radius: var(--ah-pill); background: var(--ah-store-bg); border: 1px solid var(--ah-store-line); color: var(--ah-store-ink); }
 .ah-panel .ah-outfit:hover { border-color: var(--ah-store); box-shadow: 0 0 0 3px var(--ah-store-bg); }
 .ah-panel .ah-outfit-apply { background: none; border: none; padding: 0; margin: 0; font: inherit; line-height: inherit; color: inherit; cursor: pointer; -webkit-appearance: none; appearance: none; }
 .ah-panel .ah-outfit-x { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border: none; background: transparent; padding: 0; -webkit-appearance: none; appearance: none; border-radius: 50%; font-size: 11px; line-height: 1; color: var(--ah-dim); cursor: pointer; }
-.ah-panel .ah-outfit-x:hover { background: var(--ah-bad); color: #fff; }
+.ah-panel .ah-outfit-x:hover { background: var(--ah-bad); color: var(--ah-ink-inverse); }
 .ah-panel .ah-outfit-save { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; padding: 2px 9px; border-radius: var(--ah-pill); cursor: pointer; background: transparent; border: 1px solid var(--ah-line-2); color: var(--ah-dim); }
 .ah-panel .ah-outfit-save:hover { border-color: var(--ah-action); color: var(--ah-ink); }
 .ah-panel .ah-scap { font-style: normal; font-variant-numeric: tabular-nums; color: var(--ah-mute); }
@@ -142,24 +151,24 @@
 .ah-panel button.ah-addbtn { background: none; border: none; padding: 0; cursor: pointer; font: inherit; line-height: inherit; }
 .ah-panel .ah-slot.empty:hover .ah-sadd { color: var(--ah-action-ink); }
 .ah-panel .ah-slot.valid { border: 1px solid var(--ah-good); border-style: solid; background: var(--ah-good-bg); box-shadow: 0 0 0 3px var(--ah-good-bg); }
-.ah-panel .ah-bswatch { width: 11px; height: 11px; border-radius: 3px; flex: 0 0 auto; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); }
+.ah-panel .ah-bswatch { width: 11px; height: 11px; border-radius: 3px; flex: 0 0 auto; box-shadow: var(--ah-ring-dark); }
 .ah-panel .ah-bname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .ah-panel .ah-bx { margin-left: auto; flex: 0 0 auto; width: 16px; height: 16px; border-radius: 50%; border: none; cursor: pointer; padding: 0;
   background: transparent; color: var(--ah-dim); font-size: 14px; line-height: 1; }
-.ah-panel .ah-bx:hover { background: var(--ah-bad); color: #fff; }
-.ah-panel .ah-bdot { width: 13px; height: 13px; border-radius: 3px; cursor: pointer; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4); border: none; padding: 0; -webkit-appearance: none; appearance: none; }
+.ah-panel .ah-bx:hover { background: var(--ah-bad); color: var(--ah-ink-inverse); }
+.ah-panel .ah-bdot { width: 13px; height: 13px; border-radius: 3px; cursor: pointer; box-shadow: var(--ah-ring-dark); border: none; padding: 0; -webkit-appearance: none; appearance: none; }
 .ah-panel .ah-bdot:hover { outline: 1px solid var(--ah-bad); outline-offset: 1px; }
 /* bag capacity meter + overflow */
 .ah-panel .ah-meter { height: 6px; background: var(--ah-sink); border-radius: var(--ah-pill); overflow: hidden; margin-bottom: 9px; box-shadow: inset 0 0 0 1px var(--ah-line); }
 .ah-panel .ah-meter-fill { height: 100%; background: var(--ah-good); transition: width var(--ah-ease), background var(--ah-ease); }
 .ah-panel .ah-meter.full .ah-meter-fill { background: var(--ah-action); }
 .ah-panel .ah-meter.over .ah-meter-fill { background: var(--ah-bad); }
-.ah-panel .ah-overflow { font-size: 11px; color: var(--ah-bad-ink); background: var(--ah-bad-bg); border: 1px solid rgba(216, 97, 95, 0.45); border-radius: var(--ah-r-sm); padding: 4px 9px; margin-bottom: 8px; }
+.ah-panel .ah-overflow { font-size: 11px; color: var(--ah-bad-ink); background: var(--ah-bad-bg); border: 1px solid var(--ah-bad-line); border-radius: var(--ah-r-sm); padding: 4px 9px; margin-bottom: 8px; }
 .ah-panel .ah-overflow b { color: #f6c6c6; }
 /* bag legend — colour → item name */
 .ah-panel .ah-legend { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
 .ah-panel .ah-leg { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--ah-dim); }
-.ah-panel .ah-leg-sw { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); }
+.ah-panel .ah-leg-sw { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; box-shadow: var(--ah-ring-dark); }
 .ah-panel .ah-leg-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ah-panel .ah-leg-sz { margin-left: auto; font-size: 10px; color: var(--ah-mute); }
 .ah-panel .ah-leg-x { width: 18px; height: 18px; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; border: none; border-radius: 50%; background: transparent; color: var(--ah-mute); cursor: pointer; padding: 0; font-size: 11px; }
@@ -172,13 +181,13 @@
 .ah-panel .ah-cont { position: relative; margin-top: 12px; }
 .ah-panel .ah-cont-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .ah-panel .ah-cont-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; padding: 3px 4px 3px 9px; border-radius: var(--ah-pill); border: 1px solid; }
-.ah-panel .ah-cont-chip.worn { background: var(--ah-good-bg); border-color: rgba(121, 189, 102, 0.5); color: var(--ah-good-ink); }
-.ah-panel .ah-cont-chip.gear { background: var(--ah-store-bg); border-color: rgba(154, 127, 224, 0.45); color: var(--ah-store-ink); }
-.ah-panel .ah-cont-sw { width: 9px; height: 9px; border-radius: 3px; flex: 0 0 auto; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); }
+.ah-panel .ah-cont-chip.worn { background: var(--ah-good-bg); border-color: var(--ah-good-line); color: var(--ah-good-ink); }
+.ah-panel .ah-cont-chip.gear { background: var(--ah-store-bg); border-color: var(--ah-store-line); color: var(--ah-store-ink); }
+.ah-panel .ah-cont-sw { width: 9px; height: 9px; border-radius: 3px; flex: 0 0 auto; box-shadow: var(--ah-ring-dark); }
 /* click-an-empty-slot picker (anchored under the clicked slot card) */
 .ah-panel .ah-pickmenu { position: absolute; left: 0; top: 100%; margin-top: 4px; z-index: 30; min-width: 132px; max-width: 200px;
   max-height: 168px; overflow-y: auto; padding: 4px; border-radius: var(--ah-r); background: var(--ah-sink); border: 1px solid var(--ah-line-2);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.6); display: flex; flex-direction: column; gap: 2px; }
+  box-shadow: var(--ah-shadow-pop); display: flex; flex-direction: column; gap: 2px; }
 .ah-panel .ah-pick-it { display: flex; align-items: center; gap: 7px; width: 100%; text-align: left; padding: 5px 7px;
   border: none; border-radius: var(--ah-r-sm); background: transparent; color: var(--ah-ink); font-size: 11px; cursor: pointer; }
 .ah-panel .ah-pick-it:hover { background: var(--ah-action-bg); }
@@ -192,12 +201,12 @@
 .ah-panel .ah-gear-add { margin-left: auto; font-size: 10px; padding: 2px 9px; border-radius: var(--ah-pill); cursor: pointer; background: transparent; border: 1px solid var(--ah-line-2); color: var(--ah-dim); }
 .ah-panel .ah-gear-add:hover { border-color: var(--ah-action); color: var(--ah-ink); }
 .ah-panel .ah-gear-row { display: flex; flex-wrap: wrap; gap: 6px; }
-.ah-panel .ah-gear-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; padding: 3px 4px 3px 9px; border-radius: var(--ah-pill); background: var(--ah-store-bg); border: 1px solid rgba(154, 127, 224, 0.45); color: var(--ah-store-ink); }
+.ah-panel .ah-gear-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; padding: 3px 4px 3px 9px; border-radius: var(--ah-pill); background: var(--ah-store-bg); border: 1px solid var(--ah-store-line); color: var(--ah-store-ink); }
 .ah-panel .ah-gear-n { font-size: 9px; color: var(--ah-mute); }
 .ah-panel .ah-gear-x { width: 16px; height: 16px; border: none; border-radius: 50%; background: transparent; color: var(--ah-dim); cursor: pointer; font-size: 13px; line-height: 1; padding: 0; }
-.ah-panel .ah-gear-x:hover { background: var(--ah-bad); color: #fff; }
+.ah-panel .ah-gear-x:hover { background: var(--ah-bad); color: var(--ah-ink-inverse); }
 .ah-panel .ah-gear-empty { font-size: 10.5px; font-style: italic; color: var(--ah-faint); }
-.ah-panel .ah-gear-menu { position: absolute; right: 0; top: 22px; z-index: 40; min-width: 184px; max-height: 230px; overflow-y: auto; padding: 4px; border-radius: var(--ah-r); background: var(--ah-sink); border: 1px solid var(--ah-line-2); box-shadow: 0 12px 28px rgba(0, 0, 0, 0.6); display: flex; flex-direction: column; gap: 2px; }
+.ah-panel .ah-gear-menu { position: absolute; right: 0; top: 22px; z-index: 40; min-width: 184px; max-height: 230px; overflow-y: auto; padding: 4px; border-radius: var(--ah-r); background: var(--ah-sink); border: 1px solid var(--ah-line-2); box-shadow: var(--ah-shadow-pop); display: flex; flex-direction: column; gap: 2px; }
 .ah-panel .ah-gear-mi { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; text-align: left; padding: 6px 8px; border: none; border-radius: var(--ah-r-sm); background: transparent; color: var(--ah-ink); cursor: pointer; }
 .ah-panel .ah-gear-mi:hover { background: var(--ah-action-bg); }
 .ah-panel .ah-gear-mi-n { font-size: 12px; font-weight: 600; }
@@ -221,14 +230,14 @@
 .ah-panel .ah-tray-row { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 5px; }
 .ah-panel .ah-tray-it { display: flex; align-items: center; gap: 7px; padding: 5px 9px 5px 6px; background: var(--ah-raise);
   border: 1px solid var(--ah-line); border-radius: var(--ah-r); cursor: grab; user-select: none; -webkit-user-select: none; }
-.ah-panel .ah-tray-it:hover { border-color: rgba(217, 156, 70, 0.5); background: var(--ah-raise-2); }
+.ah-panel .ah-tray-it:hover { border-color: var(--ah-action-line); background: var(--ah-raise-2); }
 .ah-panel .ah-tray-it > svg { max-width: 60px; max-height: 44px; height: auto; flex: 0 0 auto; }   /* hard cap so a huge shape can never balloon the chip */
 .ah-panel .ah-tray-nm { font-size: 11.5px; }
 .ah-panel .ah-tray-sz { font-size: 10px; color: var(--ah-mute); }
 .ah-panel .ah-tray-tag { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 5px; border-radius: var(--ah-pill); line-height: 1.4; }
-.ah-panel .ah-tray-tag.wear { background: var(--ah-bad-bg); border: 1px solid rgba(216, 97, 95, 0.5); color: var(--ah-bad-ink); }
-.ah-panel .ah-tray-tag.free { background: var(--ah-good-bg); border: 1px solid rgba(121, 189, 102, 0.5); color: var(--ah-good-ink); }
-.ah-panel .ah-tray-tag.bundle { background: var(--ah-action-bg); border: 1px solid rgba(217, 156, 70, 0.5); color: var(--ah-action-ink); }
+.ah-panel .ah-tray-tag.wear { background: var(--ah-bad-bg); border: 1px solid var(--ah-bad-line); color: var(--ah-bad-ink); }
+.ah-panel .ah-tray-tag.free { background: var(--ah-good-bg); border: 1px solid var(--ah-good-line); color: var(--ah-good-ink); }
+.ah-panel .ah-tray-tag.bundle { background: var(--ah-action-bg); border: 1px solid var(--ah-action-line); color: var(--ah-action-ink); }
 .ah-panel .ah-tray-empty { font-size: 11px; font-style: italic; color: var(--ah-good); }
 .ah-panel .ah-tray-chips::-webkit-scrollbar { width: 9px; }
 .ah-panel .ah-tray-chips::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); border-radius: var(--ah-r-sm); border: 2px solid transparent; background-clip: padding-box; }
@@ -261,6 +270,27 @@
 .ah-panel .ah-slotchip { font-size: 9px; padding: 2px 6px; border-radius: var(--ah-pill); cursor: pointer;
   background: transparent; border: 1px solid var(--ah-line-2); color: var(--ah-mute); }
 .ah-panel .ah-slotchip.on { background: var(--ah-action-bg); border-color: var(--ah-action); color: var(--ah-ink); }
+
+/* ── hit areas (WCAG 2.5.8 / 2.5.5) ──
+   Tiny inline icon buttons keep their visual size but gain a transparent ≥24px
+   (44px on coarse pointers) hit target via ::after, so the dense desktop layout
+   doesn't shift. GM number inputs/controls clear 24px on every pointer. */
+.ah-panel .ah-bx, .ah-panel .ah-gear-x, .ah-panel .ah-outfit-x,
+.ah-panel .ah-bdot, .ah-panel .ah-leg-x, .ah-panel .ah-use { position: relative; }
+.ah-panel .ah-bx::after, .ah-panel .ah-gear-x::after, .ah-panel .ah-outfit-x::after,
+.ah-panel .ah-bdot::after, .ah-panel .ah-leg-x::after, .ah-panel .ah-use::after {
+  content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 100%; height: 100%; min-width: 24px; min-height: 24px;
+}
+.ah-panel .ah-cap-input, .ah-panel .ah-row-sp, .ah-panel .ah-row-sel, .ah-panel .ah-row-rst { min-height: 24px; }
+@media (pointer: coarse) {
+  .ah-panel .ah-bx::after, .ah-panel .ah-gear-x::after, .ah-panel .ah-outfit-x::after,
+  .ah-panel .ah-bdot::after, .ah-panel .ah-leg-x::after, .ah-panel .ah-use::after { min-width: 44px; min-height: 44px; }
+  .ah-panel .ah-cap-input, .ah-panel .ah-row-sp, .ah-panel .ah-row-sel, .ah-panel .ah-row-rst { min-height: 40px; }
+  .ah-panel .ah-row-rst { width: 40px; }
+  .ah-panel .ah-slotchip { padding: 7px 11px; }
+  .ah-panel .ah-tidy, .ah-panel .ah-act, .ah-panel .ah-outfit-save, .ah-panel .ah-gear-add { padding-top: 8px; padding-bottom: 8px; }
+}
 
 /* reduced motion: state changes are instant, never animated */
 @media (prefers-reduced-motion: reduce) {
