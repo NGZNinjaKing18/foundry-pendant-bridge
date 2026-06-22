@@ -2018,10 +2018,42 @@ function updateIndicator(connected) {
 // sheet rendering), but it only DISPLAYS the stored authority; it falls back to a
 // live compute only when no value has been written yet (e.g. before the GM is on).
 
+function ahAnyActiveGM() { try { return game.users.some(u => u.active && u.isGM) } catch { return false } }
+/** GM-authoritative reconcile (SHEET-INDEPENDENT, runs from the recompute hooks): clear dnd5e
+ *  system.equipped on any item the validator EVICTED, prune the ahEquip flag, and drop orphaned
+ *  ahPlace unit keys. Idempotent — guards make repeat runs no-ops so there's no hook loop. */
+async function ahReconcileEquip(actor) {
+  if (!game.user?.isGM || !actor) return
+  if (actor.type === "group" || actor.type === "party") return
+  const metaById = {}, byId = {}
+  for (const it of actor.items) { byId[it.id] = true; try { metaById[it.id] = ahMeta(it) } catch { metaById[it.id] = { equipSlots: [] } } }
+  let eq; try { eq = ahBuildEquip(actor, metaById, byId) } catch { return }
+  // equipped sync + ahEquip prune: any saved-equipped id not in the validated set was evicted
+  let savedEq = {}; try { savedEq = actor.getFlag(MOD, "ahEquip") || {} } catch {}
+  const savedIds = new Set([...Object.keys(savedEq.worn || {}), ...(Array.isArray(savedEq.back) ? savedEq.back : [])])
+  const nowIds = new Set(Object.keys(eq.worn).concat(eq.back))
+  let eqChanged = savedIds.size !== nowIds.size
+  for (const id of savedIds) if (!nowIds.has(id)) { eqChanged = true; const it = actor.items.get(id); if (it && it.system && ("equipped" in it.system) && it.system.equipped) { try { await it.update({ "system.equipped": false }) } catch {} } }
+  if (eqChanged) { try { await actor.setFlag(MOD, "ahEquip", { worn: eq.worn, back: eq.back }) } catch {} }
+  // prune orphaned ahPlace unit keys (deleted items / shrunk bundles / now-worn)
+  try {
+    const cfg = AH.cfg(), valid = new Set()
+    for (const it of actor.items) {
+      if (!AH.counted(it, cfg) || nowIds.has(it.id)) continue
+      const bi = ahBundleInfo(it, cfg)
+      if (bi.active && bi.count > 1) { for (let k = 0; k < bi.count; k++) valid.add(it.id + "#" + k) } else valid.add(it.id)
+    }
+    const place = actor.getFlag(MOD, "ahPlace") || {}, keys = Object.keys(place)
+    const keep = keys.filter(k => valid.has(k))
+    if (keep.length !== keys.length) { const np = {}; for (const k of keep) np[k] = place[k]; await actor.setFlag(MOD, "ahPlace", np) }
+  } catch {}
+}
+
 /** Persist a bag's authoritative totals onto the actor. GM-only; no-op if unchanged. */
 async function ahRecomputeActor(actor) {
   if (!game.user?.isGM || !actor) return
   if (actor.type === "group" || actor.type === "party") return
+  try { await ahReconcileEquip(actor) } catch {}   // clear stale equipped + prune flags (no open sheet needed)
   let s
   try { s = AH.actorSummary(actor, AH.cfg()) } catch (e) { console.warn("[pendant-bridge] AH recompute failed", actor?.id, e); return }
   const next = { used: s.used, capacity: s.capacity, overflow: s.overflow, free: s.free, itemCount: s.itemCount, capacityOverride: s.capacityOverride }
@@ -2654,16 +2686,12 @@ function ahFreeBody(ctx, m) {
   }
   return out
 }
-/** Validated equip state from the owner-written `ahEquip` flag ({worn:{id:slot}, back:[ids]}). */
-function ahBuildEquip(actor, metaById, byId) {
-  let saved = {}; try { saved = actor.getFlag(MOD, "ahEquip") || {} } catch {}
-  const sw = (saved.worn && typeof saved.worn === "object") ? saved.worn : {}
-  const sb = Array.isArray(saved.back) ? saved.back : []
+/** Place a candidate worn/back set: FIXPOINT worn placement (resolves chained grants by
+ *  recomputing caps/occ each round) + grantors-first back pass (a pack's straps raise Back for
+ *  its siblings). `excluded` ids are skipped entirely (used for the covers pass). */
+function ahPlaceWorn(sw, sb, byId, metaById, actor, excluded) {
   const worn = {}, back = []
-  // FIXPOINT placement: keep placing not-yet-placed items while any succeeds, recomputing
-  // caps/occ each round — this orders providers before dependents (chained grants) and lets
-  // a coverer occupy its covered slot before a dependent tries it.
-  let remaining = Object.keys(sw).filter(id => byId[id] && metaById[id])
+  let remaining = Object.keys(sw).filter(id => byId[id] && metaById[id] && !excluded.has(id))
   let progress = true
   while (progress && remaining.length) {
     progress = false
@@ -2680,24 +2708,43 @@ function ahBuildEquip(actor, metaById, byId) {
     }
     remaining = next
   }
-  // covers post-filter FIRST (before the back pass): an item in a slot COVERED by a different
-  // co-equipped coverer (plate's helm/sabatons over a separate hat/boots) can't also be worn
-  // there → drop it. Doing this before the back pass keeps Back caps consistent with the final
-  // worn set even if a dropped coverer-victim happened to grant a Back point.
-  for (const id of Object.keys(worn)) {
-    const slot = worn[id]
-    for (const oid of Object.keys(worn)) {
-      if (oid === id) continue
-      const om = metaById[oid]
-      if (om && Array.isArray(om.covers) && om.covers.some(c => (AH_SLOT_KEY[c] || c) === slot)) { delete worn[id]; break }
-    }
-  }
-  // back items: grantors (packs) first, recompute Back cap each push so a pack's own straps
-  // raise the cap for its siblings (bedroll + weapon).
-  const sbIds = sb.filter(id => byId[id] && metaById[id])
+  const sbIds = sb.filter(id => byId[id] && metaById[id] && !excluded.has(id))
   sbIds.sort((a, b) => ((metaById[a].grantsSlots ? 0 : 1) - (metaById[b].grantsSlots ? 0 : 1)))
   for (const id of sbIds) { const caps2 = ahCaps({ worn, back, metaById, actor }); if (back.indexOf(id) < 0 && back.length < caps2.Back) back.push(id) }
   return { worn, back }
+}
+/** Validated equip state from the owner-written `ahEquip` flag ({worn:{id:slot}, back:[ids]}).
+ *  TWO-PASS for robust covers: pass 1 discovers which worn items are COVERED by a co-equipped
+ *  coverer (plate's helm/sabatons over a separate hat/boots); pass 2 re-places WITHOUT them, so a
+ *  dropped coverer-victim's grants never leak into caps no matter what a coverer covers. */
+function ahBuildEquip(actor, metaById, byId) {
+  let saved = {}; try { saved = actor.getFlag(MOD, "ahEquip") || {} } catch {}
+  const sw = (saved.worn && typeof saved.worn === "object") ? saved.worn : {}
+  const sb = Array.isArray(saved.back) ? saved.back : []
+  const r1 = ahPlaceWorn(sw, sb, byId, metaById, actor, new Set())
+  const covered = new Set()
+  for (const id of Object.keys(r1.worn)) {
+    const slot = r1.worn[id]
+    for (const oid of Object.keys(r1.worn)) {
+      if (oid === id) continue
+      const om = metaById[oid]
+      if (om && Array.isArray(om.covers) && om.covers.some(c => (AH_SLOT_KEY[c] || c) === slot)) { covered.add(id); break }
+    }
+  }
+  return covered.size ? ahPlaceWorn(sw, sb, byId, metaById, actor, covered) : r1   // coverers can't be covered → set is stable, no 3rd pass
+}
+/** The ONE client that should persist AUTOMATIC self-heal writes, so concurrent viewers don't
+ *  duplicate them: an active GM if any (lowest user id wins), else the lowest-id active OWNER. */
+function ahIsWriteAuthority(actor) {
+  try {
+    const me = game.user; if (!me) return false
+    const low = (arr) => arr.reduce((a, b) => (String(a.id) <= String(b.id) ? a : b))
+    const gms = game.users.filter(u => u.active && u.isGM)
+    if (gms.length) return !!me.isGM && low(gms).id === me.id
+    const owners = game.users.filter(u => u.active && actor && actor.testUserPermission && actor.testUserPermission(u, "OWNER"))
+    if (!owners.length) return !!(actor && actor.isOwner)
+    return low(owners).id === me.id
+  } catch { return !!(game.user && game.user.isGM) }
 }
 function ahSaveEquip(ctx) { try { ctx.actor.setFlag(MOD, "ahEquip", { worn: ctx.worn, back: ctx.back }) } catch (e) { console.warn("[pendant-bridge] AH equip save failed", e) } }
 function ahPlaceObj(ctx) { const o = {}; ctx.placed.forEach((p, id) => { o[id] = { col: p.col, row: p.row, rot: p.rot } }); return o }
@@ -2940,10 +2987,10 @@ function ahBuildPanel(actor) {
     units: [], unitById: {}, bundleN: {},
   }
   const eq = ahBuildEquip(actor, metaById, byId); ctx.worn = eq.worn; ctx.back = eq.back
-  // self-heal: any item the validator EVICTED (grantor removed, slot stolen, covered, Back
-  // overflowed, or deleted) must lose dnd5e system.equipped + drop out of the stored flag —
-  // otherwise it keeps granting AC while shown unworn, and could silently revive. Owner only.
-  if (ctx.canArrange) {
+  // self-heal evicted gear (clear dnd5e equipped + prune the flag). When a GM is online the
+  // GM's sheet-independent ahReconcileEquip handles this; this sheet-side path only fires when
+  // NO GM is on, and then only on the single authority owner — so viewers never duplicate writes.
+  if (ctx.canArrange && !ahAnyActiveGM() && ahIsWriteAuthority(actor)) {
     let savedEq = {}; try { savedEq = actor.getFlag(MOD, "ahEquip") || {} } catch {}
     const savedIds = new Set([...Object.keys(savedEq.worn || {}), ...(Array.isArray(savedEq.back) ? savedEq.back : [])])
     const nowIds = new Set(ahEquippedIds(ctx))
@@ -2983,7 +3030,7 @@ function ahBuildPanel(actor) {
   // self-heal: if the live placements differ from the stored flag (worn-only gear removed, or
   // orphaned bundle uids after a quantity drop / item delete), persist the pruned set so stale
   // keys can't accumulate or silently revive when a uid reappears. Owner only.
-  if (ctx.canArrange && ctx.placed.size !== Object.keys(savedPlace).length) ahSavePlace(actor, ahPlaceObj(ctx))
+  if (ctx.canArrange && !ahAnyActiveGM() && ahIsWriteAuthority(actor) && ctx.placed.size !== Object.keys(savedPlace).length) ahSavePlace(actor, ahPlaceObj(ctx))
 
   // counts + space totals (overflow = baggable load that exceeds the bag)
   const wornN = Object.keys(ctx.worn).length + ctx.back.length, packedN = ctx.placed.size
