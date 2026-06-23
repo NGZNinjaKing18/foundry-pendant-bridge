@@ -84,9 +84,9 @@
 .ah-panel.is-over { box-shadow: inset 0 -2px 0 var(--ah-bad); }
 /* state motion on every interactive surface (degrades to instant — see end) */
 .ah-panel button, .ah-panel input, .ah-panel summary,
-.ah-panel .ah-slot, .ah-panel .ah-cont-chip, .ah-panel .ah-outfit,
+.ah-panel .ah-slot, .ah-panel .ah-cont-chip,
 .ah-panel .ah-tray-it, .ah-panel .ah-bdot, .ah-panel .ah-pick-it, .ah-panel .ah-gear-mi {
-  transition: background var(--ah-ease), border-color var(--ah-ease), color var(--ah-ease), box-shadow var(--ah-ease);
+  transition: background var(--ah-ease), border-color var(--ah-ease), color var(--ah-ease), box-shadow var(--ah-ease), transform var(--ah-ease);
 }
 /* one focus treatment everywhere (incl. role-less tabindex items like loose tray chips) */
 .ah-panel button:focus-visible, .ah-panel input:focus-visible, .ah-panel summary:focus-visible,
@@ -101,25 +101,21 @@
 .ah-panel .ah-title .ah-ico { width: 16px; height: 16px; color: var(--ah-action); }
 .ah-panel .ah-stat { font-size: 12px; color: var(--ah-dim); }
 .ah-panel .ah-stat b { color: var(--ah-ink); }
-.ah-panel .ah-over { color: var(--ah-bad); font-weight: 600; }
 .ah-panel .ah-cap { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ah-mute); }
 .ah-panel .ah-cap-input { width: 50px; height: 22px; padding: 0 5px; font-size: 12px; text-align: center;
   border: 1px solid var(--ah-line-2); border-radius: var(--ah-r-sm); background: var(--ah-sink); color: var(--ah-ink); }
 .ah-panel .ah-cap-input:hover { border-color: var(--ah-action); }
-/* two layers: body (left) + bag (right) */
-.ah-panel .ah-cols { display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
-.ah-panel .ah-dollwrap { flex: 1 1 300px; min-width: 0; }
-.ah-panel .ah-bagcol { flex: 1 1 300px; min-width: 0; }
-.ah-panel .ah-bag-lbl { display: flex; align-items: baseline; gap: 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ah-mute); margin-bottom: 6px; }
-.ah-panel .ah-bag-meta { margin-left: auto; font-size: 10px; text-transform: none; letter-spacing: 0; color: var(--ah-faint); }
+.ah-panel .ah-bagcol { min-width: 0; }
 /* ── zone section headers: Body · Bag · Loose (one strong anchor per zone, not a gray eyebrow per section) ── */
 .ah-panel .ah-sec { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin: 15px 0 9px; }
 .ah-panel .ah-sec-h { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: var(--ah-ink); }
 .ah-panel .ah-sec-i { display: inline-flex; align-items: center; }
 .ah-panel .ah-sec-i .ah-ico { width: 14px; height: 14px; }
 .ah-panel .ah-sec-meta { font-weight: 400; font-size: 11px; color: var(--ah-mute); }
-.ah-panel.is-over .ah-sec-loose .ah-sec-h { color: var(--ah-bad); }
-.ah-panel.is-over .ah-sec-loose .ah-sec-i { color: var(--ah-bad) !important; }
+.ah-panel .ah-sec-body .ah-sec-i { color: var(--ah-steel); }   /* zone hue (was an inline style + !important) */
+.ah-panel .ah-sec-bag .ah-sec-i { color: var(--ah-store); }
+.ah-panel .ah-sec-loose .ah-sec-i { color: var(--ah-action); }
+.ah-panel.is-over .ah-sec-loose .ah-sec-h, .ah-panel.is-over .ah-sec-loose .ah-sec-i { color: var(--ah-bad); }
 .ah-panel .ah-sec-rule { flex: 1 1 24px; height: 1px; min-width: 16px; background: linear-gradient(90deg, var(--ah-line), transparent); }
 .ah-panel .ah-sec-ctl { position: relative; display: flex; align-items: center; gap: 6px; margin-left: auto; }
 /* neutral ghost button (Strip · Outfits · Add) — pairs with the amber .ah-act primary */
@@ -141,56 +137,18 @@
 .ah-panel .ah-om-save:hover { background: var(--ah-action-bg); }
 .ah-panel .ah-om-save .ah-ico { width: 12px; height: 12px; }
 .ah-panel .ah-om-empty { font-size: 10.5px; font-style: italic; color: var(--ah-faint); padding: 6px 8px; }
-/* primary action buttons (amber/forge) */
-.ah-panel .ah-tidy, .ah-panel .ah-act { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; text-transform: none; letter-spacing: 0; padding: 3px 10px; border-radius: var(--ah-pill); cursor: pointer; background: var(--ah-action-bg); border: 1px solid var(--ah-action-line); color: var(--ah-action-ink); line-height: 1.4; }
-.ah-panel .ah-tidy:hover, .ah-panel .ah-act:hover { background: rgba(217, 156, 70, 0.3); color: #f6e2b6; box-shadow: 0 0 0 3px var(--ah-action-bg); }
-.ah-panel .ah-tidy:active, .ah-panel .ah-act:active { transform: translateY(0.5px); }
+/* primary action button (amber/forge) — Suit up · Tidy */
+.ah-panel .ah-act { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; text-transform: none; letter-spacing: 0; padding: 3px 10px; border-radius: var(--ah-pill); cursor: pointer; background: var(--ah-action-bg); border: 1px solid var(--ah-action-line); color: var(--ah-action-ink); line-height: 1.4; }
+.ah-panel .ah-act:hover { background: rgba(217, 156, 70, 0.3); color: #f6e2b6; box-shadow: 0 0 0 3px var(--ah-action-bg); }
 .ah-panel .ah-use { font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 7px; border-radius: var(--ah-pill); cursor: pointer; background: var(--ah-good-bg); border: 1px solid var(--ah-good-line); color: var(--ah-good-ink); line-height: 1.5; }
 .ah-panel .ah-use:hover { background: rgba(121, 189, 102, 0.32); color: #e6f5e6; }
-.ah-panel .ah-draw { font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 7px; border-radius: var(--ah-pill); cursor: pointer; background: var(--ah-action-bg); border: 1px solid var(--ah-action-line); color: var(--ah-action-ink); line-height: 1.5; }
-.ah-panel .ah-draw:hover { background: rgba(217, 156, 70, 0.3); color: #f6e2b6; }
-/* paperdoll — figure flanked by two tidy columns of labelled slot cards */
+/* paperdoll — figure + a wrap grid of square equipment tiles (see .ah-tile below) */
 .ah-panel .ah-doll { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
 .ah-panel .ah-tiles { flex: 1 1 220px; min-width: 0; display: flex; flex-wrap: wrap; gap: 7px; align-content: flex-start; }
 .ah-panel .ah-dollfig { flex: 0 0 64px; display: flex; align-items: flex-start; justify-content: center; }
 .ah-panel .ah-doll-img { width: 60px; max-height: 300px; object-fit: contain; opacity: 0.9; -webkit-user-drag: none; user-select: none; }
-.ah-panel .ah-slot { position: relative; background: var(--ah-raise); border: 1px solid var(--ah-line); border-radius: var(--ah-r); padding: 4px 8px; min-width: 0; }
-.ah-panel .ah-slab { display: block; font-size: 9px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ah-mute); line-height: 1.5; }
-.ah-panel .ah-sico { display: inline-flex; align-items: center; margin-right: 4px; font-size: 11px; color: var(--ah-mute); }
-.ah-panel .ah-sfit { font-style: normal; font-size: 9px; color: var(--ah-good); background: var(--ah-good-bg); border-radius: var(--ah-pill); padding: 0 5px; margin-left: 4px; }
-.ah-panel .ah-slot.locked { background: var(--ah-sink); border-style: dashed; border-color: var(--ah-line); }
-.ah-panel .ah-slock { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; color: var(--ah-faint); }
-.ah-panel .ah-sdrop { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--ah-good); }
-.ah-panel .ah-sswap { margin-left: 2px; font-size: 10px; color: var(--ah-action-ink); }
-.ah-panel .ah-slot.covered { background: var(--ah-sink); border-color: var(--ah-line); }
-.ah-panel .ah-scover { font-size: 10.5px; font-style: italic; color: var(--ah-mute); }
-.ah-panel .ah-slot.swap { border: 1px solid var(--ah-action); box-shadow: 0 0 0 3px var(--ah-action-bg); }
+.ah-panel .ah-slot { position: relative; }   /* base class on every tile (drag/valid/swap hooks + transitions key off it); tile geometry is in .ah-tile below */
 .ah-panel .ah-pick-bag { font-style: normal; font-size: 8.5px; color: var(--ah-mute); margin-left: auto; background: rgba(255, 255, 255, 0.06); border-radius: var(--ah-pill); padding: 0 6px; }
-/* body toolbar: suit up / strip / outfits */
-.ah-panel .ah-dollbar { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-bottom: 8px; }
-.ah-panel .ah-outfits { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; width: 100%; margin-top: 2px; }
-.ah-panel .ah-outfits-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ah-mute); margin-right: 2px; }
-.ah-panel .ah-outfit { display: inline-flex; align-items: center; gap: 2px; font-size: 10.5px; padding: 2px 4px 2px 9px; border-radius: var(--ah-pill); background: var(--ah-store-bg); border: 1px solid var(--ah-store-line); color: var(--ah-store-ink); }
-.ah-panel .ah-outfit:hover { border-color: var(--ah-store); box-shadow: 0 0 0 3px var(--ah-store-bg); }
-.ah-panel .ah-outfit-apply { background: none; border: none; padding: 0; margin: 0; font: inherit; line-height: inherit; color: inherit; cursor: pointer; -webkit-appearance: none; appearance: none; }
-.ah-panel .ah-outfit-x { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border: none; background: transparent; padding: 0; -webkit-appearance: none; appearance: none; border-radius: 50%; font-size: 11px; line-height: 1; color: var(--ah-dim); cursor: pointer; }
-.ah-panel .ah-outfit-x:hover { background: var(--ah-bad); color: var(--ah-ink-inverse); }
-.ah-panel .ah-outfit-save { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; padding: 2px 9px; border-radius: var(--ah-pill); cursor: pointer; background: transparent; border: 1px solid var(--ah-line-2); color: var(--ah-dim); }
-.ah-panel .ah-outfit-save:hover { border-color: var(--ah-action); color: var(--ah-ink); }
-.ah-panel .ah-scap { font-style: normal; font-variant-numeric: tabular-nums; color: var(--ah-mute); }
-.ah-panel .ah-sval { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ah-ink); min-width: 0; min-height: 16px; }
-.ah-panel .ah-slot.empty { background: var(--ah-sink); border-style: dashed; border-color: var(--ah-line); cursor: pointer; }
-.ah-panel .ah-slot.empty:hover { border-color: var(--ah-action); border-style: solid; background: var(--ah-raise); }
-.ah-panel .ah-sempty { font-size: 11px; color: var(--ah-faint); }
-.ah-panel .ah-sadd { font-size: 11px; color: var(--ah-mute); }
-.ah-panel button.ah-addbtn { background: none; border: none; padding: 0; cursor: pointer; font: inherit; line-height: inherit; }
-.ah-panel .ah-slot.empty:hover .ah-sadd { color: var(--ah-action-ink); }
-.ah-panel .ah-slot.valid { border: 1px solid var(--ah-good); border-style: solid; background: var(--ah-good-bg); box-shadow: 0 0 0 3px var(--ah-good-bg); }
-.ah-panel .ah-bswatch { width: 11px; height: 11px; border-radius: 3px; flex: 0 0 auto; box-shadow: var(--ah-ring-dark); }
-.ah-panel .ah-bname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.ah-panel .ah-bx { margin-left: auto; flex: 0 0 auto; width: 16px; height: 16px; border-radius: 50%; border: none; cursor: pointer; padding: 0;
-  background: transparent; color: var(--ah-dim); font-size: 14px; line-height: 1; }
-.ah-panel .ah-bx:hover { background: var(--ah-bad); color: var(--ah-ink-inverse); }
 .ah-panel .ah-bdot { width: 13px; height: 13px; border-radius: 3px; cursor: pointer; box-shadow: var(--ah-ring-dark); border: none; padding: 0; -webkit-appearance: none; appearance: none; }
 .ah-panel .ah-bdot:hover { outline: 1px solid var(--ah-bad); outline-offset: 1px; }
 /* ── square equipment tiles — the slot icon is the identity, the item colour fills it, the name lives
@@ -269,13 +227,7 @@
 .ah-panel .ah-pick-empty { font-size: 10px; font-style: italic; color: var(--ah-faint); padding: 6px 8px; }
 .ah-panel .ah-bag-empty { font-size: 11px; font-style: italic; color: var(--ah-faint); padding: 18px 6px; }
 /* add-on storage gear */
-.ah-panel .ah-gear { position: relative; margin-top: 10px; }
-.ah-panel .ah-gear-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.ah-panel .ah-gear-lbl { display: block; margin-bottom: 5px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ah-mute); }
-.ah-panel .ah-gear-add { margin-left: auto; font-size: 10px; padding: 2px 9px; border-radius: var(--ah-pill); cursor: pointer; background: transparent; border: 1px solid var(--ah-line-2); color: var(--ah-dim); }
-.ah-panel .ah-gear-add:hover { border-color: var(--ah-action); color: var(--ah-ink); }
-.ah-panel .ah-gear-row { display: flex; flex-wrap: wrap; gap: 6px; }
-.ah-panel .ah-gear-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; padding: 3px 4px 3px 9px; border-radius: var(--ah-pill); background: var(--ah-store-bg); border: 1px solid var(--ah-store-line); color: var(--ah-store-ink); }
+.ah-panel .ah-gear-lbl { display: block; margin-bottom: 6px; font-size: 11px; font-weight: 500; color: var(--ah-dim); }
 .ah-panel .ah-gear-n { font-size: 9px; color: var(--ah-mute); }
 .ah-panel .ah-gear-x { width: 16px; height: 16px; border: none; border-radius: 50%; background: transparent; color: var(--ah-dim); cursor: pointer; font-size: 13px; line-height: 1; padding: 0; }
 .ah-panel .ah-gear-x:hover { background: var(--ah-bad); color: var(--ah-ink-inverse); }
@@ -298,9 +250,6 @@
 .ah-panel .ah-ghost { position: fixed; z-index: 99; pointer-events: none; padding: 3px 8px; border-radius: var(--ah-r-sm);
   background: var(--ah-raise-2); border: 1px solid var(--ah-action); font-size: 11px; white-space: nowrap; color: var(--ah-ink); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5); }
 /* tray of not-yet-placed (loose) items */
-.ah-panel .ah-tray { margin-top: 12px; }
-.ah-panel .ah-tray-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ah-mute); margin-bottom: 7px; }
-.ah-panel.is-over .ah-tray-lbl { color: var(--ah-bad); }
 .ah-panel .ah-tray-chips { display: flex; flex-direction: column; gap: 6px; max-height: 176px; overflow-y: auto; padding-right: 3px; }
 .ah-panel .ah-tray-group { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ah-mute); margin-top: 2px; }
 .ah-panel details.ah-tgroup > summary.ah-tray-group { cursor: pointer; list-style: revert; padding: 2px 0; }
@@ -325,15 +274,12 @@
 .ah-panel .ah-items > summary { cursor: pointer; font-size: 11px; color: var(--ah-mute); padding: 2px 0; list-style: revert; }
 .ah-panel .ah-items > summary:hover { color: var(--ah-dim); }
 .ah-panel .ah-list { margin-top: 5px; display: flex; flex-direction: column; gap: 2px; }
-.ah-panel .ah-row { display: flex; align-items: center; gap: 7px; padding: 3px 4px; border-radius: var(--ah-r-sm); }
-.ah-panel .ah-row:hover { background: rgba(255, 255, 255, 0.05); }
 .ah-panel .ah-row-sw { width: 11px; height: 11px; border-radius: 3px; flex: 0 0 auto; }
 .ah-panel .ah-row-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .ah-panel .ah-row-qty { font-size: 10px; color: var(--ah-mute); flex-shrink: 0; }
 .ah-panel .ah-row-sp { width: 48px; height: 22px; padding: 0 4px; font-size: 11px; text-align: center; flex-shrink: 0;
   border: 1px solid var(--ah-line-2); border-radius: var(--ah-r-sm); background: var(--ah-sink); color: var(--ah-ink); }
 .ah-panel .ah-row-sp.ovr { border-color: var(--ah-action); background: var(--ah-action-bg); font-weight: 700; }
-.ah-panel .ah-empty { font-size: 11px; font-style: italic; color: var(--ah-faint); padding: 6px 2px; }
 /* GM per-item editor rows */
 .ah-panel .ah-erow { padding: 5px 4px; border-radius: var(--ah-r-sm); }
 .ah-panel .ah-erow + .ah-erow { border-top: 1px solid var(--ah-line); }
@@ -354,26 +300,48 @@
    Tiny inline icon buttons keep their visual size but gain a transparent ≥24px
    (44px on coarse pointers) hit target via ::after, so the dense desktop layout
    doesn't shift. GM number inputs/controls clear 24px on every pointer. */
-.ah-panel .ah-bx, .ah-panel .ah-gear-x, .ah-panel .ah-outfit-x,
-.ah-panel .ah-bdot, .ah-panel .ah-leg-x, .ah-panel .ah-use, .ah-panel .ah-draw, .ah-panel .ah-bin-x, .ah-panel .ah-om-x, .ah-panel .ah-tx, .ah-panel .ah-tdraw { position: relative; }
-.ah-panel .ah-bx::after, .ah-panel .ah-gear-x::after, .ah-panel .ah-outfit-x::after,
-.ah-panel .ah-bdot::after, .ah-panel .ah-leg-x::after, .ah-panel .ah-use::after, .ah-panel .ah-draw::after, .ah-panel .ah-bin-x::after, .ah-panel .ah-om-x::after, .ah-panel .ah-tx::after, .ah-panel .ah-tdraw::after {
+.ah-panel .ah-gear-x, .ah-panel .ah-bdot, .ah-panel .ah-leg-x,
+.ah-panel .ah-use, .ah-panel .ah-bin-x, .ah-panel .ah-om-x, .ah-panel .ah-tx, .ah-panel .ah-tdraw { position: relative; }
+.ah-panel .ah-gear-x::after, .ah-panel .ah-bdot::after, .ah-panel .ah-leg-x::after,
+.ah-panel .ah-use::after, .ah-panel .ah-bin-x::after, .ah-panel .ah-om-x::after, .ah-panel .ah-tx::after, .ah-panel .ah-tdraw::after {
   content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
   width: 100%; height: 100%; min-width: 24px; min-height: 24px;
 }
 .ah-panel .ah-cap-input, .ah-panel .ah-row-sp, .ah-panel .ah-row-sel, .ah-panel .ah-row-rst { min-height: 24px; }
 @media (pointer: coarse) {
-  .ah-panel .ah-bx::after, .ah-panel .ah-gear-x::after, .ah-panel .ah-outfit-x::after,
-  .ah-panel .ah-bdot::after, .ah-panel .ah-leg-x::after, .ah-panel .ah-use::after, .ah-panel .ah-draw::after, .ah-panel .ah-bin-x::after, .ah-panel .ah-om-x::after, .ah-panel .ah-tx::after, .ah-panel .ah-tdraw::after { min-width: 44px; min-height: 44px; }
+  .ah-panel .ah-gear-x::after, .ah-panel .ah-bdot::after, .ah-panel .ah-leg-x::after,
+  .ah-panel .ah-use::after, .ah-panel .ah-bin-x::after, .ah-panel .ah-om-x::after, .ah-panel .ah-tx::after, .ah-panel .ah-tdraw::after { min-width: 44px; min-height: 44px; }
   .ah-panel .ah-cap-input, .ah-panel .ah-row-sp, .ah-panel .ah-row-sel, .ah-panel .ah-row-rst { min-height: 40px; }
   .ah-panel .ah-row-rst { width: 40px; }
   .ah-panel .ah-slotchip { padding: 7px 11px; }
-  .ah-panel .ah-tidy, .ah-panel .ah-act, .ah-panel .ah-outfit-save, .ah-panel .ah-gear-add { padding-top: 8px; padding-bottom: 8px; }
+  .ah-panel .ah-act, .ah-panel .ah-ghostbtn { padding-top: 8px; padding-bottom: 8px; }
 }
 
-/* reduced motion: state changes are instant, never animated */
+/* ── motion — purposeful only: drop-feedback while dragging, menus that pop from their anchor, and
+   press/hover micro-feedback. Nothing animates on the panel's frequent full re-renders, so there's
+   no replay fatigue; every effect below is gated to a user action or the live drag state. ── */
+/* menus fade + scale up from their anchor instead of blinking in (one-shot, created on click) */
+@keyframes ah-pop { from { opacity: 0; transform: scale(0.96) translateY(-3px); } to { opacity: 1; transform: none; } }
+.ah-panel .ah-pickmenu { animation: ah-pop 140ms cubic-bezier(0.22, 1, 0.36, 1); transform-origin: top left; }
+.ah-panel .ah-gear-menu, .ah-panel .ah-outfit-menu { animation: ah-pop 140ms cubic-bezier(0.22, 1, 0.36, 1); transform-origin: top right; }
+/* HERO — valid drop targets breathe while a drag is live, drawing the eye to where the item fits.
+   On persistent / class-toggled elements only (doll tiles render once per drag; bin cards persist),
+   so the glow runs smoothly and stops the instant the .valid / .drop-ok class is removed. */
+@keyframes ah-drop-glow { 0%, 100% { box-shadow: 0 0 0 3px var(--ah-good-bg); } 50% { box-shadow: 0 0 0 3px var(--ah-good-bg), 0 0 13px -2px var(--ah-good); } }
+.ah-panel .ah-tile.valid { animation: ah-drop-glow 1.5s ease-in-out infinite; }
+@keyframes ah-bin-glow { 0%, 100% { box-shadow: 0 0 0 1px var(--ah-good), 0 0 8px -3px var(--ah-good); } 50% { box-shadow: 0 0 0 1px var(--ah-good), 0 0 17px -1px var(--ah-good); } }
+.ah-panel .ah-bin.drop-ok { animation: ah-bin-glow 1.5s ease-in-out infinite; }
+/* press + hover micro-feedback (transform only → no layout cost, GPU-friendly) */
+.ah-panel .ah-tile.empty:hover, .ah-panel .ah-cont-chip:hover, .ah-panel .ah-tray-it:hover { transform: translateY(-1px); }
+.ah-panel .ah-act:active, .ah-panel .ah-ghostbtn:active { transform: translateY(0.5px) scale(0.985); }
+
+/* reduced motion: state changes are instant, the drop-glow holds steady (still highlighted, not breathing) */
 @media (prefers-reduced-motion: reduce) {
   .ah-panel button, .ah-panel input, .ah-panel summary, .ah-panel .ah-slot, .ah-panel .ah-cont-chip,
-  .ah-panel .ah-outfit, .ah-panel .ah-tray-it, .ah-panel .ah-bdot, .ah-panel .ah-pick-it,
+  .ah-panel .ah-tray-it, .ah-panel .ah-bdot, .ah-panel .ah-pick-it,
   .ah-panel .ah-gear-mi, .ah-panel .ah-meter-fill { transition-duration: 0ms; }
+  .ah-panel .ah-pickmenu, .ah-panel .ah-gear-menu, .ah-panel .ah-outfit-menu,
+  .ah-panel .ah-tile.valid, .ah-panel .ah-bin.drop-ok { animation: none; }
+  .ah-panel .ah-tile.empty:hover, .ah-panel .ah-cont-chip:hover, .ah-panel .ah-tray-it:hover,
+  .ah-panel .ah-act:active, .ah-panel .ah-ghostbtn:active { transform: none; }
 }

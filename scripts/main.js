@@ -3674,14 +3674,14 @@ function ahBuildPanel(actor) {
   wrap.appendChild(head)
 
   // ── stacked zones: Body · Bag · Loose — each a clear header (replaces the gray eyebrows) ──
-  const mkSec = (iconName, hue, label, metaTxt, extraCls) => {
-    const s = document.createElement("div"); s.className = "ah-sec" + (extraCls ? " " + extraCls : "")
-    s.innerHTML = '<span class="ah-sec-h"><span class="ah-sec-i" style="color:' + hue + '">' + ahIcon(iconName) + "</span>" + ahEscX(label) + (metaTxt ? ' <span class="ah-sec-meta">' + ahEscX(metaTxt) + "</span>" : "") + '</span><span class="ah-sec-rule"></span><span class="ah-sec-ctl"></span>'
+  const mkSec = (iconName, zoneCls, label, metaTxt) => {
+    const s = document.createElement("div"); s.className = "ah-sec" + (zoneCls ? " " + zoneCls : "")   // zone class drives the icon hue (no inline style)
+    s.innerHTML = '<span class="ah-sec-h"><span class="ah-sec-i">' + ahIcon(iconName) + "</span>" + ahEscX(label) + (metaTxt ? ' <span class="ah-sec-meta">' + ahEscX(metaTxt) + "</span>" : "") + '</span><span class="ah-sec-rule"></span><span class="ah-sec-ctl"></span>'
     return { sec: s, ctl: s.querySelector(".ah-sec-ctl") }
   }
 
   // BODY — figure + slot cards are unchanged; only the framing + controls are modernized
-  const bodySec = mkSec("clothes", "var(--ah-steel)", "Body")
+  const bodySec = mkSec("clothes", "ah-sec-body", "Body")
   if (ctx.canArrange) {
     const suit = document.createElement("button"); suit.type = "button"; suit.className = "ah-act"; suit.innerHTML = ahIcon("spark") + " Suit up"; suit.title = "Auto-equip clothes, armor & packs (not weapons)"
     suit.addEventListener("click", (e) => { e.stopPropagation(); ahSuitUp(ctx) })
@@ -3698,7 +3698,7 @@ function ahBuildPanel(actor) {
   const bagMetaTxt = bagCapacity > 0
     ? (ahFmt(nonWornSpaces) + " / " + ahFmt(bagCapacity) + " spaces" + (ctx.canArrange ? (ctx.separate ? " · drag onto a container" : " · drag, R rotates") : ""))
     : "no storage yet"
-  const bagSec = mkSec("back", "var(--ah-store)", "Bag", "· " + bagMetaTxt)
+  const bagSec = mkSec("back", "ah-sec-bag", "Bag", "· " + bagMetaTxt)
   if (ctx.canArrange) {
     if (bagCapacity > 0) {
       const tidy = document.createElement("button"); tidy.type = "button"; tidy.className = "ah-act"; tidy.innerHTML = ahIcon("spark") + " Tidy"; tidy.title = "Auto-pack your loose items into the bag"
@@ -3793,7 +3793,7 @@ function ahBuildPanel(actor) {
 
   // LOOSE — the not-worn-or-packed tray
   const looseMeta = looseN ? ("· " + looseN + (ctx.canArrange ? " · drag to the body or a container" : "")) : (ctx.canArrange ? "· all worn or packed" : "")
-  const looseSec = mkSec("stack", "var(--ah-action)", "Loose", looseMeta, "ah-sec-loose")
+  const looseSec = mkSec("stack", "ah-sec-loose", "Loose", looseMeta)
   wrap.appendChild(looseSec.sec)
   const trayEl = document.createElement("div"); trayEl.className = "ah-tray-chips"; ctx.trayEl = trayEl; wrap.appendChild(trayEl)
 
