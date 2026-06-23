@@ -147,7 +147,7 @@
 /* paperdoll — figure + a wrap grid of square equipment tiles (see .ah-tile below) */
 .ah-panel .ah-doll { display: flex; flex-direction: column; gap: 7px; align-items: stretch; }   /* game panel + footnotes stack */
 /* ── game-panel paperdoll: figure centred, framed by two columns of named gear boxes ── */
-.ah-panel .ah-game { display: flex; align-items: stretch; gap: 7px; }
+.ah-panel .ah-game { display: flex; align-items: stretch; gap: 7px; max-width: 520px; }   /* keep the gear boxes tight on wide sheets instead of sprawling full width */
 .ah-panel .ah-gcol { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 5px; justify-content: center; }
 .ah-panel .ah-gfig { flex: 0 0 auto; position: relative; display: flex; align-items: center; justify-content: center; padding: 4px; background: var(--ah-raise); border: 1px solid var(--ah-line); border-radius: var(--ah-r-sm); }   /* faint backing so the dark silhouette reads on a transparent panel */
 .ah-panel .ah-doll-img { width: 62px; max-height: 178px; object-fit: contain; opacity: 0.95; -webkit-user-drag: none; user-select: none; display: block; }
