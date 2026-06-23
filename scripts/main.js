@@ -61,7 +61,6 @@ const AH = {
     strBasis: "mod",         // "mod" (STR modifier) | "over10" (STR − 10) | "score" (full STR score)
     ammoAutoSpend: false,    // OPT-IN: spend ammo only for weapons that DON'T have ammo set up in dnd5e
     bagMode: "separate",     // VESTIGIAL: the bag is always per-container now (Merged was removed at the user's request). Kept so old saved configs don't error; the live mode is driven by ctx.separate, not this.
-    bindContainers: false,   // OFF by default while it's hardened (review flagged unequipped-container + on/off-transition edge cases). When false the bag is AH's own flag-only bins (current behaviour). MIRROR (read+write dnd5e system.container) when true.
     wearLoad: { Belt: 4, Back: 2, Chest: 2, Hip: 2 },   // how many wearable containers each body location holds (DM-tunable)
   },
 
@@ -229,6 +228,15 @@ Hooks.once("init", () => {
     type:    Object,
     default: {},
     onChange: () => { ahRecomputeAll().catch(() => {}); ahRerenderSheets() }
+  })
+  game.settings.register(MOD, "ahBindContainers", {
+    name:    "Anti-Hammer: bind bag to dnd5e containers (experimental)",
+    hint:    "EXPERIMENTAL — off by default while it's tested. When on, the bag's per-container grids mirror dnd5e's real containers: dropping an item into a grid actually puts it in that container on the sheet, and moves you make on the normal sheet show up in the bag. Only containers worn on the doll become grids; items inside containers you're NOT wearing are managed on the normal sheet, not shown here. Try it on one character; turn off any time to go back to Anti-Hammer's own bins (your data reverts cleanly).",
+    scope:   "world",
+    config:  true,
+    type:    Boolean,
+    default: false,
+    onChange: () => ahRerenderSheets()
   })
 })
 
@@ -2580,9 +2588,16 @@ function ahSepBinAccepts(ctx, bin, uid) {
 }
 /** Mirror toggle (kill-switch). When true, `it:` (real container) bins read+write dnd5e's native
  *  system.container; when false the bag falls back to AH's own flag-only bins. */
-function ahBinding(ctx) { try { const c = (ctx && ctx.cfg) ? ctx.cfg : AH.cfg(); return c.bindContainers !== false } catch { return true } }
+function ahBinding(ctx) { try { return game.settings.get(MOD, "ahBindContainers") !== false } catch { return false } }
 /** The real dnd5e container id an owned item points at (system.container), or null. Sync for owned. */
 function ahItemContainer(ctx, itemId) { try { const it = ctx.actor && ctx.actor.items && ctx.actor.items.get(itemId); const c = it && it.system && it.system.container; return c || null } catch { return null } }
+/** True when an item lives (per dnd5e system.container) inside a real container that AH has NO bin
+ *  for — i.e. a container that isn't worn on the doll. Such items are hidden from AH (worn-only). */
+function ahInUnmanagedContainer(ctx, itemId) {
+  const cid = ahItemContainer(ctx, itemId); if (!cid) return false
+  if (ctx.binById && ctx.binById["it:" + cid]) return false   // worn container → AH manages it (it: bin)
+  try { const c = ctx.actor.items.get(cid); return !!(c && c.type === "container") } catch { return false }   // points at a real (un-worn) container
+}
 /** Short label for a container item's REAL dnd5e capacity (display-only, sync read), or "". */
 function ahNativeCapLabel(ctx, containerId) {
   try {
@@ -2607,7 +2622,7 @@ function ahBuildSepPlaced(ctx) {
     if (bind) {
       const cid = ahItemContainer(ctx, u.itemId)                             // real container = authoritative for it: bins
       if (cid && ctx.binById["it:" + cid]) binId = "it:" + cid
-      else { const a = assign[uid]; if (a && a.slice(0, 3) !== "it:" && ctx.binById[a]) binId = a }   // AH-only bin (gr:/str) from the flag
+      else { const a = assign[uid]; if (a && ctx.binById[a]) binId = a }     // flag fallback: AH-only bins (gr:/str) AND legacy it: bins not yet migrated to system.container (so old bags don't fall out when binding turns on; they migrate the next time the item is moved)
     } else {
       const a = assign[uid]; if (a && ctx.binById[a]) binId = a              // legacy: the flag drives everything
     }
@@ -2631,7 +2646,7 @@ function ahAssignUnit(ctx, uid, binId) {
   if (bind) {
     const it = ctx.actor && ctx.actor.items && ctx.actor.items.get(realId)
     const target = (binId && binId.slice(0, 3) === "it:") ? binId.slice(3) : null   // real container id, else loose / AH-only bin
-    if (it && it.system) { const cur = it.system.container || null; if (cur !== target) { try { it.update({ "system.container": target }) } catch (e) { console.warn("[pendant-bridge] AH container write failed", e) } } }
+    if (it && it.system) { const cur = it.system.container || null; if (cur !== target) { try { Promise.resolve(it.update({ "system.container": target })).catch(e => console.warn("[pendant-bridge] AH container write failed", e)) } catch (e) { console.warn("[pendant-bridge] AH container write failed", e) } } }
   }
   // the flag stores ONLY AH-only bins when binding (it: membership lives in system.container); legacy = all
   let assign = {}; try { assign = ctx.actor.getFlag(MOD, "ahPlaceSep") || {} } catch {}
@@ -2642,7 +2657,17 @@ function ahAssignUnit(ctx, uid, binId) {
 }
 /** The {uid: binId} object to persist — derived from ctx.placed, INCLUDING overflow markers so a
  *  remembered-but-unfitting assignment is preserved across unrelated saves. */
-function ahSepAssignObj(ctx) { const bind = ahBinding(ctx), o = {}; ctx.placed.forEach((p, uid) => { if (p && p.bin && (!bind || p.bin.slice(0, 3) !== "it:")) o[uid] = p.bin }); return o }
+function ahSepAssignObj(ctx) {
+  const bind = ahBinding(ctx), o = {}
+  ctx.placed.forEach((p, uid) => {
+    if (!p || !p.bin) return
+    // when binding, an it: bin lives in system.container — keep it in the flag ONLY while the item
+    // hasn't been migrated yet (no system.container), so legacy bags survive the switch without churn
+    if (bind && p.bin.slice(0, 3) === "it:") { const u = ctx.unitById[uid]; if (u && ahItemContainer(ctx, u.itemId)) return }
+    o[uid] = p.bin
+  })
+  return o
+}
 function ahSavePlaceSep(actor, obj) { try { actor.setFlag(MOD, "ahPlaceSep", obj) } catch (e) { console.warn("[pendant-bridge] AH sep save failed", e) } }
 /** Persist placements to the flag for the ACTIVE mode (keeps equip/outfit/stow paths mode-safe). */
 function ahPersistPlace(ctx) { if (ctx.separate) ahSavePlaceSep(ctx.actor, ahSepAssignObj(ctx)); else ahSavePlace(ctx.actor, ahPlaceObj(ctx)) }
@@ -2667,17 +2692,23 @@ function ahApplyAutoPackSep(ctx) {
   const assign = ahAutoPackSep(ctx), bind = ahBinding(ctx)
   const flag = {}
   for (const uid in assign) { const b = assign[uid]; if (!bind || b.slice(0, 3) !== "it:") flag[uid] = b }
-  ahSavePlaceSep(ctx.actor, flag)
-  if (!bind) return
-  const want = new Map()   // realItemId → target container id (or null); units of one item share one container
+  if (!bind) { ahSavePlaceSep(ctx.actor, flag); return }
+  // per ITEM resolve ONE target container (a dnd5e item can't be split across containers): ANY it:
+  // assignment among its units wins; otherwise loose (null). Deterministic regardless of unit order.
+  const want = new Map()
   for (const u of ctx.units) {
     if (!ahCanBag(ctx, u.uid)) continue
     const b = assign[u.uid], target = (b && b.slice(0, 3) === "it:") ? b.slice(3) : null
-    if (!want.has(u.itemId) || (target && !want.get(u.itemId))) want.set(u.itemId, target)
+    if (target) want.set(u.itemId, target)
+    else if (!want.has(u.itemId)) want.set(u.itemId, null)
   }
+  // an item bound to a real container must NOT also linger in the flag (one source of truth) —
+  // prune both items this Tidy is sending to a container (want) and any already in one (system.container)
+  for (const uid in flag) { const u = ctx.unitById[uid]; if (u && (want.get(u.itemId) || ahItemContainer(ctx, u.itemId))) delete flag[uid] }
+  ahSavePlaceSep(ctx.actor, flag)
   const changes = []
-  want.forEach((target, itemId) => { const it = ctx.actor.items.get(itemId); if (it && it.system) { const cur = it.system.container || null; if (cur !== target) changes.push({ _id: itemId, "system.container": target }) } })
-  if (changes.length) { try { ctx.actor.updateEmbeddedDocuments("Item", changes) } catch (e) { console.warn("[pendant-bridge] AH tidy container batch failed", e) } }
+  want.forEach((target, itemId) => { const it = ctx.actor.items.get(itemId); if (it && it.system) { const cur = it.system.container || null; if (cur !== target && (target == null || (ctx.binById && ctx.binById["it:" + target]))) changes.push({ _id: itemId, "system.container": target }) } })
+  if (changes.length) Promise.resolve(ctx.actor.updateEmbeddedDocuments("Item", changes)).catch(e => console.warn("[pendant-bridge] AH tidy container batch failed", e))
 }
 /** Keyboard stow (separate): assign the unit to the first fitting bin. Returns true on success. */
 function ahStowSep(ctx, uid) {
@@ -3341,7 +3372,7 @@ function ahSetEquipped(ctx, id, on) {
     const upd = {}
     if ("equipped" in it.system) upd["system.equipped"] = !!on
     if (on && ahBinding(ctx) && it.system.container) upd["system.container"] = null   // equipping pulls it out of any container (it's worn now, not bagged)
-    if (Object.keys(upd).length) it.update(upd)
+    if (Object.keys(upd).length) Promise.resolve(it.update(upd)).catch(e => console.warn("[pendant-bridge] AH equip write failed", e))
   } catch {}
 }
 function ahEquipItem(ctx, id, slotKey) {
@@ -3780,6 +3811,10 @@ function ahBuildPanel(actor) {
     ctx.bins = ahSepBins(ctx); ctx.binById = {}; for (const b of ctx.bins) ctx.binById[b.binId] = b
     if (ctx.bins.length) { ctx.separate = true; ctx.binHolders = {}; ctx.binCards = {}; ctx.binCapEls = {} }
   }
+  // WORN-ONLY (binding): hide items dnd5e has inside a container we're NOT wearing (no it: bin).
+  // They stay safe in that container and are managed on the normal sheet; AH never shows or touches
+  // them, so it can't accidentally pull them out. Runs after bins exist (binById needed).
+  if (ctx.separate && ahBinding(ctx)) ctx.units = ctx.units.filter(u => { if (!ahInUnmanagedContainer(ctx, u.itemId)) return true; delete ctx.unitById[u.uid]; return false })
   let savedPlace = {}; try { savedPlace = actor.getFlag(MOD, ctx.separate ? "ahPlaceSep" : "ahPlace") || {} } catch {}
   ctx.placed = ctx.separate ? ahBuildSepPlaced(ctx) : ahBuildPlaced(actor, ctx.unitById, vc.set)   // worn items have no unit → never packed
   { const drop = []; ctx.placed.forEach((p, id) => { if (!ahCanBag(ctx, id)) drop.push(id) }); for (const id of drop) ctx.placed.delete(id) }   // worn-only gear can't stay packed
