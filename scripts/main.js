@@ -2279,6 +2279,30 @@ function ahBagAccepts(ctx, id) {
   return conts.some(c => !c.types || c.types.indexOf(tag) >= 0)   // merged: any container accepts the type
 }
 
+/** SVG for one packed item's footprint in the "constellation" look (the user's hex-bag inspiration):
+ *  small glowing hexes joined by connector bonds. The whole shape is the drag handle (data-item on
+ *  every hex + bond). `centers` = pre-filtered valid cell centres. Returns the centroid for the mark. */
+function ahItemHexSVG(g, centers, color, uid, canArrange) {
+  const di = ' data-item="' + ahEscX(uid) + '" style="cursor:' + (canArrange ? "grab" : "default") + ";filter:drop-shadow(0 0 4px " + color + ')"'
+  let svg = "", sx = 0, sy = 0
+  // bonds first (under the hexes) — link hex-adjacent cells of THIS item (pointy-top: every
+  // neighbour centre is HW = √3·S away), so a multi-cell item reads as one bonded cluster
+  for (let i = 0; i < centers.length; i++) for (let j = i + 1; j < centers.length; j++) {
+    const dx = centers[j].x - centers[i].x, dy = centers[j].y - centers[i].y, d = Math.hypot(dx, dy)
+    if (d < g.HW * 1.18) {
+      const mx = (centers[i].x + centers[j].x) / 2, my = (centers[i].y + centers[j].y) / 2, ang = (Math.atan2(dy, dx) * 180 / Math.PI).toFixed(1)
+      const bl = g.S * 0.66, bw = g.S * 0.4
+      svg += '<rect x="' + (mx - bl / 2).toFixed(1) + '" y="' + (my - bw / 2).toFixed(1) + '" width="' + bl.toFixed(1) + '" height="' + bw.toFixed(1) + '" rx="' + (bw / 2).toFixed(1) + '" transform="rotate(' + ang + " " + mx.toFixed(1) + " " + my.toFixed(1) + ')" fill="' + color + '"' + di + "/>"
+    }
+  }
+  // the hexes, shrunk so the bonds + gaps read like the inspiration, each softly glowing
+  for (const ct of centers) {
+    svg += '<polygon points="' + ahPts(ct.x, ct.y, g.S * 0.8) + '" fill="' + color + '" stroke="rgba(0,0,0,.45)" stroke-width="1.5"' + di + "/>"
+    sx += ct.x; sy += ct.y
+  }
+  return { svg, cx: sx / centers.length, cy: sy / centers.length, n: centers.length }
+}
+
 function ahBoardSVG(ctx) {
   const g = ctx.geom
   const names = []; ctx.placed.forEach((p, id) => { const u = ctx.unitById[id]; if (u) names.push(u.name) })
@@ -2286,16 +2310,13 @@ function ahBoardSVG(ctx) {
   let s = '<svg class="ah-svg" role="img" aria-label="' + ahEscX(aria) + '" width="' + g.width.toFixed(0) + '" height="' + g.height.toFixed(0) + '">'
   for (const c of ctx.validList) { const ct = ahCenter(g, c.col, c.row); s += '<polygon points="' + ahPts(ct.x, ct.y, g.S) + '" fill="rgba(0,0,0,0.26)" stroke="rgba(236,233,223,0.13)" stroke-width="2"/>' }
   ctx.placed.forEach((p, id) => {
-    const it = ctx.unitById[id]; if (!it) return; const cs = ahCellsFor(it, p, p.rot)
-    let sx = 0, sy = 0, n = 0
-    for (const c of cs) {
-      if (!ctx.validSet.has(c.col + "," + c.row)) continue
-      const ct = ahCenter(g, c.col, c.row)
-      s += '<polygon points="' + ahPts(ct.x, ct.y, g.S) + '" fill="' + it.color + '" stroke="rgba(0,0,0,.5)" stroke-width="2" data-item="' + ahEscX(id) + '" style="cursor:' + (ctx.canArrange ? "grab" : "default") + '"/>'
-      sx += ct.x; sy += ct.y; n++
-    }
+    const it = ctx.unitById[id]; if (!it) return
+    const centers = []
+    for (const c of ahCellsFor(it, p, p.rot)) if (ctx.validSet.has(c.col + "," + c.row)) centers.push(ahCenter(g, c.col, c.row))
+    if (!centers.length) return
+    const r = ahItemHexSVG(g, centers, it.color, id, ctx.canArrange); s += r.svg
     // white mark with a dark halo so the 1–2 letter label stays legible on ANY item colour
-    if (n) s += '<text x="' + (sx / n).toFixed(1) + '" y="' + (sy / n + 3).toFixed(1) + '" text-anchor="middle" font-size="10" font-weight="700" fill="#fff" stroke="rgba(0,0,0,.62)" stroke-width="2.6" stroke-linejoin="round" paint-order="stroke" style="pointer-events:none">' + ahEscX(ahMark(it.name)) + "</text>"
+    s += '<text x="' + r.cx.toFixed(1) + '" y="' + (r.cy + 3).toFixed(1) + '" text-anchor="middle" font-size="10" font-weight="700" fill="#fff" stroke="rgba(0,0,0,.62)" stroke-width="2.6" stroke-linejoin="round" paint-order="stroke" style="pointer-events:none">' + ahEscX(ahMark(it.name)) + "</text>"
   })
   if (ctx.held && ctx.hover) {
     const canBag = ahBagAccepts(ctx, ctx.held.item.id)
@@ -2313,24 +2334,6 @@ function ahBoardSVG(ctx) {
     if (hn) s += '<text x="' + (hx / hn).toFixed(1) + '" y="' + (hy / hn + 5).toFixed(1) + '" text-anchor="middle" font-size="15" font-weight="700" fill="#fff" stroke="rgba(0,0,0,.6)" stroke-width="3" stroke-linejoin="round" paint-order="stroke" style="pointer-events:none">' + (ok ? "✓" : "✕") + "</text>"
   }
   return s + "</svg>"
-}
-function ahMiniSVG(it) {
-  const cs = it.shape.map(o => ahCToO(o))
-  const cols = cs.map(c => c.col), rows = cs.map(c => c.row)
-  const minc = Math.min(...cols), maxc = Math.max(...cols), minr = Math.min(...rows), maxr = Math.max(...rows)
-  const colSpan = maxc - minc, rowSpan = maxr - minr
-  // shrink the hex so even a big/long shape stays a small chip — a bulky consumable
-  // must never balloon and fill its whole tray category.
-  const MAX_W = 50, MAX_H = 40
-  const wAt = (s) => Math.sqrt(3) * s * (colSpan + 1.5) + 4
-  const hAt = (s) => 1.5 * s * rowSpan + 2 * s + 4
-  let s2 = 8; while (s2 > 3 && (wAt(s2) > MAX_W || hAt(s2) > MAX_H)) s2 -= 0.5
-  const hw = Math.sqrt(3) * s2, ox = hw / 2 + 2, oy = s2 + 2
-  const cen = (col, row) => ({ x: ox + hw * ((col - minc) + 0.5 * (row & 1)), y: oy + 1.5 * s2 * (row - minr) })
-  const w = ox + hw * ((maxc - minc) + 0.5) + hw / 2 + 2, h = oy + 1.5 * s2 * (maxr - minr) + s2 + 2
-  let g = '<svg viewBox="0 0 ' + w.toFixed(0) + ' ' + h.toFixed(0) + '" width="' + w.toFixed(0) + '" height="' + h.toFixed(0) + '" style="display:block">'
-  for (const c of cs) { const ct = cen(c.col, c.row); g += '<polygon points="' + ahPts(ct.x, ct.y, s2) + '" fill="' + it.color + '" stroke="rgba(0,0,0,.45)" stroke-width="1.1"/>' }
-  return g + "</svg>"
 }
 
 /** Colour legend under the bag: each packed item = swatch + full name + space cost. */
@@ -2402,7 +2405,7 @@ function ahRenderTray(ctx) {
       const bi = ctx.byId[u.itemId]
       const useBtn = (ctx.canArrange && bi && bi.type === "consumable" && (bi.qty || 0) >= 1) ? '<button type="button" class="ah-use" data-use="' + ahEscX(u.itemId) + '" aria-label="' + ahEscX("Use one " + u.name) + '" title="Use one (−1)">use</button>' : ""
       const kb = ctx.canArrange ? ' tabindex="0" aria-label="' + ahEscX("Stow " + u.name + " — press Enter to pack it into the bag") + '"' : ""
-      h += '<div class="ah-tray-it" data-tray="' + ahEscX(u.uid) + '"' + (ctx.canArrange ? ' style="cursor:grab"' : "") + kb + ' title="' + ahEscX(tip) + '">' + ahMiniSVG(u) + '<span class="ah-tray-nm">' + ahEscX(u.name) + "</span>" + tag + '<span class="ah-tray-sz">' + ahFmt(u.spaces) + "</span>" + useBtn + "</div>"
+      h += '<div class="ah-tray-it" data-tray="' + ahEscX(u.uid) + '"' + (ctx.canArrange ? ' style="cursor:grab"' : "") + kb + ' title="' + ahEscX(tip) + '">' + ahArtThumb(u.img, u.color, "stack") + '<span class="ah-tray-nm">' + ahEscX(u.name) + "</span>" + tag + '<span class="ah-tray-sz">' + ahFmt(u.spaces) + "</span>" + useBtn + "</div>"
     }
     h += "</div></details>"
   }
@@ -2629,14 +2632,11 @@ function ahBinBoardSVG(ctx, bin) {
   let s = '<svg class="ah-svg" role="img" aria-label="' + ahEscX(aria) + '" width="' + g.width.toFixed(0) + '" height="' + g.height.toFixed(0) + '">'
   for (const c of bin.validList) { const ct = ahCenter(g, c.col, c.row); s += '<polygon points="' + ahPts(ct.x, ct.y, g.S) + '" fill="rgba(0,0,0,0.26)" stroke="rgba(236,233,223,0.13)" stroke-width="2"/>' }
   for (const e of entries) {
-    const cs = ahCellsFor(e.u, e.p, e.p.rot); let sx = 0, sy = 0, n = 0
-    for (const c of cs) {
-      if (!bin.validSet.has(c.col + "," + c.row)) continue
-      const ct = ahCenter(g, c.col, c.row)
-      s += '<polygon points="' + ahPts(ct.x, ct.y, g.S) + '" fill="' + e.u.color + '" stroke="rgba(0,0,0,.5)" stroke-width="2" data-item="' + ahEscX(e.uid) + '" style="cursor:' + (ctx.canArrange ? "grab" : "default") + '"/>'
-      sx += ct.x; sy += ct.y; n++
-    }
-    if (n) s += '<text x="' + (sx / n).toFixed(1) + '" y="' + (sy / n + 3).toFixed(1) + '" text-anchor="middle" font-size="10" font-weight="700" fill="#fff" stroke="rgba(0,0,0,.62)" stroke-width="2.6" stroke-linejoin="round" paint-order="stroke" style="pointer-events:none">' + ahEscX(ahMark(e.u.name)) + "</text>"
+    const centers = []
+    for (const c of ahCellsFor(e.u, e.p, e.p.rot)) if (bin.validSet.has(c.col + "," + c.row)) centers.push(ahCenter(g, c.col, c.row))
+    if (!centers.length) continue
+    const r = ahItemHexSVG(g, centers, e.u.color, e.uid, ctx.canArrange); s += r.svg
+    s += '<text x="' + r.cx.toFixed(1) + '" y="' + (r.cy + 3).toFixed(1) + '" text-anchor="middle" font-size="10" font-weight="700" fill="#fff" stroke="rgba(0,0,0,.62)" stroke-width="2.6" stroke-linejoin="round" paint-order="stroke" style="pointer-events:none">' + ahEscX(ahMark(e.u.name)) + "</text>"
   }
   if (ctx.held && ctx.hoverBin === bin.binId) {
     if (ahSepBinAccepts(ctx, bin, ctx.held.id)) {
@@ -2996,6 +2996,15 @@ const AH_ICON_PATHS = {
 }
 function ahIcon(name, cls) { const p = AH_ICON_PATHS[name]; if (!p) return ""; return '<svg class="' + (cls || "ah-ico") + '" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + p + "</svg>" }
 const AH_SLOT_ICON = { Head: "head", Face: "face", Neck: "neck", Clothes: "clothes", Chest: "chest", Back: "back", Belt: "belt", LHip: "hip", RHip: "hip", LHand: "hand", RHand: "hand", Feet: "feet", LRing: "ring", RRing: "ring" }
+/** A small framed item-art thumbnail: the real Foundry image (item.img) over an item-colour tint,
+ *  with the slot/type icon as a graceful fallback. A capturing "error" listener on the panel root
+ *  removes a broken <img> so the fallback shows — no inline handlers, CSP-safe. */
+function ahArtThumb(img, color, fallbackIcon) {
+  return '<span class="ah-art" style="--ac:' + (color || "transparent") + '">'
+    + '<span class="ah-art-ic">' + ahIcon(fallbackIcon) + "</span>"
+    + (img ? '<img class="ah-art-img" src="' + ahEscX(img) + '" alt="" draggable="false">' : "")
+    + "</span>"
+}
 
 // ── add-on storage gear (player-added belts/packs that grant slots + bag space) ──
 // Stored on the actor flag `ahGear` = [{ id, kind }]. Each grants attachment points
@@ -3369,7 +3378,7 @@ function ahCountFits(ctx, key) {
  *  contract (data-slot · data-pick[role=button] · data-rm · data-draw · .valid/.swap) is preserved. */
 function ahSlotCard(ctx, key, occ, caps, gsrc) {
   const label = AH_SLOT_LABEL[key] || key
-  const ico = '<span class="ah-gb-ic">' + ahIcon(AH_SLOT_ICON[key]) + "</span>"
+  const ico = ahArtThumb(null, "", AH_SLOT_ICON[key])   // empty slot → muted slot-icon thumbnail (no item art)
   const gby = (gsrc && gsrc[key] && gsrc[key].length) ? " · granted by " + gsrc[key].join(", ") : ""
   const txt = (nm, sl, muted) => '<span class="ah-gb-tx"><span class="ah-gb-nm' + (muted ? " muted" : "") + '">' + ahEscX(nm) + '</span><span class="ah-gb-sl">' + ahEscX(sl) + "</span></span>"
   if (key === "Back") {
@@ -3377,10 +3386,11 @@ function ahSlotCard(ctx, key, occ, caps, gsrc) {
     const valid = ctx.validBody && ctx.validBody.has("Back"), canAdd = ctx.canArrange && n < cap
     const cls = "ah-slot ah-gb back" + (n ? " filled" : " empty") + (valid ? " valid" : "")
     if (n) {
+      const lb = ctx.byId[ctx.back[0]] || {}
       const names = ctx.back.map(bid => (ctx.byId[bid] && ctx.byId[bid].name) || "").filter(Boolean).join(", ")
-      const lead = (ctx.byId[ctx.back[0]] && ctx.byId[ctx.back[0]].color) || "var(--ah-dim)"
+      const lead = lb.color || "var(--ah-dim)"
       const dots = ctx.back.map(bid => '<button type="button" class="ah-bdot" data-rm="' + ahEscX(bid) + '" aria-label="' + ahEscX("Remove " + ctx.byId[bid].name + " from Back") + '" title="' + ahEscX(ctx.byId[bid].name + " — remove") + '" style="background:' + ctx.byId[bid].color + '"></button>').join("")
-      return '<div class="' + cls + '" data-slot="Back" style="border-top-color:' + lead + '" title="' + ahEscX("Back — " + n + "/" + cap + gby) + '" aria-label="' + ahEscX("Back, " + n + " of " + cap + " used") + '"><span class="ah-gb-ic" style="color:' + lead + '">' + ahIcon(AH_SLOT_ICON.Back) + "</span>" + txt(names, "back " + n + "/" + cap) + '<span class="ah-gb-dots">' + dots + "</span></div>"
+      return '<div class="' + cls + '" data-slot="Back" style="border-top-color:' + lead + '" title="' + ahEscX("Back — " + n + "/" + cap + gby) + '" aria-label="' + ahEscX("Back, " + n + " of " + cap + " used") + '">' + ahArtThumb(lb.img, lead, "back") + txt(names, "back " + n + "/" + cap) + '<span class="ah-gb-dots">' + dots + "</span></div>"
     }
     const pick = canAdd ? ' role="button" tabindex="0" data-pick="Back"' : ""   // empty+addable Back is the picker target; a filled Back is a drop target with its own dot buttons
     return '<div class="' + cls + '" data-slot="Back"' + pick + ' title="' + ahEscX("Back — 0/" + cap + gby) + '" aria-label="' + ahEscX("Back, empty, 0 of " + cap) + '">' + ico + txt("Back", "0/" + cap + (canAdd ? " · add" : ""), true) + (canAdd ? '<span class="ah-gb-plus" aria-hidden="true">+</span>' : "") + "</div>"
@@ -3401,8 +3411,8 @@ function ahSlotCard(ctx, key, occ, caps, gsrc) {
     }
     const rm = ctx.canArrange ? '<button type="button" class="ah-gb-x" data-rm="' + ahEscX(id) + '" aria-label="' + ahEscX("Remove " + it.name) + '" title="Remove">×</button>' : ""
     const cls = "ah-slot ah-gb filled" + swap
-    // item colour tints the top border + icon; the NAME reads at a glance (no hover needed)
-    return '<div class="' + cls + '" data-slot="' + ahEscX(key) + '" style="border-top-color:' + it.color + '" title="' + ahEscX(it.name + " — " + label + (swap ? " · drop to swap" : gby)) + '" aria-label="' + ahEscX(it.name + ", " + label) + '"><span class="ah-gb-ic" style="color:' + it.color + '">' + ahIcon(AH_SLOT_ICON[key]) + "</span>" + txt(it.name, label) + dsBtn + rm + (swap ? '<span class="ah-gb-swap" aria-hidden="true">↔</span>' : "") + "</div>"
+    // real Foundry item art fills the slot; item colour tints the top border; the NAME reads at a glance
+    return '<div class="' + cls + '" data-slot="' + ahEscX(key) + '" style="border-top-color:' + it.color + '" title="' + ahEscX(it.name + " — " + label + (swap ? " · drop to swap" : gby)) + '" aria-label="' + ahEscX(it.name + ", " + label) + '">' + ahArtThumb(it.img, it.color, AH_SLOT_ICON[key]) + txt(it.name, label) + dsBtn + rm + (swap ? '<span class="ah-gb-swap" aria-hidden="true">↔</span>' : "") + "</div>"
   }
   // empty + available → picker target (click/Enter) AND drop target (data-slot)
   const valid = ctx.validBody && ctx.validBody.has(key)
@@ -3422,7 +3432,7 @@ function ahOpenSlotMenu(ctx, slotKey, anchorEl) {
   if (!cands.length) menu.innerHTML = '<div class="ah-pick-empty">Nothing you have fits here</div>'
   else for (const it of cands) {
     const b = document.createElement("button"); b.className = "ah-pick-it"
-    b.innerHTML = '<i style="background:' + it.color + '"></i><span>' + ahEscX(it.name) + "</span>" + (ctx.placed.has(it.id) ? '<em class="ah-pick-bag">in bag</em>' : "")
+    b.innerHTML = ahArtThumb(it.img, it.color, AH_SLOT_ICON[slotKey]) + "<span>" + ahEscX(it.name) + "</span>" + (ctx.placed.has(it.id) ? '<em class="ah-pick-bag">in bag</em>' : "")
     b.addEventListener("click", (e) => { e.stopPropagation(); ahCloseMenu(ctx); ahEquipItem(ctx, it.id, slotKey) })
     menu.appendChild(b)
   }
@@ -3597,7 +3607,7 @@ function ahBuildPanel(actor) {
   const capacity = Math.max(0, Math.round(sum.capacity))
 
   // items + metadata (rules engine runs on the live Foundry item)
-  const items = sum.items.map(it => ({ id: it.id, name: it.name, type: it.type, spaces: it.spaces, qty: it.qty, override: it.override, color: ahColorFor(it.id), shape: (Array.isArray(it.shape) && it.shape.length) ? it.shape : ahShapeFor(ahCellSize(it), ahHashOf(it.id)) }))
+  const items = sum.items.map(it => ({ id: it.id, name: it.name, type: it.type, img: it.img, spaces: it.spaces, qty: it.qty, override: it.override, color: ahColorFor(it.id), shape: (Array.isArray(it.shape) && it.shape.length) ? it.shape : ahShapeFor(ahCellSize(it), ahHashOf(it.id)) }))
   const byId = {}; for (const it of items) byId[it.id] = it
   const metaById = {}; for (const it of items) { let m; try { m = ahMeta(actor.items.get(it.id)) } catch { m = null } metaById[it.id] = m || { equipSlots: [], carryType: "Miscellaneous", grantsSlots: null } }
   const ctx = {
@@ -3630,12 +3640,12 @@ function ahBuildPanel(actor) {
       const qty = it.qty || 1
       for (let k = 0; k < bi.count; k++) {
         const uid = it.id + "#" + k
-        const u = { uid, id: uid, itemId: it.id, name: it.name, color: it.color, shape: bi.perShape, spaces: bi.per, bundleIdx: k, bundleCount: bi.count, bundleQty: Math.min(bi.size, qty - k * bi.size) }
+        const u = { uid, id: uid, itemId: it.id, name: it.name, img: it.img, color: it.color, shape: bi.perShape, spaces: bi.per, bundleIdx: k, bundleCount: bi.count, bundleQty: Math.min(bi.size, qty - k * bi.size) }
         ctx.units.push(u); ctx.unitById[uid] = u
       }
     } else {
       ctx.bundleN[it.id] = 1
-      const u = { uid: it.id, id: it.id, itemId: it.id, name: it.name, color: it.color, shape: it.shape, spaces: it.spaces }
+      const u = { uid: it.id, id: it.id, itemId: it.id, name: it.name, img: it.img, color: it.color, shape: it.shape, spaces: it.spaces }
       ctx.units.push(u); ctx.unitById[u.uid] = u
     }
   }
@@ -3674,6 +3684,9 @@ function ahBuildPanel(actor) {
 
   const wrap = document.createElement("div")
   wrap.className = "ah-panel" + (over ? " is-over" : "")
+  // a broken/missing item image (rare — Foundry assigns a default) → drop it so the fallback slot
+  // icon shows. Capturing listener (error doesn't bubble) on the panel root covers every art img.
+  wrap.addEventListener("error", (e) => { const t = e.target; if (t && t.tagName === "IMG" && t.classList && t.classList.contains("ah-art-img")) t.remove() }, true)
   const titleId = "ah-title-" + actor.id
   wrap.setAttribute("role", "region"); wrap.setAttribute("aria-labelledby", titleId)
 

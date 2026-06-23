@@ -156,8 +156,12 @@
 .ah-panel .ah-mark.on { opacity: 1; }
 /* one named gear box (icon · item name · slot · inline actions); item colour tints the top edge + icon */
 .ah-panel .ah-gb { position: relative; display: flex; align-items: center; gap: 7px; min-width: 0; padding: 5px 7px; border: 1px solid var(--ah-line); border-top: 2px solid var(--ah-line); border-radius: var(--ah-r-sm); background: var(--ah-raise); }
-.ah-panel .ah-gb-ic { flex: 0 0 auto; display: inline-flex; font-size: 16px; line-height: 1; color: var(--ah-dim); }
-.ah-panel .ah-gb-ic .ah-ico { width: 1em; height: 1em; }
+/* framed item-art thumbnail: real Foundry image (item.img) over an item-colour tint, with the
+   slot/type icon as a graceful fallback (shown if the image is missing or fails to load) */
+.ah-panel .ah-art { position: relative; flex: 0 0 auto; width: 30px; height: 30px; border-radius: var(--ah-r-sm); overflow: hidden; border: 1px solid rgba(0, 0, 0, 0.4); background: var(--ac, var(--ah-sink)); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07); }
+.ah-panel .ah-art-ic { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: rgba(18, 15, 11, 0.82); }
+.ah-panel .ah-art-ic .ah-ico { width: 58%; height: 58%; }
+.ah-panel .ah-art-img { position: relative; z-index: 1; display: block; width: 100%; height: 100%; object-fit: cover; }
 .ah-panel .ah-gb-tx { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; line-height: 1.22; }
 .ah-panel .ah-gb-nm { font-size: 12px; font-weight: 600; color: var(--ah-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ah-panel .ah-gb-nm.muted { font-weight: 500; color: var(--ah-dim); }
@@ -172,9 +176,10 @@
 .ah-panel .ah-gb.empty { background: var(--ah-sink); border-style: dashed; cursor: pointer; }
 .ah-panel .ah-gb.empty:hover { border-color: var(--ah-action); border-style: solid; }
 .ah-panel .ah-gb.empty:hover .ah-gb-plus, .ah-panel .ah-gb.empty:focus-visible .ah-gb-plus { opacity: 1; }
-.ah-panel .ah-gb.empty .ah-gb-ic { color: var(--ah-mute); }
+.ah-panel .ah-gb.empty .ah-art { background: var(--ah-sink); border-style: dashed; }
+.ah-panel .ah-gb.empty .ah-art-ic { color: var(--ah-faint); }
 .ah-panel .ah-gb.valid { border-color: var(--ah-good); border-style: solid; background: var(--ah-good-bg); box-shadow: 0 0 0 3px var(--ah-good-bg); }
-.ah-panel .ah-gb.valid .ah-gb-ic { color: var(--ah-good); }
+.ah-panel .ah-gb.valid .ah-art { border-color: var(--ah-good); }
 .ah-panel .ah-gb.swap { border-color: var(--ah-action); box-shadow: 0 0 0 3px var(--ah-action-bg); }
 .ah-panel .ah-gb-swap { position: absolute; top: 2px; right: 5px; font-size: 10px; color: var(--ah-action-ink); }
 /* GM bag-mode toggle (merged vs separate grids) */
@@ -258,7 +263,7 @@
 .ah-panel .ah-pick-it { display: flex; align-items: center; gap: 7px; width: 100%; text-align: left; padding: 5px 7px;
   border: none; border-radius: var(--ah-r-sm); background: transparent; color: var(--ah-ink); font-size: 11px; cursor: pointer; }
 .ah-panel .ah-pick-it:hover { background: var(--ah-action-bg); }
-.ah-panel .ah-pick-it > i { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; }
+.ah-panel .ah-pick-it .ah-art { width: 22px; height: 22px; }
 .ah-panel .ah-pick-empty { font-size: 10px; font-style: italic; color: var(--ah-faint); padding: 6px 8px; }
 .ah-panel .ah-bag-empty { font-size: 11px; font-style: italic; color: var(--ah-faint); padding: 18px 6px; }
 /* add-on storage gear */
@@ -294,7 +299,7 @@
 .ah-panel .ah-tray-it { display: flex; align-items: center; gap: 7px; padding: 5px 9px 5px 6px; background: var(--ah-raise);
   border: 1px solid var(--ah-line); border-radius: var(--ah-r); cursor: grab; user-select: none; -webkit-user-select: none; }
 .ah-panel .ah-tray-it:hover { border-color: var(--ah-action-line); background: var(--ah-raise-2); }
-.ah-panel .ah-tray-it > svg { max-width: 60px; max-height: 44px; height: auto; flex: 0 0 auto; }   /* hard cap so a huge shape can never balloon the chip */
+.ah-panel .ah-tray-it .ah-art { width: 28px; height: 28px; }   /* real item artwork thumbnail */
 .ah-panel .ah-tray-nm { font-size: 11.5px; }
 .ah-panel .ah-tray-sz { font-size: 10px; color: var(--ah-mute); }
 .ah-panel .ah-tray-tag { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 5px; border-radius: var(--ah-pill); line-height: 1.4; }
