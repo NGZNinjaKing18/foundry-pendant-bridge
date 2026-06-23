@@ -123,6 +123,7 @@
 /* neutral ghost button (Strip · Outfits · Add) — pairs with the amber .ah-act primary */
 .ah-panel .ah-ghostbtn { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; line-height: 1.4; padding: 3px 11px; border-radius: var(--ah-pill); cursor: pointer; background: transparent; border: 1px solid var(--ah-line-2); color: var(--ah-dim); }
 .ah-panel .ah-ghostbtn:hover { border-color: var(--ah-action); color: var(--ah-ink); }
+.ah-panel .ah-ghostbtn.on { background: var(--ah-store-bg); border-color: var(--ah-store-line); color: var(--ah-store-ink); }
 .ah-panel .ah-ghostbtn .ah-ico { width: 12px; height: 12px; }
 /* per-bin remove × (separate mode) + the Strength "bonus" bin */
 .ah-panel .ah-bin-x { position: relative; width: 15px; height: 15px; flex: 0 0 auto; margin-left: 1px; border: none; border-radius: 50%; background: transparent; color: var(--ah-faint); font-size: 12px; line-height: 1; cursor: pointer; padding: 0; }
@@ -219,11 +220,11 @@
 .ah-panel .ah-meter.over .ah-meter-fill { background: var(--ah-bad); }
 .ah-panel .ah-overflow { font-size: 11px; color: var(--ah-bad-ink); background: var(--ah-bad-bg); border: 1px solid var(--ah-bad-line); border-radius: var(--ah-r-sm); padding: 4px 9px; margin-bottom: 8px; }
 .ah-panel .ah-overflow b { color: #f6c6c6; }
-/* bag legend — colour → item name */
-.ah-panel .ah-legend { display: flex; flex-direction: column; gap: 3px; margin-top: 9px; }
-.ah-panel .ah-leg { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--ah-dim); }
-.ah-panel .ah-leg-sw { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; box-shadow: var(--ah-ring-dark); }
-.ah-panel .ah-leg-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* bag legend — colour → item name, as a compact WRAPPING row of chips (not a tall list) */
+.ah-panel .ah-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 5px; margin-top: 8px; }
+.ah-panel .ah-leg { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--ah-dim); background: var(--ah-raise); border: 1px solid var(--ah-line); border-radius: var(--ah-pill); padding: 1px 5px 1px 6px; max-width: 100%; }
+.ah-panel .ah-leg-sw { width: 9px; height: 9px; border-radius: 3px; flex: 0 0 auto; box-shadow: var(--ah-ring-dark); }
+.ah-panel .ah-leg-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 132px; }
 .ah-panel .ah-leg-sz { margin-left: auto; font-size: 10px; color: var(--ah-mute); }
 .ah-panel .ah-leg-x { width: 18px; height: 18px; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; border: none; border-radius: 50%; background: transparent; color: var(--ah-mute); cursor: pointer; padding: 0; font-size: 11px; }
 .ah-panel .ah-leg-x:hover { background: var(--ah-raise-2); color: var(--ah-ink); }

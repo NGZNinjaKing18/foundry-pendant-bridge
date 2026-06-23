@@ -2356,8 +2356,8 @@ function ahLegendHTML(ctx) {
     const use = canUse ? '<button type="button" class="ah-use" data-use="' + ahEscX(it.itemId) + '" aria-label="' + ahEscX((it.uses ? "Spend a charge of " : "Use one ") + it.name) + '" title="' + (it.uses ? "Spend a charge" : "Use one (−1)") + '">use</button>' : ""
     const ch = it.uses ? ' <span class="ah-leg-ch" title="charges">' + it.uses.value + (it.uses.max ? "/" + it.uses.max : "") + "</span>" : ""
     const unpack = ctx.canArrange ? '<button type="button" class="ah-leg-x" data-unpack="' + ahEscX(it.uid) + '" aria-label="' + ahEscX("Take " + it.name + " out of the bag") + '" title="Unpack to loose">' + ahIcon("undo") + "</button>" : ""
-    const inBin = (ctx.separate && bin && ctx.binById && ctx.binById[bin]) ? '<span class="ah-leg-bin">' + ahEscX(ctx.binById[bin].label) + "</span>" : ""
-    return '<span class="ah-leg"><i class="ah-leg-sw" style="background:' + it.color + '"></i><span class="ah-leg-nm">' + ahEscX(it.name) + (it.bundleQty != null ? ' <span class="ah-leg-bq">·' + it.bundleQty + "</span>" : "") + ch + '</span>' + inBin + '<span class="ah-leg-sz">' + ahFmt(it.spaces) + "</span>" + use + unpack + "</span>"
+    // compact chip: swatch · name (which bin + size are already obvious from the per-container grids)
+    return '<span class="ah-leg" title="' + ahEscX(it.name + (bin && ctx.binById && ctx.binById[bin] ? " — " + ctx.binById[bin].label : "")) + '"><i class="ah-leg-sw" style="background:' + it.color + '"></i><span class="ah-leg-nm">' + ahEscX(it.name) + (it.bundleQty != null ? ' <span class="ah-leg-bq">·' + it.bundleQty + "</span>" : "") + ch + "</span>" + use + unpack + "</span>"
   }).join("")
 }
 function ahRenderBoard(ctx) {
@@ -3892,6 +3892,14 @@ function ahBuildPanel(actor) {
     ? (ahFmt(nonWornSpaces) + " / " + ahFmt(bagCapacity) + " spaces" + (ctx.canArrange ? (ctx.separate ? " · drag onto a container" : " · drag, R rotates") : ""))
     : "no storage yet"
   const bagSec = mkSec("back", "ah-sec-bag", "Bag", "· " + bagMetaTxt)
+  if (isGM) {   // GM-only quick toggle for the experimental dnd5e-container binding (also in Module Settings)
+    const cur = ahBinding(ctx)
+    const bind = document.createElement("button"); bind.type = "button"; bind.className = "ah-ghostbtn" + (cur ? " on" : ""); bind.setAttribute("aria-pressed", cur ? "true" : "false")
+    bind.innerHTML = ahIcon(cur ? "check" : "stack") + (cur ? " Linked" : " Link to sheet")
+    bind.title = cur ? "Bag grids ARE linked to dnd5e's real containers (experimental). Click to unlink (reverts to Anti-Hammer's own bins)." : "Link bag grids to dnd5e's real containers (experimental). Click to enable; try it on one character."
+    bind.addEventListener("click", (e) => { e.stopPropagation(); try { game.settings.set(MOD, "ahBindContainers", !cur) } catch (err) { console.warn("[pendant-bridge] AH bind toggle failed", err) } })
+    bagSec.ctl.appendChild(bind)
+  }
   if (ctx.canArrange) {
     if (bagCapacity > 0) {
       const tidy = document.createElement("button"); tidy.type = "button"; tidy.className = "ah-act"; tidy.innerHTML = ahIcon("spark") + " Tidy"; tidy.title = "Auto-pack your loose items into the bag"
