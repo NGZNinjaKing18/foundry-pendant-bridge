@@ -220,6 +220,7 @@
 .ah-panel .ah-gear-mi-full { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ah-bad-ink); }
 .ah-panel .ah-gear-mi-m { font-size: 9.5px; color: var(--ah-mute); }
 .ah-panel .ah-gear-mhead { font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ah-mute); padding: 3px 8px 5px; border-bottom: 1px solid var(--ah-line); margin-bottom: 3px; }
+.ah-panel .ah-gear-mcat { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ah-faint); padding: 5px 8px 2px; }
 /* the comb (SVG board, scrolls horizontally) */
 .ah-panel .ah-scroll { overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; }
 .ah-panel .ah-svgholder { display: inline-block; }

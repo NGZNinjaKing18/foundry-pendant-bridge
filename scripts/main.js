@@ -61,6 +61,7 @@ const AH = {
     strBasis: "mod",         // "mod" (STR modifier) | "over10" (STR − 10) | "score" (full STR score)
     ammoAutoSpend: false,    // OPT-IN: spend ammo only for weapons that DON'T have ammo set up in dnd5e
     bagMode: "merged",       // "merged" = one pooled bag (type-gated entry) · "separate" = per-container capacity + type
+    wearLoad: { Belt: 4, Back: 2, Chest: 2, Hip: 2 },   // how many wearable containers each body location holds (DM-tunable)
   },
 
   /** The active config = saved world setting merged over defaults (so a missing key is safe). */
@@ -71,6 +72,7 @@ const AH = {
     return {
       ...d, ...saved,
       sizeSpaces:  { ...d.sizeSpaces, ...(saved.sizeSpaces || {}) },
+      wearLoad:    { ...d.wearLoad, ...(saved.wearLoad || {}) },
       ignoreTypes: Array.isArray(saved.ignoreTypes) ? saved.ignoreTypes : d.ignoreTypes,
     }
   },
@@ -1850,6 +1852,7 @@ async function handleCommand(msg) {
       const inc = msg.config || {}
       const next = { ...cur, ...inc }
       if (inc.sizeSpaces) next.sizeSpaces = { ...cur.sizeSpaces, ...inc.sizeSpaces }
+      if (inc.wearLoad && typeof inc.wearLoad === "object") next.wearLoad = { ...cur.wearLoad, ...inc.wearLoad }
       if (inc.ignoreTypes != null) next.ignoreTypes = Array.isArray(inc.ignoreTypes)
         ? inc.ignoreTypes
         : String(inc.ignoreTypes).split(",").map(s => s.trim()).filter(Boolean)
@@ -2854,9 +2857,32 @@ const AH_GEAR = {
   // — legacy keys (kept so existing equipped gear doesn't vanish) —
   belt:        { name: "Belt",               slot: "Belt",       storage: 0,  grants: { Belt: 1 } },
   harness:     { name: "Harness",            slot: "Back",       storage: 0,  grants: { Back: 2, "Left Hip": 1, "Right Hip": 1 } },
-  sack:        { name: "Sack",               storage: 8 },   // non-wearable (carried) — full world-container set is a later phase
+  // — mount-worn (on a beast/vehicle, not the body — no slot, uncapped) —
+  saddlebags:    { name: "Saddlebags",        cat: "mount", storage: 16 },
+  bigSaddlebags: { name: "Large Saddlebags",  cat: "mount", storage: 24 },
+  packFrame:     { name: "Pack Frame",        cat: "mount", storage: 32 },
+  cargoHarness:  { name: "Cargo Harness",     cat: "mount", storage: 48 },
+  // — non-wearable / world (carried or placed — no slot, uncapped) —
+  sack:        { name: "Sack",                cat: "world", storage: 8 },
+  bigSack:     { name: "Large Sack",          cat: "world", storage: 16 },
+  basket:      { name: "Basket",              cat: "world", storage: 12 },
+  bucket:      { name: "Bucket",              cat: "world", storage: 4 },
+  crate:       { name: "Crate",               cat: "world", storage: 24 },
+  bigCrate:    { name: "Large Crate",         cat: "world", storage: 48 },
+  barrel:      { name: "Barrel",              cat: "world", storage: 32 },
+  chest:       { name: "Chest",               cat: "world", storage: 24 },
+  bigChest:    { name: "Large Chest",         cat: "world", storage: 48 },
+  trunk:       { name: "Trunk",               cat: "world", storage: 64 },
+  cart:        { name: "Cart",                cat: "world", storage: 100 },
+  wagon:       { name: "Wagon",               cat: "world", storage: 200 },
+  coveredWagon:{ name: "Covered Wagon",       cat: "world", storage: 250 },
+  canoe:       { name: "Canoe",               cat: "world", storage: 80 },
+  shipHold:    { name: "Ship Cargo Hold",     cat: "world", storage: 500 },   // "unlimited" → a practical cap
 }
-const AH_GEAR_ORDER = ["coinPurse", "pouch", "bigPouch", "scrollCase", "waterskin", "toolHolster", "bandolier", "potionBand", "satchel", "backpack", "bigBackpack", "huntingPack", "quiver", "boltCase", "sheath", "gwSling", "shieldSling", "belt", "harness", "sack"]
+const AH_GEAR_ORDER = ["coinPurse", "pouch", "bigPouch", "scrollCase", "waterskin", "toolHolster", "bandolier", "potionBand", "satchel", "backpack", "bigBackpack", "huntingPack", "quiver", "boltCase", "sheath", "gwSling", "shieldSling", "belt", "harness",
+  "saddlebags", "bigSaddlebags", "packFrame", "cargoHarness",
+  "sack", "bigSack", "basket", "bucket", "crate", "bigCrate", "barrel", "chest", "bigChest", "trunk", "cart", "wagon", "coveredWagon", "canoe", "shipHold"]
+const AH_GEAR_CAT_LABEL = { worn: "Worn", mount: "Mount-worn", world: "Carried / placed" }
 /** Display chips for a container: body slot · +storage · what it holds · granted slots. */
 function ahGearBits(cat) {
   const bits = []
@@ -2878,7 +2904,7 @@ function ahGearSlotKey(cat) {
   if (s.indexOf("hip") === 0) return "Hip"
   return null
 }
-function ahWearCap(slotKey) { return slotKey && AH_WEARLOAD[slotKey] != null ? AH_WEARLOAD[slotKey] : Infinity }
+function ahWearCap(slotKey, wl) { const m = wl || AH_WEARLOAD; return slotKey && m[slotKey] != null ? m[slotKey] : Infinity }
 /** Count of equipped containers per body location, e.g. { Belt: 2, Back: 1 }. */
 function ahWornLoad(actor) {
   const cat = ahGearCatalog(), load = {}
@@ -3230,12 +3256,16 @@ function ahOpenGearMenu(actor, anchorEl, triggerEl) {
   const menu = document.createElement("div"); menu.className = "ah-gear-menu"
   const catalog = ahGearCatalog()
   const load = ahWornLoad(actor)   // containers already worn, per body location
+  const wl = (AH.cfg().wearLoad) || AH_WEARLOAD   // DM-tunable per-location caps
   // header: how full each capped location is, so the player sees the limits at a glance
-  const hbits = Object.keys(AH_WEARLOAD).map(k => k + " " + (load[k] || 0) + "/" + AH_WEARLOAD[k])
+  const hbits = Object.keys(wl).map(k => k + " " + (load[k] || 0) + "/" + wl[k])
   const head = document.createElement("div"); head.className = "ah-gear-mhead"; head.textContent = hbits.join(" · "); menu.appendChild(head)
+  let curCat = null
   for (const kind of ahGearOrder()) {
     const cat = catalog[kind]; if (!cat) continue
-    const sk = ahGearSlotKey(cat), cap = ahWearCap(sk), full = sk != null && (load[sk] || 0) >= cap
+    const ccat = cat.cat || "worn"
+    if (ccat !== curCat) { curCat = ccat; const ch = document.createElement("div"); ch.className = "ah-gear-mcat"; ch.textContent = AH_GEAR_CAT_LABEL[ccat] || ccat; menu.appendChild(ch) }
+    const sk = ahGearSlotKey(cat), cap = ahWearCap(sk, wl), full = sk != null && (load[sk] || 0) >= cap
     const bits = ahGearBits(cat)
     const b = document.createElement("button"); b.className = "ah-gear-mi" + (full ? " full" : "")
     if (full) { b.disabled = true; b.setAttribute("aria-disabled", "true") }
@@ -3243,7 +3273,7 @@ function ahOpenGearMenu(actor, anchorEl, triggerEl) {
     b.innerHTML = '<span class="ah-gear-mi-n">' + ahEscX(cat.name) + tail + '</span>' + (bits.length ? '<span class="ah-gear-mi-m">' + ahEscX(bits.join(" · ")) + '</span>' : "")
     if (!full) b.addEventListener("click", async (e) => {
       e.stopPropagation()
-      if (sk != null && (ahWornLoad(actor)[sk] || 0) >= ahWearCap(sk)) return   // re-check: location filled meanwhile
+      if (sk != null && (ahWornLoad(actor)[sk] || 0) >= ahWearCap(sk, wl)) return   // re-check: location filled meanwhile
       close()   // close on first add so a rapid second click can't over-cap the same location (TOCTOU)
       const list = ahGearList(actor).slice(); list.push({ id: "g" + Math.random().toString(36).slice(2, 8), kind })
       try { await actor.setFlag(MOD, "ahGear", list) } catch (er) { console.warn("[pendant-bridge] AH gear add failed", er) }
