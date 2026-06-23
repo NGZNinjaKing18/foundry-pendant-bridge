@@ -2848,9 +2848,9 @@ const AH_GEAR = {
   quiver:      { name: "Quiver",             slot: "Back",       storage: 4,  restrict: "Bow + arrows/bolts", types: ["ammo"] },
   boltCase:    { name: "Bolt Case",          slot: "Back",       storage: 4,  restrict: "Bolts only", types: ["ammo"] },
   // — single-item holders (worn; hold one equipped item, no bag space) —
-  sheath:      { name: "Sheath",             slot: "Hip / Belt", holds: "a one-handed weapon" },
-  gwSling:     { name: "Great Weapon Sling", slot: "Back",       holds: "a two-handed weapon" },
-  shieldSling: { name: "Shield Sling",       slot: "Back",       holds: "a shield" },
+  sheath:      { name: "Sheath",             slot: "Hip / Belt", holds: "a one-handed weapon", grants: { "Right Hip": 1 } },
+  gwSling:     { name: "Great Weapon Sling", slot: "Back",       holds: "a two-handed weapon", grants: { Back: 1 } },
+  shieldSling: { name: "Shield Sling",       slot: "Back",       holds: "a shield", grants: { Back: 1 } },
   // — legacy keys (kept so existing equipped gear doesn't vanish) —
   belt:        { name: "Belt",               slot: "Belt",       storage: 0,  grants: { Belt: 1 } },
   harness:     { name: "Harness",            slot: "Back",       storage: 0,  grants: { Back: 2, "Left Hip": 1, "Right Hip": 1 } },
