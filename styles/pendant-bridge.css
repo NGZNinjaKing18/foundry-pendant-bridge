@@ -240,6 +240,7 @@
 .ah-panel .ah-bin-sw { width: 9px; height: 9px; border-radius: 3px; flex: 0 0 auto; box-shadow: var(--ah-ring-dark); }
 .ah-panel .ah-bin-nm { font-weight: 600; color: var(--ah-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
 .ah-panel .ah-bin-types { text-transform: uppercase; letter-spacing: .04em; font-size: 9px; color: var(--ah-store-ink); background: var(--ah-store-bg); border: 1px solid var(--ah-store-line); border-radius: var(--ah-pill); padding: 0 5px; flex: 0 0 auto; }
+.ah-panel .ah-bin-native { font-size: 9px; color: var(--ah-faint); border: 1px solid var(--ah-line); border-radius: var(--ah-pill); padding: 0 5px; flex: 0 0 auto; white-space: nowrap; }
 .ah-panel .ah-bin-cap { margin-left: auto; color: var(--ah-mute); font-variant-numeric: tabular-nums; flex: 0 0 auto; padding-left: 6px; }
 .ah-panel .ah-bin-grid { overflow-x: auto; overflow-y: hidden; }
 .ah-panel .ah-bin-grid .ah-svg { display: block; user-select: none; -webkit-user-select: none; }

@@ -61,6 +61,7 @@ const AH = {
     strBasis: "mod",         // "mod" (STR modifier) | "over10" (STR − 10) | "score" (full STR score)
     ammoAutoSpend: false,    // OPT-IN: spend ammo only for weapons that DON'T have ammo set up in dnd5e
     bagMode: "separate",     // VESTIGIAL: the bag is always per-container now (Merged was removed at the user's request). Kept so old saved configs don't error; the live mode is driven by ctx.separate, not this.
+    bindContainers: false,   // OFF by default while it's hardened (review flagged unequipped-container + on/off-transition edge cases). When false the bag is AH's own flag-only bins (current behaviour). MIRROR (read+write dnd5e system.container) when true.
     wearLoad: { Belt: 4, Back: 2, Chest: 2, Hip: 2 },   // how many wearable containers each body location holds (DM-tunable)
   },
 
@@ -2522,7 +2523,7 @@ function ahStowItem(ctx, uid) {
   } catch {}
 }
 /** Keyboard "unpack" (no drag): pull a packed item back out to the loose tray. */
-function ahUnplaceItem(ctx, uid) { if (ctx.placed.has(uid)) { ctx.placed.delete(uid); ahPersistPlace(ctx) } }
+function ahUnplaceItem(ctx, uid) { if (!ctx.placed.has(uid)) return; if (ctx.separate) { ahAssignUnit(ctx, uid, null) } else { ctx.placed.delete(uid); ahPersistPlace(ctx) } }
 
 // ════════════════════════════════════════════════════════════════════════════
 // SEPARATE bag mode — one mini hex-grid per container (gated to cfg.bagMode === "separate").
@@ -2577,33 +2578,71 @@ function ahSepBinAccepts(ctx, bin, uid) {
   const trial = ahSepUnitsIn(ctx, bin.binId, uid); trial.push(u)
   return ahPackInto(bin, trial).size === trial.length
 }
-/** Build ctx.placed for separate mode: read the assignment flag, drop stale/illegal entries, then
- *  auto-pack each bin. A valid assignment that no longer fits (its bin shrank) is KEPT as a
- *  non-drawn overflow marker so the player's chosen bin survives a transient capacity dip. */
+/** Mirror toggle (kill-switch). When true, `it:` (real container) bins read+write dnd5e's native
+ *  system.container; when false the bag falls back to AH's own flag-only bins. */
+function ahBinding(ctx) { try { const c = (ctx && ctx.cfg) ? ctx.cfg : AH.cfg(); return c.bindContainers !== false } catch { return true } }
+/** The real dnd5e container id an owned item points at (system.container), or null. Sync for owned. */
+function ahItemContainer(ctx, itemId) { try { const it = ctx.actor && ctx.actor.items && ctx.actor.items.get(itemId); const c = it && it.system && it.system.container; return c || null } catch { return null } }
+/** Short label for a container item's REAL dnd5e capacity (display-only, sync read), or "". */
+function ahNativeCapLabel(ctx, containerId) {
+  try {
+    const it = ctx.actor && ctx.actor.items && ctx.actor.items.get(containerId), cap = it && it.system && it.system.capacity; if (!cap) return ""
+    if (cap.count) return cap.count + " item" + (cap.count === 1 ? "" : "s")
+    const w = cap.weight && Number(cap.weight.value); if (w > 0) return ahFmt(w) + " " + (cap.weight.units || "lb")
+    return ""
+  } catch { return "" }
+}
+/** Build ctx.placed for separate mode. Membership: when binding is ON, each `it:` (real container)
+ *  bin is driven by the item's dnd5e system.container; AH-only bins (gr:/str) come from the
+ *  ahPlaceSep flag. Binding OFF → the flag drives everything (legacy). Then auto-pack each bin; a
+ *  valid-but-unfitting assignment is kept as a non-drawn overflow marker (its bin is remembered). */
 function ahBuildSepPlaced(ctx) {
   let assign = {}; try { assign = ctx.actor.getFlag(MOD, "ahPlaceSep") || {} } catch {}
   if (!assign || typeof assign !== "object") assign = {}
-  const byBin = new Map(), valid = []
-  for (const uid of Object.keys(assign)) {
-    const binId = assign[uid], u = ctx.unitById[uid]; if (!u) continue       // stale uid (deleted item / changed bundle)
+  const bind = ahBinding(ctx), byBin = new Map(), valid = []
+  for (const u of ctx.units) {
+    const uid = u.uid
     if (!ahCanBag(ctx, uid)) continue                                        // worn-only can't be bagged
-    const bin = ctx.binById[binId]; if (!bin) continue                       // bin gone (container unequipped / gear removed)
-    if (bin.types && bin.types.indexOf(ahTagFor(ctx, u.itemId)) < 0) continue  // type no longer allowed by this bin
+    let binId = null
+    if (bind) {
+      const cid = ahItemContainer(ctx, u.itemId)                             // real container = authoritative for it: bins
+      if (cid && ctx.binById["it:" + cid]) binId = "it:" + cid
+      else { const a = assign[uid]; if (a && a.slice(0, 3) !== "it:" && ctx.binById[a]) binId = a }   // AH-only bin (gr:/str) from the flag
+    } else {
+      const a = assign[uid]; if (a && ctx.binById[a]) binId = a              // legacy: the flag drives everything
+    }
+    if (!binId) continue
+    const bin = ctx.binById[binId]
+    if (bin.types && bin.types.indexOf(ahTagFor(ctx, u.itemId)) < 0) continue  // type not allowed by this bin
     valid.push({ uid, binId }); if (!byBin.has(binId)) byBin.set(binId, []); byBin.get(binId).push(u)
   }
   const placed = new Map()
   for (const bin of ctx.bins) ahPackInto(bin, byBin.get(bin.binId) || []).forEach((pos, uid) => placed.set(uid, { col: pos.col, row: pos.row, rot: pos.rot, bin: bin.binId }))
-  // Structurally-valid but unpacked (the bin's capacity shrank since it was placed) → keep a
-  // non-drawn `of:true` marker: it shows as loose, but its chosen bin is remembered (re-packs
-  // there if room returns) instead of being silently forgotten. This also keeps ctx.placed.size
-  // equal to the count of valid saved assignments, so the self-heal fires ONLY on real structural
-  // prunes (stale uid / bin gone / wrong type), never merely because something overflowed.
+  // valid-but-unpacked (bin capacity shrank) → non-drawn `of:true` marker: shows as loose but its
+  // chosen bin is remembered (re-packs if room returns). For it: bins the memory IS system.container.
   for (const { uid, binId } of valid) if (!placed.has(uid)) placed.set(uid, { bin: binId, of: true })
   return placed
 }
+/** Assign one unit to a bin (binId) or make it loose (null) from an EXPLICIT user action. Mirror: a
+ *  real `it:` bin writes the item's dnd5e system.container; AH-only bins (gr:/str) use the ahPlaceSep
+ *  flag — and each clears the other so there's a single source of truth. NEVER call during render. */
+function ahAssignUnit(ctx, uid, binId) {
+  const u = ctx.unitById[uid], realId = (u && u.itemId) || uid, bind = ahBinding(ctx)
+  if (bind) {
+    const it = ctx.actor && ctx.actor.items && ctx.actor.items.get(realId)
+    const target = (binId && binId.slice(0, 3) === "it:") ? binId.slice(3) : null   // real container id, else loose / AH-only bin
+    if (it && it.system) { const cur = it.system.container || null; if (cur !== target) { try { it.update({ "system.container": target }) } catch (e) { console.warn("[pendant-bridge] AH container write failed", e) } } }
+  }
+  // the flag stores ONLY AH-only bins when binding (it: membership lives in system.container); legacy = all
+  let assign = {}; try { assign = ctx.actor.getFlag(MOD, "ahPlaceSep") || {} } catch {}
+  if (!assign || typeof assign !== "object") assign = {}
+  const keep = binId && (!bind || binId.slice(0, 3) !== "it:")
+  if (keep) { if (assign[uid] !== binId) { assign[uid] = binId; ahSavePlaceSep(ctx.actor, assign) } }
+  else if (uid in assign) { delete assign[uid]; ahSavePlaceSep(ctx.actor, assign) }
+}
 /** The {uid: binId} object to persist — derived from ctx.placed, INCLUDING overflow markers so a
  *  remembered-but-unfitting assignment is preserved across unrelated saves. */
-function ahSepAssignObj(ctx) { const o = {}; ctx.placed.forEach((p, uid) => { if (p && p.bin) o[uid] = p.bin }); return o }
+function ahSepAssignObj(ctx) { const bind = ahBinding(ctx), o = {}; ctx.placed.forEach((p, uid) => { if (p && p.bin && (!bind || p.bin.slice(0, 3) !== "it:")) o[uid] = p.bin }); return o }
 function ahSavePlaceSep(actor, obj) { try { actor.setFlag(MOD, "ahPlaceSep", obj) } catch (e) { console.warn("[pendant-bridge] AH sep save failed", e) } }
 /** Persist placements to the flag for the ACTIVE mode (keeps equip/outfit/stow paths mode-safe). */
 function ahPersistPlace(ctx) { if (ctx.separate) ahSavePlaceSep(ctx.actor, ahSepAssignObj(ctx)); else ahSavePlace(ctx.actor, ahPlaceObj(ctx)) }
@@ -2622,12 +2661,30 @@ function ahAutoPackSep(ctx) {
   }
   return assign
 }
+/** Apply a Tidy auto-pack: persist AH-only bins to the flag AND (when binding) mirror every item's
+ *  dnd5e system.container in ONE batched update. Items not assigned to a real container are cleared. */
+function ahApplyAutoPackSep(ctx) {
+  const assign = ahAutoPackSep(ctx), bind = ahBinding(ctx)
+  const flag = {}
+  for (const uid in assign) { const b = assign[uid]; if (!bind || b.slice(0, 3) !== "it:") flag[uid] = b }
+  ahSavePlaceSep(ctx.actor, flag)
+  if (!bind) return
+  const want = new Map()   // realItemId → target container id (or null); units of one item share one container
+  for (const u of ctx.units) {
+    if (!ahCanBag(ctx, u.uid)) continue
+    const b = assign[u.uid], target = (b && b.slice(0, 3) === "it:") ? b.slice(3) : null
+    if (!want.has(u.itemId) || (target && !want.get(u.itemId))) want.set(u.itemId, target)
+  }
+  const changes = []
+  want.forEach((target, itemId) => { const it = ctx.actor.items.get(itemId); if (it && it.system) { const cur = it.system.container || null; if (cur !== target) changes.push({ _id: itemId, "system.container": target }) } })
+  if (changes.length) { try { ctx.actor.updateEmbeddedDocuments("Item", changes) } catch (e) { console.warn("[pendant-bridge] AH tidy container batch failed", e) } }
+}
 /** Keyboard stow (separate): assign the unit to the first fitting bin. Returns true on success. */
 function ahStowSep(ctx, uid) {
   const u = ctx.unitById[uid]; if (!u) return false
   const tag = ahTagFor(ctx, u.itemId)
   const cands = ctx.bins.filter(b => !b.types || b.types.indexOf(tag) >= 0).sort((a, b) => (a.types ? a.types.length : 99) - (b.types ? b.types.length : 99))
-  for (const bin of cands) { if (ahSepBinAccepts(ctx, bin, uid)) { ctx.placed.set(uid, { col: 0, row: 0, rot: 0, bin: bin.binId }); ahSavePlaceSep(ctx.actor, ahSepAssignObj(ctx)); return true } }
+  for (const bin of cands) { if (ahSepBinAccepts(ctx, bin, uid)) { ahAssignUnit(ctx, uid, bin.binId); return true } }
   return false
 }
 /** One bin's board SVG: its grid + auto-packed contents, plus a drop preview when it's hovered. */
@@ -3279,7 +3336,13 @@ function ahPlaceObj(ctx) { const o = {}; ctx.placed.forEach((p, id) => { o[id] =
 // Mirror the slot state onto dnd5e's own `equipped` flag — an item is "equipped"
 // on the sheet only when it's slotted on the body (per the locked rule).
 function ahSetEquipped(ctx, id, on) {
-  try { const it = ctx.actor.items.get(id); if (it && it.system && ("equipped" in it.system)) it.update({ "system.equipped": !!on }) } catch {}
+  try {
+    const it = ctx.actor.items.get(id); if (!it || !it.system) return
+    const upd = {}
+    if ("equipped" in it.system) upd["system.equipped"] = !!on
+    if (on && ahBinding(ctx) && it.system.container) upd["system.container"] = null   // equipping pulls it out of any container (it's worn now, not bagged)
+    if (Object.keys(upd).length) it.update(upd)
+  } catch {}
 }
 function ahEquipItem(ctx, id, slotKey) {
   ctx.placed.delete(id)
@@ -3598,7 +3661,8 @@ function ahDragItem(ctx, id, from, ev) {
   if (ctx.ghostEl) { ctx.ghostEl.textContent = it.name; ctx.ghostEl.style.display = "block"; ahMoveGhost(ctx, ev) }
   ahRenderDoll(ctx); ahRenderBoard(ctx); ahRenderTray(ctx)
   // coalesce hover-recompute + board redraw to one paint per frame (mousemove can fire >100/s)
-  let raf = 0, lastE = null
+  const sx = ev.clientX, sy = ev.clientY   // drag origin → a small movement threshold (below)
+  let raf = 0, lastE = null, moved = false
   const draw = () => {
     raf = 0; if (!ctx.held || !lastE) return
     const host = ctx.separate ? ctx.binsEl : ctx.holder
@@ -3614,9 +3678,11 @@ function ahDragItem(ctx, id, from, ev) {
     ctx.hover = ahPixelCell(ctx, lastE); ahRenderBoard(ctx)
   }
   const schedule = () => { if (!raf) raf = requestAnimationFrame(draw) }
-  const move = (e) => { if (!ctx.held) return; const host = ctx.separate ? ctx.binsEl : ctx.holder; if (host && !host.isConnected) { finish(true); return } lastE = e; schedule() }
+  const move = (e) => { if (!ctx.held) return; const host = ctx.separate ? ctx.binsEl : ctx.holder; if (host && !host.isConnected) { finish(true); return } if (!moved && (Math.abs(e.clientX - sx) > 5 || Math.abs(e.clientY - sy) > 5)) moved = true; lastE = e; schedule() }
   const key = (e) => { if (!ctx.held) return; if (e.key === "r" || e.key === "R") { ctx.held.rot = (ctx.held.rot + 1) % 6; schedule() } else if (e.key === "Escape") finish(true) }
-  const up = (e) => finish(false, e)
+  // released WITHOUT a real drag (a click / let-go-too-soon) → pass no event so finish drops nothing
+  // and cleanly reverts (bag item back to its bin, loose item stays loose). Only a genuine drag drops.
+  const up = (e) => finish(false, moved ? e : null)
   function finish(cancel, e) {
     if (raf) { cancelAnimationFrame(raf); raf = 0 }
     _ahDrag.active = false                  // release the panel; setFlag re-renders below proceed normally
@@ -3639,7 +3705,7 @@ function ahDragItem(ctx, id, from, ev) {
       else if (ctx.separate) {   // multi-grid: assign to whichever bin the cursor was released over (if it fits)
         const binEl = tgt && tgt.closest && tgt.closest("[data-bin]")
         const bin = binEl && ctx.binsEl && ctx.binsEl.contains(binEl) && ctx.binById[binEl.getAttribute("data-bin")]   // only THIS actor's bins
-        if (bin && ahSepBinAccepts(ctx, bin, held.id)) { ctx.placed.set(held.id, { col: 0, row: 0, rot: 0, bin: bin.binId }); ahSavePlaceSep(ctx.actor, ahSepAssignObj(ctx)); done = true }   // rot is auto-packed on re-render
+        if (bin && ahSepBinAccepts(ctx, bin, held.id)) { ahAssignUnit(ctx, held.id, bin.binId); done = true }   // mirror: it: bins write system.container; the re-render auto-packs
       }
       else if (hc && ahBagAccepts(ctx, held.id)) { const fit = ahSnapPlace(ctx, held.item, hc, held.rot); if (fit) { ctx.placed.set(held.id, { col: fit.col, row: fit.row, rot: held.rot }); ahSavePlace(ctx.actor, ahPlaceObj(ctx)); done = true } }
     }
@@ -3720,7 +3786,12 @@ function ahBuildPanel(actor) {
   // self-heal: if the live placements differ from the stored flag (worn-only gear removed, a bin
   // disappeared, or orphaned bundle uids after a quantity drop / item delete), persist the pruned
   // set so stale keys can't accumulate or silently revive when a uid reappears. Owner only.
-  if (ctx.canArrange && !ahAnyActiveGM() && ahIsWriteAuthority(actor) && ctx.placed.size !== Object.keys(savedPlace).length) ahPersistPlace(ctx)
+  // SEPARATE: compare the DESIRED flag (gr:/str only when binding — it: membership lives in
+  // system.container, not the flag) to the saved flag, so binding never triggers a render loop.
+  let needHeal
+  if (ctx.separate) { const want = ahSepAssignObj(ctx), wk = Object.keys(want), sk = Object.keys(savedPlace); needHeal = wk.length !== sk.length || wk.some(k => want[k] !== savedPlace[k]) }
+  else needHeal = ctx.placed.size !== Object.keys(savedPlace).length
+  if (ctx.canArrange && !ahAnyActiveGM() && ahIsWriteAuthority(actor) && needHeal) ahPersistPlace(ctx)
 
   // counts + space totals (overflow = baggable load that exceeds the bag)
   const wornN = Object.keys(ctx.worn).length + ctx.back.length
@@ -3789,7 +3860,7 @@ function ahBuildPanel(actor) {
   if (ctx.canArrange) {
     if (bagCapacity > 0) {
       const tidy = document.createElement("button"); tidy.type = "button"; tidy.className = "ah-act"; tidy.innerHTML = ahIcon("spark") + " Tidy"; tidy.title = "Auto-pack your loose items into the bag"
-      tidy.addEventListener("click", (e) => { e.stopPropagation(); if (ctx.separate) { ahSavePlaceSep(ctx.actor, ahAutoPackSep(ctx)) } else { ctx.placed = ahAutoPack(ctx); ahSavePlace(ctx.actor, ahPlaceObj(ctx)) } })   // setFlag re-renders the whole panel with consistent counts
+      tidy.addEventListener("click", (e) => { e.stopPropagation(); if (ctx.separate) { ahApplyAutoPackSep(ctx) } else { ctx.placed = ahAutoPack(ctx); ahSavePlace(ctx.actor, ahPlaceObj(ctx)) } })   // setFlag/updateItem re-renders the whole panel with consistent counts
       bagSec.ctl.appendChild(tidy)
     }
     const add = document.createElement("button"); add.type = "button"; add.className = "ah-ghostbtn"; add.innerHTML = ahIcon("plus") + " Add"; add.title = "Add a belt, backpack, pouch…"
@@ -3810,8 +3881,9 @@ function ahBuildPanel(actor) {
         const card = document.createElement("div"); card.className = "ah-bin" + (bin.kind === "str" ? " str" : ""); card.setAttribute("data-bin", bin.binId); ctx.binCards[bin.binId] = card
         const bh = document.createElement("div"); bh.className = "ah-bin-head"
         const tlabel = bin.types ? (bin.types.length > 1 ? bin.types[0] + " +" + (bin.types.length - 1) : bin.types[0]) : ""
+        const nativeCap = (ahBinding(ctx) && bin.kind === "container") ? ahNativeCapLabel(ctx, bin.binId.slice(3)) : ""   // real dnd5e capacity (display-only)
         const capSpan = document.createElement("span"); capSpan.className = "ah-bin-cap"; ctx.binCapEls[bin.binId] = capSpan
-        bh.innerHTML = '<i class="ah-bin-sw" style="background:' + bin.color + '"></i><span class="ah-bin-nm">' + ahEscX(bin.label) + "</span>" + (bin.types ? '<span class="ah-bin-types" title="' + ahEscX("Holds only: " + bin.types.join(", ")) + '">' + ahEscX(tlabel) + "</span>" : "")
+        bh.innerHTML = '<i class="ah-bin-sw" style="background:' + bin.color + '"></i><span class="ah-bin-nm">' + ahEscX(bin.label) + "</span>" + (nativeCap ? '<span class="ah-bin-native" title="dnd5e container capacity">' + ahEscX(nativeCap) + "</span>" : "") + (bin.types ? '<span class="ah-bin-types" title="' + ahEscX("Holds only: " + bin.types.join(", ")) + '">' + ahEscX(tlabel) + "</span>" : "")
         bh.appendChild(capSpan)
         if (ctx.canArrange && bin.kind !== "str") {   // remove this container/gear (str bin has nothing to remove)
           const bx = document.createElement("button"); bx.type = "button"; bx.className = "ah-bin-x"; bx.textContent = "×"
