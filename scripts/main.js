@@ -2336,17 +2336,29 @@ function ahMiniSVG(it) {
 /** Colour legend under the bag: each packed item = swatch + full name + space cost. */
 function ahLegendHTML(ctx) {
   const rows = []
-  ctx.placed.forEach((p, id) => { const it = ctx.unitById[id]; if (it) rows.push(it) })
+  ctx.placed.forEach((p, id) => { const it = ctx.unitById[id]; if (it && !(p && p.of)) rows.push({ it, bin: p && p.bin }) })
   if (!rows.length) return '<span class="ah-leg-empty">Nothing packed yet — drag items onto the grid.</span>'
-  rows.sort((a, b) => (a.name || "").localeCompare(b.name || ""))
-  return rows.map(it => {
+  rows.sort((a, b) => (ctx.separate ? String(a.bin || "").localeCompare(String(b.bin || "")) : 0) || (a.it.name || "").localeCompare(b.it.name || ""))
+  return rows.map(({ it, bin }) => {
     const bi = ctx.byId[it.itemId]
     const use = (ctx.canArrange && bi && bi.type === "consumable" && (bi.qty || 0) >= 1) ? '<button type="button" class="ah-use" data-use="' + ahEscX(it.itemId) + '" aria-label="' + ahEscX("Use one " + it.name) + '" title="Use one (−1)">use</button>' : ""
     const unpack = ctx.canArrange ? '<button type="button" class="ah-leg-x" data-unpack="' + ahEscX(it.uid) + '" aria-label="' + ahEscX("Take " + it.name + " out of the bag") + '" title="Unpack to loose">' + ahIcon("undo") + "</button>" : ""
-    return '<span class="ah-leg"><i class="ah-leg-sw" style="background:' + it.color + '"></i><span class="ah-leg-nm">' + ahEscX(it.name) + (it.bundleQty != null ? ' <span class="ah-leg-bq">·' + it.bundleQty + "</span>" : "") + '</span><span class="ah-leg-sz">' + ahFmt(it.spaces) + "</span>" + use + unpack + "</span>"
+    const inBin = (ctx.separate && bin && ctx.binById && ctx.binById[bin]) ? '<span class="ah-leg-bin">' + ahEscX(ctx.binById[bin].label) + "</span>" : ""
+    return '<span class="ah-leg"><i class="ah-leg-sw" style="background:' + it.color + '"></i><span class="ah-leg-nm">' + ahEscX(it.name) + (it.bundleQty != null ? ' <span class="ah-leg-bq">·' + it.bundleQty + "</span>" : "") + '</span>' + inBin + '<span class="ah-leg-sz">' + ahFmt(it.spaces) + "</span>" + use + unpack + "</span>"
   }).join("")
 }
 function ahRenderBoard(ctx) {
+  if (ctx.separate) {
+    for (const bin of (ctx.bins || [])) {
+      const h = ctx.binHolders && ctx.binHolders[bin.binId]; if (h) h.innerHTML = ahBinBoardSVG(ctx, bin)
+      const ce = ctx.binCapEls && ctx.binCapEls[bin.binId]
+      if (ce) { let used = 0; ctx.placed.forEach((p, uid) => { if (p.bin === bin.binId && !p.of) { const u = ctx.unitById[uid]; if (u) used += (Number(u.spaces) || 0) } }); ce.textContent = ahFmt(used) + " / " + ahFmt(bin.cap) }
+      const card = ctx.binCards && ctx.binCards[bin.binId]
+      if (card) { const active = !!(ctx.held && ctx.hoverBin === bin.binId), ok = active && ahSepBinAccepts(ctx, bin, ctx.held.id); card.classList.toggle("drop-ok", active && ok); card.classList.toggle("drop-no", active && !ok) }
+    }
+    if (ctx.legendEl) ctx.legendEl.innerHTML = ahLegendHTML(ctx)
+    return
+  }
   if (ctx.holder) ctx.holder.innerHTML = ahBoardSVG(ctx)
   if (ctx.legendEl) ctx.legendEl.innerHTML = ahLegendHTML(ctx)
 }
@@ -2369,7 +2381,7 @@ function ahRenderTray(ctx) {
   if (!ctx.trayEl) return
   // loose = bag units not packed (and not the one being dragged). Bundled stacks show
   // one chip per bundle.
-  const units = (ctx.units || []).filter(u => !ctx.placed.has(u.uid) && !(ctx.held && ctx.held.id === u.uid))
+  const units = (ctx.units || []).filter(u => (!ctx.placed.has(u.uid) || (ctx.placed.get(u.uid) || {}).of) && !(ctx.held && ctx.held.id === u.uid))
   if (!units.length) { ctx.trayEl.innerHTML = '<span class="ah-tray-empty">Nothing loose — all worn or packed.</span>'; return }
   const groups = {}
   for (const u of units) { const ct = (ctx.metaById[u.itemId] && ctx.metaById[u.itemId].carryType) || "Miscellaneous"; (groups[ct] = groups[ct] || []).push(u) }
@@ -2484,8 +2496,8 @@ function ahFitOne(ctx, unit) {
 /** Keyboard "stow" (no drag): pack the unit into the bag if it fits, else equip it to a free slot. */
 function ahStowItem(ctx, uid) {
   const u = ctx.unitById[uid]; if (!u) return
-  const fit = ahFitOne(ctx, u)
-  if (fit) { ctx.placed.set(uid, fit); ahSavePlace(ctx.actor, ahPlaceObj(ctx)); return }
+  if (ctx.separate) { if (ahStowSep(ctx, uid)) return }
+  else { const fit = ahFitOne(ctx, u); if (fit) { ctx.placed.set(uid, fit); ahSavePlace(ctx.actor, ahPlaceObj(ctx)); return } }
   const realId = u.itemId || uid, m = ctx.metaById[realId]
   if (m && (ctx.bundleN[realId] || 1) <= 1) {
     const free = ahFreeBody(ctx, m)
@@ -2501,7 +2513,149 @@ function ahStowItem(ctx, uid) {
   } catch {}
 }
 /** Keyboard "unpack" (no drag): pull a packed item back out to the loose tray. */
-function ahUnplaceItem(ctx, uid) { if (ctx.placed.has(uid)) { ctx.placed.delete(uid); ahSavePlace(ctx.actor, ahPlaceObj(ctx)) } }
+function ahUnplaceItem(ctx, uid) { if (ctx.placed.has(uid)) { ctx.placed.delete(uid); ahPersistPlace(ctx) } }
+
+// ════════════════════════════════════════════════════════════════════════════
+// SEPARATE bag mode — one mini hex-grid per container (gated to cfg.bagMode === "separate").
+// A "bin" is one piece of storage the actor has (a worn container item, an add-on gear
+// container, or the Strength bonus). Units are ASSIGNED to a bin — flag `ahPlaceSep` =
+// {uid: binId} (owner-writable, kept SEPARATE from merged's `ahPlace` so switching modes never
+// clobbers the other) — and AUTO-PACKED within their bin (no manual per-cell arranging, which
+// is what keeps the multi-grid drag robust: a drop only has to decide WHICH bin, never WHERE).
+// Σ bin.cap === bagCapacity, so the panel's meter/overflow totals are identical to merged.
+// Merged mode (the default) never enters any of this code — ctx.separate stays false.
+// ════════════════════════════════════════════════════════════════════════════
+
+/** The actor's storage as identified bins (stable id + label + colour + own geometry). Same set
+ *  and caps as ahBagContainers, so Σ bin.cap === bagCapacity. */
+function ahSepBins(ctx) {
+  const bins = [], cat = ahGearCatalog()
+  const capEach = Number(ctx.capEach) || 0
+  if (capEach > 0) for (const id of ahEquippedIds(ctx)) {
+    const m = ctx.metaById[id]
+    if (m && m.carryType === "Container") { const it = ctx.byId[id]; bins.push({ binId: "it:" + id, label: it ? it.name : "Container", kind: "container", cap: capEach, types: null, color: it ? it.color : "#7f8395" }) }
+  }
+  for (const g of ahGearList(ctx.actor)) {
+    const c = cat[g.kind]; const cap = Number(c && c.storage) || 0
+    if (cap > 0) bins.push({ binId: "gr:" + g.id, label: c.name, kind: "gear", cap, types: (c && c.types) || null, color: ahColorFor("gear:" + g.id) })
+  }
+  if (bins.length) { const sb = ahStrBonus(ctx.actor, ctx.cfg || AH.cfg()); if (sb > 0) bins.push({ binId: "str", label: "Raw strength", kind: "str", cap: sb, types: null, color: "#8a6db0" }) }
+  for (const b of bins) { b.geom = ahGeom(b.cap); const vc = ahValidCells(b.cap); b.validList = vc.list; b.validSet = vc.set }
+  return bins
+}
+/** First-fit-decreasing pack `units` into one bin's grid. Returns Map(uid → {col,row,rot}) of the
+ *  units that fit (biggest shapes first → tighter packing). Used for both drawing AND fit-testing. */
+function ahPackInto(bin, units) {
+  const us = units.slice().sort((a, b) => ((b.shape ? b.shape.length : 1) - (a.shape ? a.shape.length : 1)) || String(a.uid).localeCompare(String(b.uid)))
+  const occ = new Set(), out = new Map()
+  const fits = (cells) => { for (const c of cells) { const k = c.col + "," + c.row; if (!bin.validSet.has(k) || occ.has(k)) return false } return true }
+  for (const u of us) {
+    let done = false
+    for (const cell of bin.validList) { for (let rot = 0; rot < 6; rot++) { const cells = ahCellsFor(u, cell, rot); if (fits(cells)) { for (const c of cells) occ.add(c.col + "," + c.row); out.set(u.uid, { col: cell.col, row: cell.row, rot }); done = true; break } } if (done) break }
+  }
+  return out
+}
+/** Unit objects actually PACKED in `binId` (excluding `exceptUid` and non-drawn overflow markers). */
+function ahSepUnitsIn(ctx, binId, exceptUid) {
+  const out = []; ctx.placed.forEach((p, uid) => { if (uid !== exceptUid && p.bin === binId && !p.of) { const u = ctx.unitById[uid]; if (u) out.push(u) } }); return out
+}
+/** Can `uid` be assigned to `bin`? Type must be accepted AND the bin's current contents plus this
+ *  unit must all still pack within the bin (geometry + capacity checked together via ahPackInto). */
+function ahSepBinAccepts(ctx, bin, uid) {
+  const u = ctx.unitById[uid]; if (!u) return false
+  if (!ahCanBag(ctx, uid)) return false
+  if (bin.types && bin.types.indexOf(ahTagFor(ctx, u.itemId)) < 0) return false
+  const trial = ahSepUnitsIn(ctx, bin.binId, uid); trial.push(u)
+  return ahPackInto(bin, trial).size === trial.length
+}
+/** Build ctx.placed for separate mode: read the assignment flag, drop stale/illegal entries, then
+ *  auto-pack each bin. A valid assignment that no longer fits (its bin shrank) is KEPT as a
+ *  non-drawn overflow marker so the player's chosen bin survives a transient capacity dip. */
+function ahBuildSepPlaced(ctx) {
+  let assign = {}; try { assign = ctx.actor.getFlag(MOD, "ahPlaceSep") || {} } catch {}
+  if (!assign || typeof assign !== "object") assign = {}
+  const byBin = new Map(), valid = []
+  for (const uid of Object.keys(assign)) {
+    const binId = assign[uid], u = ctx.unitById[uid]; if (!u) continue       // stale uid (deleted item / changed bundle)
+    if (!ahCanBag(ctx, uid)) continue                                        // worn-only can't be bagged
+    const bin = ctx.binById[binId]; if (!bin) continue                       // bin gone (container unequipped / gear removed)
+    if (bin.types && bin.types.indexOf(ahTagFor(ctx, u.itemId)) < 0) continue  // type no longer allowed by this bin
+    valid.push({ uid, binId }); if (!byBin.has(binId)) byBin.set(binId, []); byBin.get(binId).push(u)
+  }
+  const placed = new Map()
+  for (const bin of ctx.bins) ahPackInto(bin, byBin.get(bin.binId) || []).forEach((pos, uid) => placed.set(uid, { col: pos.col, row: pos.row, rot: pos.rot, bin: bin.binId }))
+  // Structurally-valid but unpacked (the bin's capacity shrank since it was placed) → keep a
+  // non-drawn `of:true` marker: it shows as loose, but its chosen bin is remembered (re-packs
+  // there if room returns) instead of being silently forgotten. This also keeps ctx.placed.size
+  // equal to the count of valid saved assignments, so the self-heal fires ONLY on real structural
+  // prunes (stale uid / bin gone / wrong type), never merely because something overflowed.
+  for (const { uid, binId } of valid) if (!placed.has(uid)) placed.set(uid, { bin: binId, of: true })
+  return placed
+}
+/** The {uid: binId} object to persist — derived from ctx.placed, INCLUDING overflow markers so a
+ *  remembered-but-unfitting assignment is preserved across unrelated saves. */
+function ahSepAssignObj(ctx) { const o = {}; ctx.placed.forEach((p, uid) => { if (p && p.bin) o[uid] = p.bin }); return o }
+function ahSavePlaceSep(actor, obj) { try { actor.setFlag(MOD, "ahPlaceSep", obj) } catch (e) { console.warn("[pendant-bridge] AH sep save failed", e) } }
+/** Persist placements to the flag for the ACTIVE mode (keeps equip/outfit/stow paths mode-safe). */
+function ahPersistPlace(ctx) { if (ctx.separate) ahSavePlaceSep(ctx.actor, ahSepAssignObj(ctx)); else ahSavePlace(ctx.actor, ahPlaceObj(ctx)) }
+/** Tidy (separate): greedily assign every baggable unit to a fitting bin — specific-type bins
+ *  first, emptier bins first. Returns a fresh {uid: binId} map (replaces the whole assignment). */
+function ahAutoPackSep(ctx) {
+  const bins = ctx.bins.map(b => ({ binId: b.binId, types: b.types, cap: b.cap, validList: b.validList, validSet: b.validSet, packed: [] }))
+  const units = ctx.units.filter(u => ahCanBag(ctx, u.uid)).sort((a, b) => ((b.shape ? b.shape.length : 1) - (a.shape ? a.shape.length : 1)) || String(a.uid).localeCompare(String(b.uid)))
+  const used = (b) => b.packed.reduce((s, x) => s + (Number(x.spaces) || 1), 0)
+  const assign = {}
+  for (const u of units) {
+    const tag = ahTagFor(ctx, u.itemId)
+    const cands = bins.filter(b => !b.types || b.types.indexOf(tag) >= 0)
+      .sort((a, b) => ((a.types ? a.types.length : 99) - (b.types ? b.types.length : 99)) || ((b.cap - used(b)) - (a.cap - used(a))))
+    for (const b of cands) { const trial = b.packed.concat([u]); if (ahPackInto(b, trial).size === trial.length) { b.packed.push(u); assign[u.uid] = b.binId; break } }
+  }
+  return assign
+}
+/** Keyboard stow (separate): assign the unit to the first fitting bin. Returns true on success. */
+function ahStowSep(ctx, uid) {
+  const u = ctx.unitById[uid]; if (!u) return false
+  const tag = ahTagFor(ctx, u.itemId)
+  const cands = ctx.bins.filter(b => !b.types || b.types.indexOf(tag) >= 0).sort((a, b) => (a.types ? a.types.length : 99) - (b.types ? b.types.length : 99))
+  for (const bin of cands) { if (ahSepBinAccepts(ctx, bin, uid)) { ctx.placed.set(uid, { col: 0, row: 0, rot: 0, bin: bin.binId }); ahSavePlaceSep(ctx.actor, ahSepAssignObj(ctx)); return true } }
+  return false
+}
+/** One bin's board SVG: its grid + auto-packed contents, plus a drop preview when it's hovered. */
+function ahBinBoardSVG(ctx, bin) {
+  const g = bin.geom
+  const entries = []; ctx.placed.forEach((p, uid) => { if (p.bin === bin.binId && !p.of) { const u = ctx.unitById[uid]; if (u) entries.push({ uid, p, u }) } })
+  const aria = bin.label + " — " + (entries.length ? entries.length + " packed" : "empty")
+  let s = '<svg class="ah-svg" role="img" aria-label="' + ahEscX(aria) + '" width="' + g.width.toFixed(0) + '" height="' + g.height.toFixed(0) + '">'
+  for (const c of bin.validList) { const ct = ahCenter(g, c.col, c.row); s += '<polygon points="' + ahPts(ct.x, ct.y, g.S) + '" fill="#101118" stroke="#3a3d4c" stroke-width="2"/>' }
+  for (const e of entries) {
+    const cs = ahCellsFor(e.u, e.p, e.p.rot); let sx = 0, sy = 0, n = 0
+    for (const c of cs) {
+      if (!bin.validSet.has(c.col + "," + c.row)) continue
+      const ct = ahCenter(g, c.col, c.row)
+      s += '<polygon points="' + ahPts(ct.x, ct.y, g.S) + '" fill="' + e.u.color + '" stroke="rgba(0,0,0,.5)" stroke-width="2" data-item="' + ahEscX(e.uid) + '" style="cursor:' + (ctx.canArrange ? "grab" : "default") + '"/>'
+      sx += ct.x; sy += ct.y; n++
+    }
+    if (n) s += '<text x="' + (sx / n).toFixed(1) + '" y="' + (sy / n + 3).toFixed(1) + '" text-anchor="middle" font-size="10" font-weight="700" fill="#fff" stroke="rgba(0,0,0,.62)" stroke-width="2.6" stroke-linejoin="round" paint-order="stroke" style="pointer-events:none">' + ahEscX(ahMark(e.u.name)) + "</text>"
+  }
+  if (ctx.held && ctx.hoverBin === bin.binId) {
+    if (ahSepBinAccepts(ctx, bin, ctx.held.id)) {
+      // green: show exactly where the held unit would auto-pack
+      const trial = ahSepUnitsIn(ctx, bin.binId, ctx.held.id); trial.push(ctx.held.item)
+      const pos = ahPackInto(bin, trial).get(ctx.held.id)
+      const cs = pos ? ahCellsFor(ctx.held.item, pos, pos.rot) : []
+      let hx = 0, hy = 0, hn = 0
+      for (const c of cs) { const ct = ahCenter(g, c.col, c.row); s += '<polygon points="' + ahPts(ct.x, ct.y, g.S) + '" fill="rgba(121,189,102,.45)" stroke="#79bd66" stroke-width="2.5" style="pointer-events:none"/>'; hx += ct.x; hy += ct.y; hn++ }
+      if (hn) s += '<text x="' + (hx / hn).toFixed(1) + '" y="' + (hy / hn + 5).toFixed(1) + '" text-anchor="middle" font-size="15" font-weight="700" fill="#fff" stroke="rgba(0,0,0,.6)" stroke-width="3" stroke-linejoin="round" paint-order="stroke" style="pointer-events:none">✓</text>'
+    } else {
+      // red wash: won't fit (full, or wrong type for this container)
+      for (const c of bin.validList) { const ct = ahCenter(g, c.col, c.row); s += '<polygon points="' + ahPts(ct.x, ct.y, g.S) + '" fill="rgba(216,97,95,.28)" stroke="#d8615f" stroke-width="2" style="pointer-events:none"/>' }
+      const mid = bin.validList[Math.floor(bin.validList.length / 2)] || { col: 0, row: 0 }, ct0 = ahCenter(g, mid.col, mid.row)
+      s += '<text x="' + ct0.x.toFixed(1) + '" y="' + (ct0.y + 5).toFixed(1) + '" text-anchor="middle" font-size="15" font-weight="700" fill="#fff" stroke="rgba(0,0,0,.6)" stroke-width="3" stroke-linejoin="round" paint-order="stroke" style="pointer-events:none">✕</text>'
+    }
+  }
+  return s + "</svg>"
+}
 
 // A drag holds the panel still: if the sheet tries to re-render mid-drag (e.g. an over-capacity
 // self-heal setFlag), we skip the rebuild so the drag isn't orphaned onto a detached grid, then
@@ -3068,7 +3222,7 @@ function ahSetEquipped(ctx, id, on) {
 function ahEquipItem(ctx, id, slotKey) {
   ctx.placed.delete(id)
   if (slotKey === "Back") { if (ctx.back.indexOf(id) < 0) ctx.back.push(id) } else ctx.worn[id] = slotKey
-  ahSaveEquip(ctx); ahSavePlace(ctx.actor, ahPlaceObj(ctx)); ahSetEquipped(ctx, id, true)
+  ahSaveEquip(ctx); ahPersistPlace(ctx); ahSetEquipped(ctx, id, true)
 }
 function ahUnequip(ctx, id) { delete ctx.worn[id]; ctx.back = ctx.back.filter(x => x !== id); ahSaveEquip(ctx); ahSetEquipped(ctx, id, false) }
 /** One-click DRAW (stow → free hand) / SHEATHE (hand → free belt/hip/back) for a one-handed weapon.
@@ -3117,7 +3271,7 @@ function ahSuitUp(ctx) {
     }
     pending = next
   }
-  if (any) { ahSaveEquip(ctx); ahSavePlace(ctx.actor, ahPlaceObj(ctx)) }
+  if (any) { ahSaveEquip(ctx); ahPersistPlace(ctx) }
 }
 /** Unequip everything to loose. */
 function ahStripAll(ctx) {
@@ -3146,7 +3300,7 @@ function ahApplyOutfit(ctx, outfit) {
   const now = ahEquippedIds(ctx)
   for (const id of prev) if (now.indexOf(id) < 0) ahSetEquipped(ctx, id, false)
   for (const id of now) { ahSetEquipped(ctx, id, true); ctx.placed.delete(id) }
-  ahSaveEquip(ctx); ahSavePlace(ctx.actor, ahPlaceObj(ctx))   // ahBuildEquip re-validates on rebuild
+  ahSaveEquip(ctx); ahPersistPlace(ctx)   // ahBuildEquip re-validates on rebuild
 }
 async function ahDeleteOutfit(ctx, oid) { try { await ctx.actor.setFlag(MOD, "ahOutfits", ahOutfits(ctx.actor).filter(o => o.id !== oid)) } catch {} }
 
@@ -3164,7 +3318,7 @@ function ahCountFits(ctx, key) {
   const used = new Set(ahEquippedIds(ctx)); let n = 0
   for (const it of ctx.items) {
     if (used.has(it.id) || (ctx.bundleN[it.id] || 1) > 1) continue
-    if (ctx.placed && ctx.placed.has(it.id)) continue            // already packed in the bag → not "loose & fits here"
+    { const pp = ctx.placed && ctx.placed.get(it.id); if (pp && !pp.of) continue }            // already packed in the bag → not "loose & fits here" (overflow markers are loose)
     const m = ctx.metaById[it.id]; if (m && ahFreeBody(ctx, m).has(key)) n++
   }
   return n
@@ -3317,7 +3471,7 @@ function ahDragItem(ctx, id, from, ev) {
   if (from === "bag") { origPlace = ctx.placed.get(id); ctx.placed.delete(id) }
   ctx.held = { id, realId, item: it, rot: origPlace ? origPlace.rot : 0, from, origPlace }
   _ahDrag.active = true; _ahDrag.actorId = ctx.actor && ctx.actor.id   // hold THIS actor's panel still while dragging
-  ctx.hover = null
+  ctx.hover = null; ctx.hoverBin = null
   ctx.validBody = ahFreeBody(ctx, m)
   // slots the item COULD take that are currently occupied → drop there to SWAP
   const occ0 = ahOccupancy(ctx); ctx.validSwap = new Set()
@@ -3326,9 +3480,22 @@ function ahDragItem(ctx, id, from, ev) {
   ahRenderDoll(ctx); ahRenderBoard(ctx); ahRenderTray(ctx)
   // coalesce hover-recompute + board redraw to one paint per frame (mousemove can fire >100/s)
   let raf = 0, lastE = null
-  const draw = () => { raf = 0; if (!ctx.held || !lastE) return; if (ctx.holder && !ctx.holder.isConnected) { finish(true); return } ahMoveGhost(ctx, lastE); ctx.hover = ahPixelCell(ctx, lastE); ahRenderBoard(ctx) }
+  const draw = () => {
+    raf = 0; if (!ctx.held || !lastE) return
+    const host = ctx.separate ? ctx.binsEl : ctx.holder
+    if (host && !host.isConnected) { finish(true); return }
+    ahMoveGhost(ctx, lastE)
+    if (ctx.separate) {   // multi-grid: detect WHICH bin the cursor is over (the ghost is pointer-events:none)
+      const el = document.elementFromPoint(lastE.clientX, lastE.clientY)
+      const be = el && el.closest && el.closest("[data-bin]")
+      const hb = (be && ctx.binsEl && ctx.binsEl.contains(be)) ? be.getAttribute("data-bin") : null   // only THIS actor's bins
+      if (hb !== ctx.hoverBin) { ctx.hoverBin = hb; ahRenderBoard(ctx) }   // repaint boards only when the hovered bin changes
+      return
+    }
+    ctx.hover = ahPixelCell(ctx, lastE); ahRenderBoard(ctx)
+  }
   const schedule = () => { if (!raf) raf = requestAnimationFrame(draw) }
-  const move = (e) => { if (!ctx.held) return; if (ctx.holder && !ctx.holder.isConnected) { finish(true); return } lastE = e; schedule() }
+  const move = (e) => { if (!ctx.held) return; const host = ctx.separate ? ctx.binsEl : ctx.holder; if (host && !host.isConnected) { finish(true); return } lastE = e; schedule() }
   const key = (e) => { if (!ctx.held) return; if (e.key === "r" || e.key === "R") { ctx.held.rot = (ctx.held.rot + 1) % 6; schedule() } else if (e.key === "Escape") finish(true) }
   const up = (e) => finish(false, e)
   function finish(cancel, e) {
@@ -3336,7 +3503,7 @@ function ahDragItem(ctx, id, from, ev) {
     _ahDrag.active = false                  // release the panel; setFlag re-renders below proceed normally
     document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); document.removeEventListener("keydown", key)
     if (ctx.ghostEl) ctx.ghostEl.style.display = "none"
-    const held = ctx.held; ctx.held = null; const vb = ctx.validBody || new Set(); const vs = ctx.validSwap || new Set(); ctx.validBody = null; ctx.validSwap = null; const hc = (e ? ahPixelCell(ctx, e) : ctx.hover); ctx.hover = null
+    const held = ctx.held; ctx.held = null; const vb = ctx.validBody || new Set(); const vs = ctx.validSwap || new Set(); ctx.validBody = null; ctx.validSwap = null; const hc = ctx.separate ? null : (e ? ahPixelCell(ctx, e) : ctx.hover); ctx.hover = null; ctx.hoverBin = null
     if (!held) return
     let done = false
     if (!cancel && e) {
@@ -3349,6 +3516,11 @@ function ahDragItem(ctx, id, from, ev) {
         const hm = ctx.metaById[held.realId]
         if (hm && hm.twoHanded && (slot === "LHand" || slot === "RHand")) { const oth = slot === "LHand" ? "RHand" : "LHand"; const o2 = ahOccupancy(ctx)[oth]; if (o2) ahUnequip(ctx, o2) }
         ahEquipItem(ctx, held.realId, slot); done = true
+      }
+      else if (ctx.separate) {   // multi-grid: assign to whichever bin the cursor was released over (if it fits)
+        const binEl = tgt && tgt.closest && tgt.closest("[data-bin]")
+        const bin = binEl && ctx.binsEl && ctx.binsEl.contains(binEl) && ctx.binById[binEl.getAttribute("data-bin")]   // only THIS actor's bins
+        if (bin && ahSepBinAccepts(ctx, bin, held.id)) { ctx.placed.set(held.id, { col: 0, row: 0, rot: 0, bin: bin.binId }); ahSavePlaceSep(ctx.actor, ahSepAssignObj(ctx)); done = true }   // rot is auto-packed on re-render
       }
       else if (hc && ahBagAccepts(ctx, held.id)) { const fit = ahSnapPlace(ctx, held.item, hc, held.rot); if (fit) { ctx.placed.set(held.id, { col: fit.col, row: fit.row, rot: held.rot }); ahSavePlace(ctx.actor, ahPlaceObj(ctx)); done = true } }
     }
@@ -3413,17 +3585,25 @@ function ahBuildPanel(actor) {
   const bagCapacity = baseBag > 0 ? baseBag + ahStrBonus(actor, cfg) : 0                // Strength upgrades a bag you actually have
   ctx.bagCapacity = bagCapacity
   const vc = ahValidCells(bagCapacity); ctx.validList = vc.list; ctx.validSet = vc.set; ctx.geom = ahGeom(bagCapacity)
-  let savedPlace = {}; try { savedPlace = actor.getFlag(MOD, "ahPlace") || {} } catch {}
-  ctx.placed = ahBuildPlaced(actor, ctx.unitById, vc.set)   // worn items have no unit → never packed
+  // SEPARATE bag mode: one mini-grid per container. Only when the toggle is on AND the actor has a
+  // bag — otherwise ctx.separate stays false and every separate-mode branch below is skipped.
+  ctx.separate = false
+  if (cfg.bagMode === "separate" && bagCapacity > 0) {
+    ctx.bins = ahSepBins(ctx); ctx.binById = {}; for (const b of ctx.bins) ctx.binById[b.binId] = b
+    if (ctx.bins.length) { ctx.separate = true; ctx.binHolders = {}; ctx.binCards = {}; ctx.binCapEls = {} }
+  }
+  let savedPlace = {}; try { savedPlace = actor.getFlag(MOD, ctx.separate ? "ahPlaceSep" : "ahPlace") || {} } catch {}
+  ctx.placed = ctx.separate ? ahBuildSepPlaced(ctx) : ahBuildPlaced(actor, ctx.unitById, vc.set)   // worn items have no unit → never packed
   { const drop = []; ctx.placed.forEach((p, id) => { if (!ahCanBag(ctx, id)) drop.push(id) }); for (const id of drop) ctx.placed.delete(id) }   // worn-only gear can't stay packed
-  // self-heal: if the live placements differ from the stored flag (worn-only gear removed, or
-  // orphaned bundle uids after a quantity drop / item delete), persist the pruned set so stale
-  // keys can't accumulate or silently revive when a uid reappears. Owner only.
-  if (ctx.canArrange && !ahAnyActiveGM() && ahIsWriteAuthority(actor) && ctx.placed.size !== Object.keys(savedPlace).length) ahSavePlace(actor, ahPlaceObj(ctx))
+  // self-heal: if the live placements differ from the stored flag (worn-only gear removed, a bin
+  // disappeared, or orphaned bundle uids after a quantity drop / item delete), persist the pruned
+  // set so stale keys can't accumulate or silently revive when a uid reappears. Owner only.
+  if (ctx.canArrange && !ahAnyActiveGM() && ahIsWriteAuthority(actor) && ctx.placed.size !== Object.keys(savedPlace).length) ahPersistPlace(ctx)
 
   // counts + space totals (overflow = baggable load that exceeds the bag)
-  const wornN = Object.keys(ctx.worn).length + ctx.back.length, packedN = ctx.placed.size
-  const looseN = ctx.units.filter(u => !ctx.placed.has(u.uid)).length
+  const wornN = Object.keys(ctx.worn).length + ctx.back.length
+  let packedN = 0; ctx.placed.forEach(p => { if (!(p && p.of)) packedN++ })   // overflow markers aren't "packed"
+  const looseN = ctx.units.filter(u => { const p = ctx.placed.get(u.uid); return !p || p.of }).length
   // bag load = bag units that actually belong in the bag (baggable + not exempt).
   let nonWornSpaces = 0
   for (const u of ctx.units) { const m = metaById[u.itemId] || {}; if (m.ignoreSlot || m.baggable === false) continue; nonWornSpaces += (Number(u.spaces) || 0) }
@@ -3485,16 +3665,33 @@ function ahBuildPanel(actor) {
     const bagTitle = document.createElement("span"); bagTitle.textContent = "Bag"; bagLbl.appendChild(bagTitle)
     if (ctx.canArrange) {
       const tidy = document.createElement("button"); tidy.type = "button"; tidy.className = "ah-tidy"; tidy.innerHTML = ahIcon("spark") + " Tidy"; tidy.title = "Auto-pack your loose items into the bag"
-      tidy.addEventListener("click", (e) => { e.stopPropagation(); ctx.placed = ahAutoPack(ctx); ahSavePlace(ctx.actor, ahPlaceObj(ctx)) })   // setFlag re-renders the whole panel with consistent counts
+      tidy.addEventListener("click", (e) => { e.stopPropagation(); if (ctx.separate) { ahSavePlaceSep(ctx.actor, ahAutoPackSep(ctx)) } else { ctx.placed = ahAutoPack(ctx); ahSavePlace(ctx.actor, ahPlaceObj(ctx)) } })   // setFlag re-renders the whole panel with consistent counts
       bagLbl.appendChild(tidy)
     }
-    const bagMeta = document.createElement("span"); bagMeta.className = "ah-bag-meta"; bagMeta.textContent = ahFmt(nonWornSpaces) + " / " + ahFmt(bagCapacity) + " spaces" + (ctx.canArrange ? " · drag, R rotates" : ""); bagLbl.appendChild(bagMeta)
+    const bagMeta = document.createElement("span"); bagMeta.className = "ah-bag-meta"; bagMeta.textContent = ahFmt(nonWornSpaces) + " / " + ahFmt(bagCapacity) + " spaces" + (ctx.canArrange ? (ctx.separate ? " · drag onto a container" : " · drag, R rotates") : ""); bagLbl.appendChild(bagMeta)
     bagCol.appendChild(bagLbl)
     if (over) { const ob = document.createElement("div"); ob.className = "ah-overflow"; ob.innerHTML = "<b>Over capacity</b> — " + ahFmt(overflowPts) + " overflow point" + (overflowPts === 1 ? "" : "s"); bagCol.appendChild(ob) }
     const meter = document.createElement("div"); meter.className = "ah-meter" + (over ? " over" : (meterPct >= 100 ? " full" : ""))
     const fill = document.createElement("div"); fill.className = "ah-meter-fill"; fill.style.width = meterPct + "%"; meter.appendChild(fill); bagCol.appendChild(meter)
-    const scroll = document.createElement("div"); scroll.className = "ah-scroll"
-    const holder = document.createElement("div"); holder.className = "ah-svgholder"; ctx.holder = holder; scroll.appendChild(holder); bagCol.appendChild(scroll)
+    if (ctx.separate) {
+      // one labelled mini hex-grid per bin; drop an item onto a card to assign it there
+      const bins = document.createElement("div"); bins.className = "ah-bins"; ctx.binsEl = bins
+      for (const bin of ctx.bins) {
+        const card = document.createElement("div"); card.className = "ah-bin"; card.setAttribute("data-bin", bin.binId); ctx.binCards[bin.binId] = card
+        const bh = document.createElement("div"); bh.className = "ah-bin-head"
+        const tlabel = bin.types ? (bin.types.length > 1 ? bin.types[0] + " +" + (bin.types.length - 1) : bin.types[0]) : ""
+        const capSpan = document.createElement("span"); capSpan.className = "ah-bin-cap"; ctx.binCapEls[bin.binId] = capSpan
+        bh.innerHTML = '<i class="ah-bin-sw" style="background:' + bin.color + '"></i><span class="ah-bin-nm">' + ahEscX(bin.label) + "</span>" + (bin.types ? '<span class="ah-bin-types" title="' + ahEscX("Holds only: " + bin.types.join(", ")) + '">' + ahEscX(tlabel) + "</span>" : "")
+        bh.appendChild(capSpan); card.appendChild(bh)
+        const grid = document.createElement("div"); grid.className = "ah-bin-grid"; ctx.binHolders[bin.binId] = grid; card.appendChild(grid)
+        bins.appendChild(card)
+      }
+      bagCol.appendChild(bins)
+      if (ctx.canArrange) bins.addEventListener("mousedown", (e) => { const t = e.target.closest("[data-item]"); if (t) ahDragItem(ctx, t.getAttribute("data-item"), "bag", e) })
+    } else {
+      const scroll = document.createElement("div"); scroll.className = "ah-scroll"
+      const holder = document.createElement("div"); holder.className = "ah-svgholder"; ctx.holder = holder; scroll.appendChild(holder); bagCol.appendChild(scroll)
+    }
     const legend = document.createElement("div"); legend.className = "ah-legend"; ctx.legendEl = legend; bagCol.appendChild(legend)
     if (ctx.canArrange) legend.addEventListener("click", (e) => { const u = e.target.closest("[data-use]"); if (u) { e.stopPropagation(); ahUseItem(actor, u.getAttribute("data-use")); return } const p = e.target.closest("[data-unpack]"); if (p) { e.stopPropagation(); ahUnplaceItem(ctx, p.getAttribute("data-unpack")) } })
   } else {

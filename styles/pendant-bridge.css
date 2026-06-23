@@ -182,6 +182,19 @@
 .ah-panel .ah-leg .ah-leg-x { margin-left: 2px; }
 .ah-panel .ah-leg-bq { color: var(--ah-mute); font-variant-numeric: tabular-nums; }
 .ah-panel .ah-leg-empty { font-size: 10.5px; font-style: italic; color: var(--ah-faint); }
+.ah-panel .ah-leg-bin { font-size: 9px; text-transform: uppercase; letter-spacing: .03em; color: var(--ah-faint); flex: 0 0 auto; }
+/* separate bag mode — one mini hex-grid per container, drop an item onto a card to assign it */
+.ah-panel .ah-bins { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; }
+.ah-panel .ah-bin { border: 1px solid var(--ah-line); border-radius: var(--ah-r-sm); background: var(--ah-raise); padding: 6px 7px 7px; max-width: 100%; transition: border-color var(--ah-ease), box-shadow var(--ah-ease); }
+.ah-panel .ah-bin-head { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--ah-dim); margin-bottom: 5px; }
+.ah-panel .ah-bin-sw { width: 9px; height: 9px; border-radius: 3px; flex: 0 0 auto; box-shadow: var(--ah-ring-dark); }
+.ah-panel .ah-bin-nm { font-weight: 600; color: var(--ah-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
+.ah-panel .ah-bin-types { text-transform: uppercase; letter-spacing: .04em; font-size: 9px; color: var(--ah-store-ink); background: var(--ah-store-bg); border: 1px solid var(--ah-store-line); border-radius: var(--ah-pill); padding: 0 5px; flex: 0 0 auto; }
+.ah-panel .ah-bin-cap { margin-left: auto; color: var(--ah-mute); font-variant-numeric: tabular-nums; flex: 0 0 auto; padding-left: 6px; }
+.ah-panel .ah-bin-grid { overflow-x: auto; overflow-y: hidden; }
+.ah-panel .ah-bin-grid .ah-svg { display: block; user-select: none; -webkit-user-select: none; }
+.ah-panel .ah-bin.drop-ok { border-color: var(--ah-good); box-shadow: 0 0 0 1px var(--ah-good), 0 0 11px -3px var(--ah-good); }
+.ah-panel .ah-bin.drop-no { border-color: var(--ah-bad); box-shadow: 0 0 0 1px var(--ah-bad); }
 /* containers & storage row (worn packs + add-on gear, side by side) */
 .ah-panel .ah-cont { position: relative; margin-top: 12px; }
 .ah-panel .ah-cont-row { display: flex; flex-wrap: wrap; gap: 6px; }
