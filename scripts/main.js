@@ -2968,6 +2968,8 @@ const AH_SLOT_KEY = { "Head": "Head", "Face": "Face", "Neck": "Neck", "Chest": "
 // (replaces fragile absolute %-positions — no overlap, no per-art tuning).
 const AH_DOLL_LEFT = ["Head", "Neck", "Clothes", "LHand", "Belt", "LHip", "LRing"]
 const AH_DOLL_RIGHT = ["Face", "Back", "Chest", "RHand", "Feet", "RHip", "RRing"]
+// square-tile doll renders one ordered grid (head → toe); locked/covered slots are filtered out
+const AH_DOLL_ORDER = ["Head", "Face", "Neck", "Clothes", "Chest", "Back", "LHand", "RHand", "Belt", "LHip", "RHip", "Feet", "LRing", "RRing"]
 const AH_SLOT_LABEL = { Head: "Head", Face: "Face", Neck: "Neck", Clothes: "Clothes", Chest: "Armor", Back: "Back", Belt: "Belt", LHip: "Left hip", RHip: "Right hip", LHand: "Main hand", RHand: "Off hand", Feet: "Feet", LRing: "Left ring", RRing: "Right ring" }
 // Inline-SVG icon set (one monochrome family, inherits currentColor + the token palette) —
 // replaces emoji so the panel renders identically on every OS and matches the forged dark theme.
@@ -3309,11 +3311,32 @@ async function ahDeleteOutfit(ctx, oid) { try { await ctx.actor.setFlag(MOD, "ah
 function ahRenderDoll(ctx) {
   if (!ctx.dollEl) return
   const occ = ahOccupancy(ctx), caps = ahCaps(ctx), gsrc = ahGrantSources(ctx)
-  const col = (keys) => keys.map(k => ahSlotCard(ctx, k, occ, caps, gsrc)).filter(Boolean).join("")
+  const tiles = [], covered = []; let anyLocked = false
+  for (const key of AH_DOLL_ORDER) {
+    if (key === "Back") {
+      const n = ctx.back.length, cap = caps.Back || 0
+      if (cap <= 0 && n === 0) { anyLocked = true; continue }   // ungranted, empty → hidden
+      tiles.push(ahSlotCard(ctx, key, occ, caps, gsrc)); continue
+    }
+    const cap = AH_GRANTABLE.indexOf(key) >= 0 ? (caps[key] || 0) : 1
+    const id = occ[key]
+    // covered (plate over Feet/Head): gone as a tile, acknowledged in a faint footnote
+    if (id && ctx.worn[id] && ctx.worn[id] !== key && !(ctx.metaById[id] && ctx.metaById[id].twoHanded && (key === "LHand" || key === "RHand"))) {
+      covered.push({ key, by: ctx.byId[id] ? ctx.byId[id].name : "" }); continue
+    }
+    if (!id && cap <= 0 && !AH_BASE_MOUNTS.has(key)) { anyLocked = true; continue }   // ungranted empty → hidden
+    tiles.push(ahSlotCard(ctx, key, occ, caps, gsrc))
+  }
+  let foot = ""
+  if (covered.length) {
+    const by = {}; for (const c of covered) (by[c.by] = by[c.by] || []).push(AH_SLOT_LABEL[c.key] || c.key)
+    const parts = Object.keys(by).map(nm => by[nm].join(" & ") + (nm ? " covered by " + ahShort(nm) : " covered"))
+    foot += '<span class="ah-doll-note">' + ahIcon("clothes") + " " + ahEscX(parts.join(" · ")) + "</span>"
+  }
+  if (anyLocked && ctx.canArrange) foot += '<span class="ah-doll-note">' + ahIcon("lock") + " Equip clothing or armor to unlock more slots</span>"
   ctx.dollEl.innerHTML =
-    '<div class="ah-dollcol">' + col(AH_DOLL_LEFT) + "</div>" +
     '<div class="ah-dollfig"><img class="ah-doll-img" src="' + ahDollImg(ctx.actor) + '" alt="" draggable="false"/></div>' +
-    '<div class="ah-dollcol">' + col(AH_DOLL_RIGHT) + "</div>"
+    '<div class="ah-tiles">' + tiles.join("") + (foot ? '<div class="ah-doll-foot">' + foot + "</div>" : "") + "</div>"
 }
 /** How many of the actor's not-worn items can actually go in this slot (matches the picker). */
 function ahCountFits(ctx, key) {
@@ -3325,33 +3348,23 @@ function ahCountFits(ctx, key) {
   }
   return n
 }
-/** One labelled body-slot card: filled / empty(+fit count) / locked(reason) / covered(read-only). */
+/** One SQUARE body-slot tile — icon-driven, the name lives in the tooltip/aria, not on the tile.
+ *  Renders filled / empty(+drop) / Back-multi. Ungranted-locked and covered slots are filtered out
+ *  by ahRenderDoll (shown as a faint footnote), so they never reach here. */
 function ahSlotCard(ctx, key, occ, caps, gsrc) {
   const label = AH_SLOT_LABEL[key] || key
-  const ico = '<span class="ah-sico">' + ahIcon(AH_SLOT_ICON[key]) + "</span>"
-  const lock = '<span class="ah-slock">' + ahIcon("lock") + " needs clothing/armor</span>"
-  const gby = (gsrc && gsrc[key] && gsrc[key].length) ? "granted by " + gsrc[key].join(", ") : ""
-  const dropCue = '<span class="ah-sdrop">' + ahIcon("check") + " drop here</span>"   // non-colour drop cue
+  const ico = '<span class="ah-tico">' + ahIcon(AH_SLOT_ICON[key]) + "</span>"
+  const gby = (gsrc && gsrc[key] && gsrc[key].length) ? " · granted by " + gsrc[key].join(", ") : ""
   if (key === "Back") {
-    const n = ctx.back.length, cap = caps.Back
-    if (cap <= 0) return '<div class="ah-slot locked" title="' + ahEscX("Back — needs clothing, armor, or a pack") + '"><span class="ah-slab">' + ico + label + '</span><span class="ah-sval">' + lock + "</span></div>"
-    let val = ""
-    if (n) val += ctx.back.map(bid => '<button type="button" class="ah-bdot" data-rm="' + ahEscX(bid) + '" aria-label="' + ahEscX("Remove " + ctx.byId[bid].name + " from Back") + '" title="' + ahEscX(ctx.byId[bid].name + " — remove") + '" style="background:' + ctx.byId[bid].color + '"></button>').join("")
+    const n = ctx.back.length, cap = caps.Back || 0
     const valid = ctx.validBody && ctx.validBody.has("Back"), canAdd = ctx.canArrange && n < cap
-    val += valid ? dropCue : (canAdd ? '<button type="button" class="ah-sadd ah-addbtn" data-pick="Back" aria-label="' + ahEscX("Add an item to Back, " + n + " of " + cap + " used") + '">+ add</button>' : (n ? "" : '<span class="ah-sempty">empty</span>'))
-    const cls = "ah-slot" + (n ? " filled" : " empty") + (valid ? " valid" : "")
-    return '<div class="' + cls + '" data-slot="Back" title="' + ahEscX(gby) + '"><span class="ah-slab">' + ico + label + ' <i class="ah-scap">' + n + "/" + cap + '</i></span><span class="ah-sval">' + val + "</span></div>"
+    const dots = ctx.back.map(bid => '<button type="button" class="ah-bdot" data-rm="' + ahEscX(bid) + '" aria-label="' + ahEscX("Remove " + ctx.byId[bid].name + " from Back") + '" title="' + ahEscX(ctx.byId[bid].name + " — remove") + '" style="background:' + ctx.byId[bid].color + '"></button>').join("")
+    const cls = "ah-slot ah-tile back" + (n ? " filled" : " empty") + (valid ? " valid" : "")
+    const body = '<span class="ah-tcap">' + n + "/" + cap + "</span>" + ico + (n ? '<span class="ah-tdots">' + dots + "</span>" : (canAdd ? '<span class="ah-tplus" aria-hidden="true">+</span>' : ""))
+    const pick = (!n && canAdd) ? ' role="button" tabindex="0" data-pick="Back"' : ""   // empty+addable Back is the picker target; a filled Back is a drop target with its own dot buttons
+    return '<div class="' + cls + '" data-slot="Back"' + pick + ' title="' + ahEscX("Back — " + n + "/" + cap + gby) + '" aria-label="' + ahEscX("Back, " + n + " of " + cap + " used") + '">' + body + "</div>"
   }
-  const cap = AH_GRANTABLE.indexOf(key) >= 0 ? (caps[key] || 0) : 1
   const id = occ[key]
-  // covered: an item whose PRIMARY slot is elsewhere is occupying this slot (plate over Feet/Head)
-  if (id && ctx.worn[id] && ctx.worn[id] !== key && !(ctx.metaById[id] && ctx.metaById[id].twoHanded && (key === "LHand" || key === "RHand"))) {
-    const nm = ctx.byId[id] ? ctx.byId[id].name : ""
-    return '<div class="ah-slot covered" title="' + ahEscX("Covered by " + nm) + '"><span class="ah-slab">' + ico + label + '</span><span class="ah-sval ah-scover">covered by ' + ahEscX(ahShort(nm)) + "</span></div>"
-  }
-  if (!id && cap <= 0 && !AH_BASE_MOUNTS.has(key)) {   // ungranted + empty grantable → LOCKED with a reason
-    return '<div class="ah-slot locked" title="' + ahEscX(label + " — needs clothing or armor") + '"><span class="ah-slab">' + ico + label + '</span><span class="ah-sval">' + lock + "</span></div>"
-  }
   if (id) {
     const it = ctx.byId[id]
     const swap = (ctx.validSwap && ctx.validSwap.has(key)) ? " swap" : ""
@@ -3362,19 +3375,20 @@ function ahSlotCard(ctx, key, occ, caps, gsrc) {
       // `occ` (the expanded occupancy passed in) sets BOTH hands for a 2-handed weapon, so this
       // hides "draw" when no hand is truly free instead of dead-clicking.
       if (inHand || !(occ.RHand && occ.LHand)) {
-        dsBtn = '<button type="button" class="ah-draw" data-draw="' + ahEscX(id) + '" aria-label="' + ahEscX((inHand ? "Sheathe " : "Draw ") + it.name) + '" title="' + (inHand ? "Sheathe — stow on belt/hip/back" : "Draw to a free hand") + '">' + (inHand ? "sheathe" : "draw") + "</button>"
+        dsBtn = '<button type="button" class="ah-tdraw" data-draw="' + ahEscX(id) + '" aria-label="' + ahEscX((inHand ? "Sheathe " : "Draw ") + it.name) + '" title="' + (inHand ? "Sheathe — stow on belt/hip/back" : "Draw to a free hand") + '">' + (inHand ? "sheathe" : "draw") + "</button>"
       }
     }
-    const val = '<i class="ah-bswatch" style="background:' + it.color + '"></i><span class="ah-bname">' + ahEscX(it.name) + "</span>" + (swap ? '<span class="ah-sswap">↔ swap</span>' : "") + dsBtn + (ctx.canArrange ? '<button type="button" class="ah-bx" data-rm="' + ahEscX(id) + '" aria-label="' + ahEscX("Remove " + it.name) + '" title="Remove">×</button>' : "")
-    return '<div class="ah-slot filled' + swap + '" data-slot="' + ahEscX(key) + '" title="' + ahEscX(swap ? "drop to swap" : gby) + '"><span class="ah-slab">' + ico + label + '</span><span class="ah-sval">' + val + "</span></div>"
+    const rm = ctx.canArrange ? '<button type="button" class="ah-tx" data-rm="' + ahEscX(id) + '" aria-label="' + ahEscX("Remove " + it.name) + '" title="Remove">×</button>' : ""
+    const cls = "ah-slot ah-tile filled" + swap
+    // the slot icon, tinted with the item's colour, IS the at-a-glance identity; full name on hover
+    return '<div class="' + cls + '" data-slot="' + ahEscX(key) + '" title="' + ahEscX(it.name + " — " + label + (swap ? " · drop to swap" : gby)) + '" aria-label="' + ahEscX(it.name + ", " + label) + '"><span class="ah-tbar" style="background:' + it.color + '"></span>' + rm + '<span class="ah-tico" style="color:' + it.color + '">' + ahIcon(AH_SLOT_ICON[key]) + "</span>" + dsBtn + (swap ? '<span class="ah-tswap" aria-hidden="true">↔</span>' : "") + "</div>"
   }
+  // empty + available → picker target (click/Enter) AND drop target (data-slot)
   const valid = ctx.validBody && ctx.validBody.has(key)
   const fitN = ctx.canArrange ? ahCountFits(ctx, key) : 0
-  const add = valid ? dropCue : (ctx.canArrange ? '<span class="ah-sadd">+ add' + (fitN ? ' <i class="ah-sfit">' + fitN + " fit</i>" : "") + "</span>" : '<span class="ah-sempty">empty</span>')
-  const cls = "ah-slot empty" + (valid ? " valid" : "")
-  const pick = ctx.canArrange ? ' data-pick="' + ahEscX(key) + '" role="button" tabindex="0" aria-label="' + ahEscX(label + " slot, empty" + (fitN ? ", " + fitN + " items fit" : "") + " — add an item") + '"' : ""
-  const tip = gby || (fitN ? fitN + " of your items fit here" : "")
-  return '<div class="' + cls + '" data-slot="' + ahEscX(key) + '"' + pick + ' title="' + ahEscX(tip) + '"><span class="ah-slab">' + ico + label + '</span><span class="ah-sval">' + add + "</span></div>"
+  const cls = "ah-slot ah-tile empty" + (valid ? " valid" : "")
+  const pick = ctx.canArrange ? ' data-pick="' + ahEscX(key) + '" role="button" tabindex="0"' : ""
+  return '<div class="' + cls + '" data-slot="' + ahEscX(key) + '"' + pick + ' title="' + ahEscX("Add to " + label + (fitN ? " (" + fitN + " fit)" : "") + gby) + '" aria-label="' + ahEscX("Add to " + label + (fitN ? ", " + fitN + " items fit" : "")) + '">' + (ctx.canArrange ? '<span class="ah-tplus" aria-hidden="true">+</span>' : "") + ico + "</div>"
 }
 
 /** Click an empty slot → a menu of fitting items (loose AND in the bag); click one to equip. */
