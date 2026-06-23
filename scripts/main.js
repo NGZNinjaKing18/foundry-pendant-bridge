@@ -60,6 +60,7 @@ const AH = {
     strPer: 1,               // extra bag spaces per unit of the chosen basis
     strBasis: "mod",         // "mod" (STR modifier) | "over10" (STR − 10) | "score" (full STR score)
     ammoAutoSpend: false,    // OPT-IN: spend ammo only for weapons that DON'T have ammo set up in dnd5e
+    bagMode: "merged",       // "merged" = one pooled bag (type-gated entry) · "separate" = per-container capacity + type
   },
 
   /** The active config = saved world setting merged over defaults (so a missing key is safe). */
@@ -2222,6 +2223,58 @@ function ahValid(ctx, cs, excludeId) {
 // Can this item be packed in the bag at all? Worn-only gear (armor/clothing/containers,
 // or a DM `baggable:false` override) can't — it must be worn, never bagged.
 function ahCanBag(ctx, id) { const u = ctx.unitById && ctx.unitById[id]; const m = ctx.metaById && ctx.metaById[u ? u.itemId : id]; return !m || m.baggable !== false }
+// ── bagMode: container type-restriction enforcement (merged vs separate) ─────
+/** Coarse type tag a dnd5e item maps to (referenced by a container's accepted `types`). */
+function ahItemTypeTag(item) {
+  try {
+    const t = String((item && item.type) || "").toLowerCase()
+    if (t === "tool") return "tool"
+    if (t === "consumable") {
+      const st = String((((item.system || {}).type) || {}).value || "").toLowerCase()
+      if (st === "potion") return "potion"
+      if (st === "scroll") return "scroll"
+      if (st === "ammo" || st === "ammunition") return "ammo"
+    }
+  } catch {}
+  return "general"
+}
+/** Equipped storage as { cap, types } — add-on gear (catalog) + container ITEMS (accept anything). */
+function ahBagContainers(ctx) {
+  const out = [], cat = ahGearCatalog()
+  for (const g of ahGearList(ctx.actor)) { const c = cat[g.kind]; const cap = Number(c && c.storage) || 0; if (cap > 0) out.push({ cap, types: (c && c.types) || null }) }
+  const capEach = Number(ctx.capEach) || 0
+  if (capEach > 0) for (const id of ahEquippedIds(ctx)) { const m = ctx.metaById[id]; if (m && m.carryType === "Container") out.push({ cap: capEach, types: null }) }
+  // Strength bonus = extra general capacity (matches the grid's baseBag + ahStrBonus), so the
+  // separate-mode greedy total never disagrees with the number of hexes drawn.
+  if (out.length) { const sb = ahStrBonus(ctx.actor, ctx.cfg || AH.cfg()); if (sb > 0) out.push({ cap: sb, types: null }) }
+  return out
+}
+function ahTagFor(ctx, realId) { try { return ahItemTypeTag(ctx.actor.items.get(realId)) } catch { return "general" } }
+/** SEPARATE mode: can every packed unit PLUS `candId` be greedily assigned to a container
+ *  (by spaces + accepted type)? Specific containers fill before catch-all ones. */
+function ahSeparateFits(ctx, candId) {
+  const conts = ahBagContainers(ctx).map(c => ({ cap: c.cap, types: c.types, used: 0 }))
+  if (!conts.length) return true
+  const ids = new Set(ctx.placed ? Array.from(ctx.placed.keys()) : []); ids.add(candId)
+  const units = Array.from(ids).map(id => ctx.unitById[id]).filter(Boolean).sort((a, b) => (b.spaces || 1) - (a.spaces || 1))
+  for (const u of units) {
+    const tag = ahTagFor(ctx, u.itemId || u.id), sp = u.spaces || 1
+    const fit = conts.filter(c => (!c.types || c.types.indexOf(tag) >= 0) && c.used + sp <= c.cap)
+      .sort((a, b) => (a.types ? a.types.length : 99) - (b.types ? b.types.length : 99))
+    if (!fit.length) return false
+    fit[0].used += sp
+  }
+  return true
+}
+/** bagMode gate for ADDING a unit to the bag (extends ahCanBag). */
+function ahBagAccepts(ctx, id) {
+  if (!ahCanBag(ctx, id)) return false
+  const conts = ahBagContainers(ctx); if (!conts.length) return true
+  const cfg = ctx.cfg || AH.cfg()
+  if ((cfg.bagMode || "merged") === "separate") return ahSeparateFits(ctx, id)
+  const u = ctx.unitById && ctx.unitById[id], realId = u ? u.itemId : id, tag = ahTagFor(ctx, realId)
+  return conts.some(c => !c.types || c.types.indexOf(tag) >= 0)   // merged: any container accepts the type
+}
 
 function ahBoardSVG(ctx) {
   const g = ctx.geom
@@ -2242,7 +2295,7 @@ function ahBoardSVG(ctx) {
     if (n) s += '<text x="' + (sx / n).toFixed(1) + '" y="' + (sy / n + 3).toFixed(1) + '" text-anchor="middle" font-size="10" font-weight="700" fill="#fff" stroke="rgba(0,0,0,.62)" stroke-width="2.6" stroke-linejoin="round" paint-order="stroke" style="pointer-events:none">' + ahEscX(ahMark(it.name)) + "</text>"
   })
   if (ctx.held && ctx.hover) {
-    const canBag = ahCanBag(ctx, ctx.held.item.id)
+    const canBag = ahBagAccepts(ctx, ctx.held.item.id)
     const fit = canBag ? ahSnapPlace(ctx, ctx.held.item, ctx.hover, ctx.held.rot) : null
     const cs = fit ? ahCellsFor(ctx.held.item, fit, ctx.held.rot) : ahCellsFor(ctx.held.item, ctx.hover, ctx.held.rot)
     const ok = !!fit
@@ -2383,7 +2436,18 @@ function ahAutoPack(ctx) {
   units.sort((a, b) => ((b.shape ? b.shape.length : 1) - (a.shape ? a.shape.length : 1)) || String(a.uid).localeCompare(String(b.uid)))   // biggest first packs tighter
   const occ = new Set(), place = new Map()
   const fits = (cells) => { for (const c of cells) { const k = c.col + "," + c.row; if (!ctx.validSet.has(k) || occ.has(k)) return false } return true }
+  // honour the bagMode container gate so Tidy can't pack what a drag/keyboard add would reject
+  const cfg = ctx.cfg || AH.cfg(), separate = (cfg.bagMode || "merged") === "separate"
+  const conts = ahBagContainers(ctx).map(c => ({ cap: c.cap, types: c.types, used: 0 }))
+  const pick = (u) => {   // true = accept (merged / no containers) · a container = accept+consume (separate) · null = reject
+    if (!conts.length) return true
+    const tag = ahTagFor(ctx, u.itemId || u.uid), sp = u.spaces || 1
+    if (!separate) return conts.some(c => !c.types || c.types.indexOf(tag) >= 0) ? true : null
+    return conts.filter(c => (!c.types || c.types.indexOf(tag) >= 0) && c.used + sp <= c.cap)
+      .sort((a, b) => (a.types ? a.types.length : 99) - (b.types ? b.types.length : 99))[0] || null
+  }
   for (const u of units) {
+    const slot = pick(u); if (!slot) continue   // no container accepts/has room → leave it loose
     let done = false
     for (const cell of ctx.validList) {
       for (let rot = 0; rot < 6; rot++) {
@@ -2392,12 +2456,13 @@ function ahAutoPack(ctx) {
       }
       if (done) break
     }
+    if (done && separate && slot !== true) slot.used += (u.spaces || 1)   // consume container capacity only when actually placed
   }
   return place
 }
 /** First valid anchor+rotation where one unit fits the bag (for the keyboard "stow" action). */
 function ahFitOne(ctx, unit) {
-  if (!ahCanBag(ctx, unit.uid)) return null
+  if (!ahBagAccepts(ctx, unit.uid)) return null
   for (const cell of ctx.validList) for (let rot = 0; rot < 6; rot++) {
     if (ahValid(ctx, ahCellsFor(unit, cell, rot), null)) return { col: cell.col, row: cell.row, rot }
   }
@@ -2413,7 +2478,14 @@ function ahStowItem(ctx, uid) {
     const free = ahFreeBody(ctx, m)
     if (free.size) { let slot = null; for (const s of (m.equipSlots || [])) { const k = AH_SLOT_KEY[s] || s; if (free.has(k)) { slot = k; break } } if (!slot) slot = [...free][0]; ahEquipItem(ctx, realId, slot); return }
   }
-  try { if (typeof ui !== "undefined" && ui.notifications) ui.notifications.warn(u.name + ": no room in the bag and no free body slot.") } catch {}
+  try {
+    if (typeof ui !== "undefined" && ui.notifications) {
+      let why = "no room in the bag and no free body slot"
+      const conts = ahBagContainers(ctx)   // distinguish a type restriction from plain "no space"
+      if (conts.length && !conts.some(c => !c.types || c.types.indexOf(ahTagFor(ctx, realId)) >= 0)) why = "no equipped container can hold this kind of item"
+      ui.notifications.warn(u.name + ": " + why + ".")
+    }
+  } catch {}
 }
 /** Keyboard "unpack" (no drag): pull a packed item back out to the loose tray. */
 function ahUnplaceItem(ctx, uid) { if (ctx.placed.has(uid)) { ctx.placed.delete(uid); ahSavePlace(ctx.actor, ahPlaceObj(ctx)) } }
@@ -2759,22 +2831,22 @@ const AH_SLOT_ICON = { Head: "head", Face: "face", Neck: "neck", Clothes: "cloth
 // type enforcement, and mount/world containers come in later phases.
 const AH_GEAR = {
   // — Belt —
-  coinPurse:   { name: "Coin Purse",         slot: "Belt",       storage: 1,  restrict: "Tiny items only" },
+  coinPurse:   { name: "Coin Purse",         slot: "Belt",       storage: 1,  restrict: "Tiny items only", types: ["general"] },
   pouch:       { name: "Belt Pouch",         slot: "Belt",       storage: 2 },
   bigPouch:    { name: "Large Belt Pouch",   slot: "Belt",       storage: 4 },
-  scrollCase:  { name: "Scroll Case",        slot: "Belt / Back", storage: 6, restrict: "Scrolls only" },
-  waterskin:   { name: "Waterskin",          slot: "Belt",       storage: 1,  restrict: "Water only" },
-  toolHolster: { name: "Tool Holster",       slot: "Belt",       storage: 2,  restrict: "Small tools only" },
+  scrollCase:  { name: "Scroll Case",        slot: "Belt / Back", storage: 6, restrict: "Scrolls only", types: ["scroll"] },
+  waterskin:   { name: "Waterskin",          slot: "Belt",       storage: 1,  restrict: "Water only", types: ["water"] },
+  toolHolster: { name: "Tool Holster",       slot: "Belt",       storage: 2,  restrict: "Small tools only", types: ["tool"] },
   // — Chest —
-  bandolier:   { name: "Bandolier",          slot: "Chest",      storage: 4,  restrict: "Potions, scrolls, ammo, small tools" },
-  potionBand:  { name: "Potion Bandolier",   slot: "Chest",      storage: 6,  restrict: "Potions only" },
+  bandolier:   { name: "Bandolier",          slot: "Chest",      storage: 4,  restrict: "Potions, scrolls, ammo, small tools", types: ["potion", "scroll", "ammo", "tool"] },
+  potionBand:  { name: "Potion Bandolier",   slot: "Chest",      storage: 6,  restrict: "Potions only", types: ["potion"] },
   // — Back —
   satchel:     { name: "Satchel",            slot: "Back",       storage: 8 },
   backpack:    { name: "Backpack",           slot: "Back",       storage: 12, grants: { Back: 1 } },
   bigBackpack: { name: "Large Backpack",     slot: "Back",       storage: 18, grants: { Back: 1 } },
   huntingPack: { name: "Hunting / Frame Pack", slot: "Back",     storage: 24, grants: { Back: 1 } },
-  quiver:      { name: "Quiver",             slot: "Back",       storage: 4,  restrict: "Bow + arrows/bolts" },
-  boltCase:    { name: "Bolt Case",          slot: "Back",       storage: 4,  restrict: "Bolts only" },
+  quiver:      { name: "Quiver",             slot: "Back",       storage: 4,  restrict: "Bow + arrows/bolts", types: ["ammo"] },
+  boltCase:    { name: "Bolt Case",          slot: "Back",       storage: 4,  restrict: "Bolts only", types: ["ammo"] },
   // — single-item holders (worn; hold one equipped item, no bag space) —
   sheath:      { name: "Sheath",             slot: "Hip / Belt", holds: "a one-handed weapon" },
   gwSling:     { name: "Great Weapon Sling", slot: "Back",       holds: "a two-handed weapon" },
@@ -3204,7 +3276,7 @@ function ahDragItem(ctx, id, from, ev) {
         if (hm && hm.twoHanded && (slot === "LHand" || slot === "RHand")) { const oth = slot === "LHand" ? "RHand" : "LHand"; const o2 = ahOccupancy(ctx)[oth]; if (o2) ahUnequip(ctx, o2) }
         ahEquipItem(ctx, held.realId, slot); done = true
       }
-      else if (hc && ahCanBag(ctx, held.id)) { const fit = ahSnapPlace(ctx, held.item, hc, held.rot); if (fit) { ctx.placed.set(held.id, { col: fit.col, row: fit.row, rot: held.rot }); ahSavePlace(ctx.actor, ahPlaceObj(ctx)); done = true } }
+      else if (hc && ahBagAccepts(ctx, held.id)) { const fit = ahSnapPlace(ctx, held.item, hc, held.rot); if (fit) { ctx.placed.set(held.id, { col: fit.col, row: fit.row, rot: held.rot }); ahSavePlace(ctx.actor, ahPlaceObj(ctx)); done = true } }
     }
     if (!done) { if (held.from === "bag" && held.origPlace) ctx.placed.set(held.id, held.origPlace); ahRenderDoll(ctx); ahRenderBoard(ctx); ahRenderTray(ctx) }
   }
@@ -3225,7 +3297,7 @@ function ahBuildPanel(actor) {
     actor, items, byId, metaById, validList: [], validSet: new Set(), geom: ahGeom(0),
     canArrange: !!(actor.isOwner || game.user?.isGM), placed: new Map(), worn: {}, back: [],
     held: null, hover: null, validBody: null, holder: null, trayEl: null, dollEl: null, ghostEl: null, bagCapacity: 0,
-    units: [], unitById: {}, bundleN: {},
+    units: [], unitById: {}, bundleN: {}, cfg, capEach: capacity,   // capEach + cfg drive the bagMode container gate
   }
   const eq = ahBuildEquip(actor, metaById, byId); ctx.worn = eq.worn; ctx.back = eq.back
   // self-heal evicted gear (clear dnd5e equipped + prune the flag). When a GM is online the
