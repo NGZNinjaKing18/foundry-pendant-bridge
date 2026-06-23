@@ -2471,7 +2471,21 @@ function ahSnapPlace(ctx, item, anchor, rot) {
   }
   return null
 }
-function ahSavePlace(actor, place) { try { actor.setFlag(MOD, "ahPlace", place) } catch (e) { console.warn("[pendant-bridge] AH place save failed", e) } }
+/** REPLACE a flag object so REMOVED keys actually go away. setFlag does a recursive MERGE, which
+ *  never deletes sub-keys — so unpacking / un-binning silently failed. Here we set each desired key
+ *  and emit a `-=key` deletion for every key that's gone, in one update. */
+function ahSaveFlagObj(actor, key, obj) {
+  try {
+    let cur = {}; try { cur = actor.getFlag(MOD, key) || {} } catch {}
+    if (!cur || typeof cur !== "object") cur = {}
+    obj = obj || {}
+    const upd = {}
+    for (const k in obj) upd["flags." + MOD + "." + key + "." + k] = obj[k]
+    for (const k in cur) if (!(k in obj)) upd["flags." + MOD + "." + key + ".-=" + k] = null   // delete keys no longer present
+    if (Object.keys(upd).length) Promise.resolve(actor.update(upd)).catch(e => console.warn("[pendant-bridge] AH flag save failed", e))
+  } catch (e) { console.warn("[pendant-bridge] AH flag save failed", e) }
+}
+function ahSavePlace(actor, place) { ahSaveFlagObj(actor, "ahPlace", place) }
 
 /** Auto-pack every baggable bag unit into the grid (first-fit-decreasing). Returns a placement Map. */
 function ahAutoPack(ctx) {
@@ -2648,8 +2662,9 @@ function ahAssignUnit(ctx, uid, binId) {
     const target = (binId && binId.slice(0, 3) === "it:") ? binId.slice(3) : null   // real container id, else loose / AH-only bin
     if (it && it.system) { const cur = it.system.container || null; if (cur !== target) { try { Promise.resolve(it.update({ "system.container": target })).catch(e => console.warn("[pendant-bridge] AH container write failed", e)) } catch (e) { console.warn("[pendant-bridge] AH container write failed", e) } } }
   }
-  // the flag stores ONLY AH-only bins when binding (it: membership lives in system.container); legacy = all
-  let assign = {}; try { assign = ctx.actor.getFlag(MOD, "ahPlaceSep") || {} } catch {}
+  // the flag stores ONLY AH-only bins when binding (it: membership lives in system.container); legacy = all.
+  // clone the stored flag (getFlag may return a frozen/source ref) so delete/assign actually take.
+  let assign = {}; try { assign = { ...(ctx.actor.getFlag(MOD, "ahPlaceSep") || {}) } } catch {}
   if (!assign || typeof assign !== "object") assign = {}
   const keep = binId && (!bind || binId.slice(0, 3) !== "it:")
   if (keep) { if (assign[uid] !== binId) { assign[uid] = binId; ahSavePlaceSep(ctx.actor, assign) } }
@@ -2668,7 +2683,7 @@ function ahSepAssignObj(ctx) {
   })
   return o
 }
-function ahSavePlaceSep(actor, obj) { try { actor.setFlag(MOD, "ahPlaceSep", obj) } catch (e) { console.warn("[pendant-bridge] AH sep save failed", e) } }
+function ahSavePlaceSep(actor, obj) { ahSaveFlagObj(actor, "ahPlaceSep", obj) }
 /** Persist placements to the flag for the ACTIVE mode (keeps equip/outfit/stow paths mode-safe). */
 function ahPersistPlace(ctx) { if (ctx.separate) ahSavePlaceSep(ctx.actor, ahSepAssignObj(ctx)); else ahSavePlace(ctx.actor, ahPlaceObj(ctx)) }
 /** Tidy (separate): greedily assign every baggable unit to a fitting bin — specific-type bins
