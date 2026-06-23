@@ -230,6 +230,7 @@
 .ah-panel .ah-leg .ah-leg-sz { margin-left: auto; }
 .ah-panel .ah-leg .ah-leg-x { margin-left: 2px; }
 .ah-panel .ah-leg-bq { color: var(--ah-mute); font-variant-numeric: tabular-nums; }
+.ah-panel .ah-leg-ch, .ah-panel .ah-tray-ch { font-size: 9px; color: var(--ah-good-ink); background: var(--ah-good-bg); border: 1px solid var(--ah-good-line); border-radius: var(--ah-pill); padding: 0 5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ah-panel .ah-leg-empty { font-size: 10.5px; font-style: italic; color: var(--ah-faint); }
 .ah-panel .ah-leg-bin { font-size: 9px; text-transform: uppercase; letter-spacing: .03em; color: var(--ah-faint); flex: 0 0 auto; }
 /* separate bag mode — one mini hex-grid per container, drop an item onto a card to assign it */

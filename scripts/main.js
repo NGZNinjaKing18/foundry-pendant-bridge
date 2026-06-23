@@ -141,7 +141,7 @@ const AH = {
       const meta = m ? { size: m.size, carryType: m.carryType, equipSlots: m.equipSlots, needsBackPoint: m.needsBackPoint, twoHanded: m.twoHanded, longItem: m.longItem, baggable: m.baggable, ignoreSlot: m.ignoreSlot, override: m.override } : null
       let bi = { active: false, count: 1, size: 0 }; try { bi = ahBundleInfo(it, cfg) } catch {}
       let shape = null; try { shape = bi.active ? ahBundleShape(it) : ahEffectiveShape(it, Math.max(1, Math.ceil(spaces))) } catch {}
-      items.push({ id: it.id, name: it.name, type: it.type, img: resolveImg(it.img), color: ahColorFor(it.id), weight: this.itemWeight(it), qty: this.itemQty(it), spaces, override: flagOv, ruleKey: ahItemRuleKey(it), hasRule: !!rule, shape, bundleSize: bi.size || 0, bundleCount: bi.count || 1, meta })
+      items.push({ id: it.id, name: it.name, type: it.type, img: resolveImg(it.img), color: ahColorFor(it.id), weight: this.itemWeight(it), qty: this.itemQty(it), uses: ahReadUses(it), spaces, override: flagOv, ruleKey: ahItemRuleKey(it), hasRule: !!rule, shape, bundleSize: bi.size || 0, bundleCount: bi.count || 1, meta })
     }
     used = Math.round(used * 100) / 100
     const { capacity, override } = this.capacityOf(actor, cfg)
@@ -2343,10 +2343,12 @@ function ahLegendHTML(ctx) {
   rows.sort((a, b) => (ctx.separate ? String(a.bin || "").localeCompare(String(b.bin || "")) : 0) || (a.it.name || "").localeCompare(b.it.name || ""))
   return rows.map(({ it, bin }) => {
     const bi = ctx.byId[it.itemId]
-    const use = (ctx.canArrange && bi && bi.type === "consumable" && (bi.qty || 0) >= 1) ? '<button type="button" class="ah-use" data-use="' + ahEscX(it.itemId) + '" aria-label="' + ahEscX("Use one " + it.name) + '" title="Use one (−1)">use</button>' : ""
+    const canUse = ctx.canArrange && (((bi && bi.type === "consumable") && (bi.qty || 0) >= 1) || (it.uses && it.uses.value > 0))
+    const use = canUse ? '<button type="button" class="ah-use" data-use="' + ahEscX(it.itemId) + '" aria-label="' + ahEscX((it.uses ? "Spend a charge of " : "Use one ") + it.name) + '" title="' + (it.uses ? "Spend a charge" : "Use one (−1)") + '">use</button>' : ""
+    const ch = it.uses ? ' <span class="ah-leg-ch" title="charges">' + it.uses.value + (it.uses.max ? "/" + it.uses.max : "") + "</span>" : ""
     const unpack = ctx.canArrange ? '<button type="button" class="ah-leg-x" data-unpack="' + ahEscX(it.uid) + '" aria-label="' + ahEscX("Take " + it.name + " out of the bag") + '" title="Unpack to loose">' + ahIcon("undo") + "</button>" : ""
     const inBin = (ctx.separate && bin && ctx.binById && ctx.binById[bin]) ? '<span class="ah-leg-bin">' + ahEscX(ctx.binById[bin].label) + "</span>" : ""
-    return '<span class="ah-leg"><i class="ah-leg-sw" style="background:' + it.color + '"></i><span class="ah-leg-nm">' + ahEscX(it.name) + (it.bundleQty != null ? ' <span class="ah-leg-bq">·' + it.bundleQty + "</span>" : "") + '</span>' + inBin + '<span class="ah-leg-sz">' + ahFmt(it.spaces) + "</span>" + use + unpack + "</span>"
+    return '<span class="ah-leg"><i class="ah-leg-sw" style="background:' + it.color + '"></i><span class="ah-leg-nm">' + ahEscX(it.name) + (it.bundleQty != null ? ' <span class="ah-leg-bq">·' + it.bundleQty + "</span>" : "") + ch + '</span>' + inBin + '<span class="ah-leg-sz">' + ahFmt(it.spaces) + "</span>" + use + unpack + "</span>"
   }).join("")
 }
 function ahRenderBoard(ctx) {
@@ -2406,9 +2408,11 @@ function ahRenderTray(ctx) {
         + (u.bundleCount > 1 ? '<span class="ah-tray-tag bundle" title="One bundle of ' + u.bundleQty + ' (' + (u.bundleIdx + 1) + ' of ' + u.bundleCount + ')">×' + u.bundleQty + "</span>" : "")
       const tip = (m.size || "") + (u.bundleCount > 1 ? " · bundle " + (u.bundleIdx + 1) + "/" + u.bundleCount + " (" + u.bundleQty + ")" : "") + (m.baggable === false ? " · wear only" : "") + (m.ignoreSlot ? " · no slot needed" : "") + (m.needsBackPoint ? " · needs a Back point" : "")
       const bi = ctx.byId[u.itemId]
-      const useBtn = (ctx.canArrange && bi && bi.type === "consumable" && (bi.qty || 0) >= 1) ? '<button type="button" class="ah-use" data-use="' + ahEscX(u.itemId) + '" aria-label="' + ahEscX("Use one " + u.name) + '" title="Use one (−1)">use</button>' : ""
+      const canUse = ctx.canArrange && ((bi && bi.type === "consumable" && (bi.qty || 0) >= 1) || (u.uses && u.uses.value > 0))
+      const useBtn = canUse ? '<button type="button" class="ah-use" data-use="' + ahEscX(u.itemId) + '" aria-label="' + ahEscX((u.uses ? "Spend a charge of " : "Use one ") + u.name) + '" title="' + (u.uses ? "Spend a charge" : "Use one (−1)") + '">use</button>' : ""
+      const ch = u.uses ? ' <span class="ah-tray-ch" title="charges">' + u.uses.value + (u.uses.max ? "/" + u.uses.max : "") + "</span>" : ""
       const kb = ctx.canArrange ? ' tabindex="0" aria-label="' + ahEscX("Stow " + u.name + " — press Enter to pack it into the bag") + '"' : ""
-      h += '<div class="ah-tray-it' + (open ? "" : " collapsed") + '" data-cat="' + ahEscX(g) + '" data-tray="' + ahEscX(u.uid) + '"' + (ctx.canArrange ? ' style="cursor:grab"' : "") + kb + ' title="' + ahEscX(tip) + '">' + ahArtThumb(u.img, u.color, "stack") + '<span class="ah-tray-nm">' + ahEscX(u.name) + "</span>" + tag + '<span class="ah-tray-sz">' + ahFmt(u.spaces) + "</span>" + useBtn + "</div>"
+      h += '<div class="ah-tray-it' + (open ? "" : " collapsed") + '" data-cat="' + ahEscX(g) + '" data-tray="' + ahEscX(u.uid) + '"' + (ctx.canArrange ? ' style="cursor:grab"' : "") + kb + ' title="' + ahEscX(tip) + '">' + ahArtThumb(u.img, u.color, "stack") + '<span class="ah-tray-nm">' + ahEscX(u.name) + "</span>" + ch + tag + '<span class="ah-tray-sz">' + ahFmt(u.spaces) + "</span>" + useBtn + "</div>"
     }
   }
   ctx.trayEl.innerHTML = h
@@ -2682,22 +2686,48 @@ if (typeof window !== "undefined") {
 }
 /** Spend one of a consumable (owner action): quantity − 1 (deletes the last one) + a chat line. */
 const _ahUsing = new Set()
+/** Item-level limited uses as {value,max,spent} or null. v5 stores system.uses = {max, spent,
+ *  value (derived = max − spent, READ-ONLY), autoDestroy}. We gate on the official hasLimitedUses
+ *  getter when present, and read the derived `value` (handles formula maxes after prepareData). */
+function ahReadUses(it) {
+  try {
+    const u = it && it.system && it.system.uses; if (!u) return null
+    const has = (typeof it.hasLimitedUses === "boolean") ? it.hasLimitedUses : (Number(u.max) > 0)
+    if (!has) return null
+    const max = Number(u.max), spent = Number(u.spent) || 0
+    const value = (u.value != null && isFinite(Number(u.value))) ? Number(u.value) : (isFinite(max) ? Math.max(0, max - spent) : 0)
+    if (!isFinite(max) && value <= 0) return null
+    return { value, max: isFinite(max) && max > 0 ? max : null, spent }
+  } catch { return null }
+}
 async function ahUseItem(actor, itemId) {
   const key = (actor && actor.id || "") + ":" + itemId
   if (_ahUsing.has(key)) return                     // re-entry guard: ignore rapid double-clicks
   const it = actor && actor.items.get(itemId); if (!it) return
-  const qty = AH.itemQty(it); if (qty <= 0) return
   _ahUsing.add(key)
-  const next = qty - 1, last = next <= 0
   try {
-    if (last) await it.delete()                     // used the last one → remove it (no ghost chip)
-    else await it.update({ "system.quantity": next })
-  } catch (e) { console.warn("[pendant-bridge] AH use failed", e); _ahUsing.delete(key); return }
+    const uses = ahReadUses(it)
+    if (uses && uses.value > 0) {
+      // CHARGED item (wand / N-use scroll): spend one charge — write `spent`, NEVER the derived value
+      const u = it.system.uses, spent = Number(u.spent) || 0, max = Number(u.max) || uses.max || 0
+      const nextSpent = spent + 1, drained = max > 0 && nextSpent >= max
+      if (drained && u.autoDestroy) {               // last charge + auto-destroy → consume one copy, reset charges
+        const qty = AH.itemQty(it)
+        if (qty > 1) await it.update({ "system.quantity": qty - 1, "system.uses.spent": 0 })
+        else await it.delete()
+      } else {
+        await it.update({ "system.uses.spent": nextSpent })
+      }
+      try { const left = Math.max(0, uses.value - 1); ChatMessage.create({ speaker: ChatMessage.getSpeaker({ actor }), content: "uses <b>" + ahEscX(it.name) + "</b> <span style=\"opacity:.65\">(" + left + " charge" + (left === 1 ? "" : "s") + " left)</span>" }) } catch {}
+      return
+    }
+    // QUANTITY item (potion stack etc.): decrement, delete the last one (no ghost chip)
+    const qty = AH.itemQty(it); if (qty <= 0) return
+    const next = qty - 1, last = next <= 0
+    if (last) await it.delete(); else await it.update({ "system.quantity": next })
+    try { const tail = last ? ' <span style="opacity:.65">(last one)</span>' : ' <span style="opacity:.65">(' + next + " left)</span>"; ChatMessage.create({ speaker: ChatMessage.getSpeaker({ actor }), content: "uses <b>" + ahEscX(it.name) + "</b>" + tail }) } catch {}
+  } catch (e) { console.warn("[pendant-bridge] AH use failed", e) }
   finally { _ahUsing.delete(key) }
-  try {
-    const tail = last ? ' <span style="opacity:.65">(last one)</span>' : ' <span style="opacity:.65">(' + next + " left)</span>"
-    ChatMessage.create({ speaker: ChatMessage.getSpeaker({ actor }), content: "uses <b>" + ahEscX(it.name) + "</b>" + tail })
-  } catch {}
 }
 
 // ── ammo auto-spend ─────────────────────────────────────────────────────────
@@ -3626,7 +3656,7 @@ function ahBuildPanel(actor) {
   const capacity = Math.max(0, Math.round(sum.capacity))
 
   // items + metadata (rules engine runs on the live Foundry item)
-  const items = sum.items.map(it => ({ id: it.id, name: it.name, type: it.type, img: it.img, spaces: it.spaces, qty: it.qty, override: it.override, color: ahColorFor(it.id), shape: (Array.isArray(it.shape) && it.shape.length) ? it.shape : ahShapeFor(ahCellSize(it), ahHashOf(it.id)) }))
+  const items = sum.items.map(it => ({ id: it.id, name: it.name, type: it.type, img: it.img, uses: it.uses || null, spaces: it.spaces, qty: it.qty, override: it.override, color: ahColorFor(it.id), shape: (Array.isArray(it.shape) && it.shape.length) ? it.shape : ahShapeFor(ahCellSize(it), ahHashOf(it.id)) }))
   const byId = {}; for (const it of items) byId[it.id] = it
   const metaById = {}; for (const it of items) { let m; try { m = ahMeta(actor.items.get(it.id)) } catch { m = null } metaById[it.id] = m || { equipSlots: [], carryType: "Miscellaneous", grantsSlots: null } }
   const ctx = {
@@ -3659,12 +3689,12 @@ function ahBuildPanel(actor) {
       const qty = it.qty || 1
       for (let k = 0; k < bi.count; k++) {
         const uid = it.id + "#" + k
-        const u = { uid, id: uid, itemId: it.id, name: it.name, img: it.img, color: it.color, shape: bi.perShape, spaces: bi.per, bundleIdx: k, bundleCount: bi.count, bundleQty: Math.min(bi.size, qty - k * bi.size) }
+        const u = { uid, id: uid, itemId: it.id, name: it.name, img: it.img, uses: it.uses, color: it.color, shape: bi.perShape, spaces: bi.per, bundleIdx: k, bundleCount: bi.count, bundleQty: Math.min(bi.size, qty - k * bi.size) }
         ctx.units.push(u); ctx.unitById[uid] = u
       }
     } else {
       ctx.bundleN[it.id] = 1
-      const u = { uid: it.id, id: it.id, itemId: it.id, name: it.name, img: it.img, color: it.color, shape: it.shape, spaces: it.spaces }
+      const u = { uid: it.id, id: it.id, itemId: it.id, name: it.name, img: it.img, uses: it.uses, color: it.color, shape: it.shape, spaces: it.spaces }
       ctx.units.push(u); ctx.unitById[u.uid] = u
     }
   }
