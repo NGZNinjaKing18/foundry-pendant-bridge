@@ -285,12 +285,16 @@
 .ah-panel .ah-ghost { position: fixed; z-index: 99; pointer-events: none; padding: 3px 8px; border-radius: var(--ah-r-sm);
   background: var(--ah-raise-2); border: 1px solid var(--ah-action); font-size: 11px; white-space: nowrap; color: var(--ah-ink); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5); }
 /* tray of not-yet-placed (loose) items */
-.ah-panel .ah-tray-chips { display: flex; flex-direction: column; gap: 6px; max-height: 176px; overflow-y: auto; padding-right: 3px; }
-.ah-panel .ah-tray-group { font-size: 9px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ah-mute); margin-top: 2px; }
-.ah-panel details.ah-tgroup > summary.ah-tray-group { cursor: pointer; list-style: revert; padding: 2px 0; }
-.ah-panel details.ah-tgroup > summary.ah-tray-group:hover { color: var(--ah-dim); }
-.ah-panel .ah-tray-gn { color: var(--ah-faint); }
-.ah-panel .ah-tray-row { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 5px; }
+/* loose tray = one flowing row: category PILLS, each opening its items inline right after it */
+.ah-panel .ah-tray-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; max-height: 176px; overflow-y: auto; padding-right: 3px; }
+.ah-panel .ah-tcat { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px 3px 10px; border-radius: var(--ah-pill); border: 1px solid var(--ah-line-2); background: var(--ah-raise); color: var(--ah-dim); font-size: 11px; line-height: 1.4; cursor: pointer; }
+.ah-panel .ah-tcat:hover { border-color: var(--ah-action-line); color: var(--ah-ink); }
+.ah-panel .ah-tcat.open { background: var(--ah-action-bg); border-color: var(--ah-action-line); color: var(--ah-action-ink); }
+.ah-panel .ah-tcat-n { font-size: 9px; color: var(--ah-mute); font-variant-numeric: tabular-nums; }
+.ah-panel .ah-tcat.open .ah-tcat-n { color: var(--ah-action-ink); }
+.ah-panel .ah-tcat-car { width: 11px; height: 11px; transform: rotate(-90deg); transition: transform var(--ah-ease); }
+.ah-panel .ah-tcat.open .ah-tcat-car { transform: rotate(0); }
+.ah-panel .ah-tray-it.collapsed { display: none; }
 .ah-panel .ah-tray-it { display: flex; align-items: center; gap: 7px; padding: 5px 9px 5px 6px; background: var(--ah-raise);
   border: 1px solid var(--ah-line); border-radius: var(--ah-r); cursor: grab; user-select: none; -webkit-user-select: none; }
 .ah-panel .ah-tray-it:hover { border-color: var(--ah-action-line); background: var(--ah-raise-2); }
@@ -374,7 +378,7 @@
 @media (prefers-reduced-motion: reduce) {
   .ah-panel button, .ah-panel input, .ah-panel summary, .ah-panel .ah-slot, .ah-panel .ah-cont-chip,
   .ah-panel .ah-tray-it, .ah-panel .ah-bdot, .ah-panel .ah-pick-it,
-  .ah-panel .ah-gear-mi, .ah-panel .ah-meter-fill { transition-duration: 0ms; }
+  .ah-panel .ah-gear-mi, .ah-panel .ah-meter-fill, .ah-panel .ah-tcat-car { transition-duration: 0ms; }
   .ah-panel .ah-pickmenu, .ah-panel .ah-gear-menu, .ah-panel .ah-outfit-menu,
   .ah-panel .ah-tile.valid, .ah-panel .ah-gb.valid, .ah-panel .ah-bin.drop-ok { animation: none; }
   .ah-panel .ah-tile.empty:hover, .ah-panel .ah-cont-chip:hover, .ah-panel .ah-tray-it:hover,

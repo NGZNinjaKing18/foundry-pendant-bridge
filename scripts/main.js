@@ -2379,6 +2379,7 @@ async function ahSetMetaField(item, field, value) {
     else await item.unsetFlag(MOD, "meta")
   } catch (e) { console.warn("[pendant-bridge] AH setMeta failed", e) }
 }
+const _ahTrayOpen = {}   // per-actor Set of expanded loose-tray categories (persists across re-renders)
 function ahRenderTray(ctx) {
   if (!ctx.trayEl) return
   // loose = bag units not packed (and not the one being dragged). Bundled stacks show
@@ -2387,14 +2388,17 @@ function ahRenderTray(ctx) {
   if (!units.length) { ctx.trayEl.innerHTML = '<span class="ah-tray-empty">Nothing loose — all worn or packed.</span>'; return }
   const groups = {}
   for (const u of units) { const ct = (ctx.metaById[u.itemId] && ctx.metaById[u.itemId].carryType) || "Miscellaneous"; (groups[ct] = groups[ct] || []).push(u) }
+  // open/closed state persists per actor; first paint opens the small groups (big stacks stay a pill)
+  const aid = (ctx.actor && ctx.actor.id) || "_"
+  let openSet = _ahTrayOpen[aid]
+  if (!openSet) { openSet = _ahTrayOpen[aid] = new Set(); for (const g of AH_CARRY_ORDER) { const a = groups[g]; if (a && a.length && a.length <= 8) openSet.add(g) } }
   let h = ""
   for (const g of AH_CARRY_ORDER) {
     const arr = groups[g]; if (!arr || !arr.length) continue
     arr.sort((a, b) => (a.name || "").localeCompare(b.name || "") || (a.bundleIdx || 0) - (b.bundleIdx || 0))
-    // each carry type is a collapsible group; big stacks (lots of consumables) start
-    // COLLAPSED so they never flood the sheet.
-    const open = arr.length <= 8 ? " open" : ""
-    h += '<details class="ah-tgroup"' + open + '><summary class="ah-tray-group">' + ahEscX(g === "Miscellaneous" ? "Other" : g) + ' <span class="ah-tray-gn">' + arr.length + '</span></summary><div class="ah-tray-row">'
+    const open = openSet.has(g), label = g === "Miscellaneous" ? "Other" : g
+    // a compact category PILL in a flowing row; click → its items drop in inline right after it
+    h += '<button type="button" class="ah-tcat' + (open ? " open" : "") + '" data-cat="' + ahEscX(g) + '" aria-expanded="' + (open ? "true" : "false") + '" title="' + ahEscX((open ? "Hide " : "Show ") + arr.length + " " + label.toLowerCase()) + '"><span class="ah-tcat-nm">' + ahEscX(label) + '</span><span class="ah-tcat-n">' + arr.length + "</span>" + ahIcon("caret", "ah-tcat-car") + "</button>"
     for (const u of arr) {
       const m = ctx.metaById[u.itemId] || {}
       const tag = (m.baggable === false ? '<span class="ah-tray-tag wear" title="Worn-only — can only be equipped on the body, never put in the bag">worn only</span>' : "")
@@ -2404,9 +2408,8 @@ function ahRenderTray(ctx) {
       const bi = ctx.byId[u.itemId]
       const useBtn = (ctx.canArrange && bi && bi.type === "consumable" && (bi.qty || 0) >= 1) ? '<button type="button" class="ah-use" data-use="' + ahEscX(u.itemId) + '" aria-label="' + ahEscX("Use one " + u.name) + '" title="Use one (−1)">use</button>' : ""
       const kb = ctx.canArrange ? ' tabindex="0" aria-label="' + ahEscX("Stow " + u.name + " — press Enter to pack it into the bag") + '"' : ""
-      h += '<div class="ah-tray-it" data-tray="' + ahEscX(u.uid) + '"' + (ctx.canArrange ? ' style="cursor:grab"' : "") + kb + ' title="' + ahEscX(tip) + '">' + ahArtThumb(u.img, u.color, "stack") + '<span class="ah-tray-nm">' + ahEscX(u.name) + "</span>" + tag + '<span class="ah-tray-sz">' + ahFmt(u.spaces) + "</span>" + useBtn + "</div>"
+      h += '<div class="ah-tray-it' + (open ? "" : " collapsed") + '" data-cat="' + ahEscX(g) + '" data-tray="' + ahEscX(u.uid) + '"' + (ctx.canArrange ? ' style="cursor:grab"' : "") + kb + ' title="' + ahEscX(tip) + '">' + ahArtThumb(u.img, u.color, "stack") + '<span class="ah-tray-nm">' + ahEscX(u.name) + "</span>" + tag + '<span class="ah-tray-sz">' + ahFmt(u.spaces) + "</span>" + useBtn + "</div>"
     }
-    h += "</div></details>"
   }
   ctx.trayEl.innerHTML = h
 }
@@ -3856,7 +3859,17 @@ function ahBuildPanel(actor) {
 
   if (ctx.canArrange) {
     trayEl.addEventListener("mousedown", (e) => { if (e.target.closest("[data-use]")) return; const t = e.target.closest("[data-tray]"); if (t) ahDragItem(ctx, t.getAttribute("data-tray"), "tray", e) })
-    trayEl.addEventListener("click", (e) => { const u = e.target.closest("[data-use]"); if (u) { e.stopPropagation(); ahUseItem(actor, u.getAttribute("data-use")) } })
+    trayEl.addEventListener("click", (e) => {
+      const cat = e.target.closest(".ah-tcat")
+      if (cat) {   // toggle a category pill → show/hide its items inline (state persists across re-renders)
+        const g = cat.getAttribute("data-cat"); const set = _ahTrayOpen[actor.id] || (_ahTrayOpen[actor.id] = new Set())
+        const nowOpen = !set.has(g); if (nowOpen) set.add(g); else set.delete(g)
+        cat.classList.toggle("open", nowOpen); cat.setAttribute("aria-expanded", nowOpen ? "true" : "false")
+        trayEl.querySelectorAll(".ah-tray-it").forEach(it => { if (it.getAttribute("data-cat") === g) it.classList.toggle("collapsed", !nowOpen) })
+        return
+      }
+      const u = e.target.closest("[data-use]"); if (u) { e.stopPropagation(); ahUseItem(actor, u.getAttribute("data-use")) }
+    })
     trayEl.addEventListener("keydown", (e) => { if (e.key !== "Enter" && e.key !== " ") return; if (e.target.closest("[data-use]")) return; const t = e.target.closest("[data-tray]"); if (t) { e.preventDefault(); ahStowItem(ctx, t.getAttribute("data-tray")) } })   // keyboard stow
     if (ctx.holder) ctx.holder.addEventListener("mousedown", (e) => { const t = e.target.closest("[data-item]"); if (t) ahDragItem(ctx, t.getAttribute("data-item"), "bag", e) })
     dollEl.addEventListener("click", (e) => {
