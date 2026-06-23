@@ -182,11 +182,6 @@
 .ah-panel .ah-gb.valid .ah-art { border-color: var(--ah-good); }
 .ah-panel .ah-gb.swap { border-color: var(--ah-action); box-shadow: 0 0 0 3px var(--ah-action-bg); }
 .ah-panel .ah-gb-swap { position: absolute; top: 2px; right: 5px; font-size: 10px; color: var(--ah-action-ink); }
-/* GM bag-mode toggle (merged vs separate grids) */
-.ah-panel .ah-modeseg { display: inline-flex; border: 1px solid var(--ah-line-2); border-radius: var(--ah-pill); overflow: hidden; }
-.ah-panel .ah-modeb { font-size: 9.5px; line-height: 1.5; padding: 2px 9px; border: none; background: transparent; color: var(--ah-mute); cursor: pointer; }
-.ah-panel .ah-modeb:hover { color: var(--ah-ink); }
-.ah-panel .ah-modeb.on { background: var(--ah-store-bg); color: var(--ah-store-ink); cursor: default; }
 .ah-panel .ah-slot { position: relative; }   /* base class on every tile (drag/valid/swap hooks + transitions key off it); tile geometry is in .ah-tile below */
 .ah-panel .ah-pick-bag { font-style: normal; font-size: 8.5px; color: var(--ah-mute); margin-left: auto; background: rgba(255, 255, 255, 0.06); border-radius: var(--ah-pill); padding: 0 6px; }
 .ah-panel .ah-bdot { width: 13px; height: 13px; border-radius: 3px; cursor: pointer; box-shadow: var(--ah-ring-dark); border: none; padding: 0; -webkit-appearance: none; appearance: none; }

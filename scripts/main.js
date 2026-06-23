@@ -60,7 +60,7 @@ const AH = {
     strPer: 1,               // extra bag spaces per unit of the chosen basis
     strBasis: "mod",         // "mod" (STR modifier) | "over10" (STR − 10) | "score" (full STR score)
     ammoAutoSpend: false,    // OPT-IN: spend ammo only for weapons that DON'T have ammo set up in dnd5e
-    bagMode: "separate",     // "separate" (default) = one mini hex-grid PER container · "merged" = one pooled bag (type-gated entry). GM flips it on the Bag header or in the app.
+    bagMode: "separate",     // VESTIGIAL: the bag is always per-container now (Merged was removed at the user's request). Kept so old saved configs don't error; the live mode is driven by ctx.separate, not this.
     wearLoad: { Belt: 4, Back: 2, Chest: 2, Hip: 2 },   // how many wearable containers each body location holds (DM-tunable)
   },
 
@@ -2273,8 +2273,7 @@ function ahSeparateFits(ctx, candId) {
 function ahBagAccepts(ctx, id) {
   if (!ahCanBag(ctx, id)) return false
   const conts = ahBagContainers(ctx); if (!conts.length) return true
-  const cfg = ctx.cfg || AH.cfg()
-  if ((cfg.bagMode || "merged") === "separate") return ahSeparateFits(ctx, id)
+  if (ctx.separate) return ahSeparateFits(ctx, id)
   const u = ctx.unitById && ctx.unitById[id], realId = u ? u.itemId : id, tag = ahTagFor(ctx, realId)
   return conts.some(c => !c.types || c.types.indexOf(tag) >= 0)   // merged: any container accepts the type
 }
@@ -2464,8 +2463,8 @@ function ahAutoPack(ctx) {
   units.sort((a, b) => ((b.shape ? b.shape.length : 1) - (a.shape ? a.shape.length : 1)) || String(a.uid).localeCompare(String(b.uid)))   // biggest first packs tighter
   const occ = new Set(), place = new Map()
   const fits = (cells) => { for (const c of cells) { const k = c.col + "," + c.row; if (!ctx.validSet.has(k) || occ.has(k)) return false } return true }
-  // honour the bagMode container gate so Tidy can't pack what a drag/keyboard add would reject
-  const cfg = ctx.cfg || AH.cfg(), separate = (cfg.bagMode || "merged") === "separate"
+  // honour the container gate so Tidy can't pack what a drag/keyboard add would reject
+  const separate = !!ctx.separate
   const conts = ahBagContainers(ctx).map(c => ({ cap: c.cap, types: c.types, used: 0 }))
   const pick = (u) => {   // true = accept (merged / no containers) · a container = accept+consume (separate) · null = reject
     if (!conts.length) return true
@@ -2661,6 +2660,23 @@ function ahBinBoardSVG(ctx, bin) {
 // self-heal setFlag), we skip the rebuild so the drag isn't orphaned onto a detached grid, then
 // catch up once the drag ends.
 const _ahDrag = { active: false, missed: false, actorId: null }
+// Safety net so a drag can NEVER permanently freeze the panel. If our document mouseup doesn't fire
+// (e.g. the button was released OUTSIDE the Foundry window), the per-drag finish() never runs, so
+// _ahDrag.active would stay true and ahInjectPanel would block every future rebuild → frozen panel.
+// An "orphan" = the flag is set but no mouse button is held. A button-less mousemove detects exactly
+// that (and NEVER a real in-progress drag, where a button is down), force-clearing the flag and
+// catching up the render. A mouseup is a deferred belt-and-braces backstop that runs AFTER the
+// per-drag finish() (so it no-ops on a normal drag). finish() still owns the real placement cleanup.
+function ahReleaseStuckDrag() {
+  if (!_ahDrag.active) return
+  const aid = _ahDrag.actorId
+  _ahDrag.active = false; _ahDrag.missed = false
+  try { const a = aid && game.actors && game.actors.get(aid); const sh = a && a.sheet; if (sh && sh.rendered) sh.render(false) } catch {}
+}
+if (typeof window !== "undefined") {
+  window.addEventListener("mousemove", (e) => { if (_ahDrag.active && e.buttons === 0) ahReleaseStuckDrag() })
+  window.addEventListener("mouseup", () => setTimeout(ahReleaseStuckDrag, 0))
+}
 /** Spend one of a consumable (owner action): quantity − 1 (deletes the last one) + a chat line. */
 const _ahUsing = new Set()
 async function ahUseItem(actor, itemId) {
@@ -3658,7 +3674,10 @@ function ahBuildPanel(actor) {
   // SEPARATE bag mode: one mini-grid per container. Only when the toggle is on AND the actor has a
   // bag — otherwise ctx.separate stays false and every separate-mode branch below is skipped.
   ctx.separate = false
-  if (cfg.bagMode === "separate" && bagCapacity > 0) {
+  // SEPARATE is the only mode now (one mini hex-grid per container) — the Merged single-pool bag
+  // was removed at the user's request. Merged code below stays reachable only as a safety fallback
+  // if an actor has a bag but somehow yields no bins (shouldn't happen: a bag needs a container).
+  if (bagCapacity > 0) {
     ctx.bins = ahSepBins(ctx); ctx.binById = {}; for (const b of ctx.bins) ctx.binById[b.binId] = b
     if (ctx.bins.length) { ctx.separate = true; ctx.binHolders = {}; ctx.binCards = {}; ctx.binCapEls = {} }
   }
@@ -3734,20 +3753,6 @@ function ahBuildPanel(actor) {
     ? (ahFmt(nonWornSpaces) + " / " + ahFmt(bagCapacity) + " spaces" + (ctx.canArrange ? (ctx.separate ? " · drag onto a container" : " · drag, R rotates") : ""))
     : "no storage yet"
   const bagSec = mkSec("back", "ah-sec-bag", "Bag", "· " + bagMetaTxt)
-  if (isGM) {
-    // GM-only quick toggle: one shared bag vs one mini-grid per container (writes the world setting;
-    // its onChange re-persists every bag + re-renders). Players just see the chosen mode.
-    const seg = document.createElement("div"); seg.className = "ah-modeseg"; seg.setAttribute("role", "group"); seg.setAttribute("aria-label", "Bag mode")
-    const curMode = (ctx.cfg.bagMode === "separate") ? "separate" : "merged"
-    for (const mode of ["merged", "separate"]) {
-      const b = document.createElement("button"); b.type = "button"; b.className = "ah-modeb" + (curMode === mode ? " on" : "")
-      b.textContent = mode === "merged" ? "Merged" : "Separate"; b.title = mode === "merged" ? "One shared bag (pooled, type-gated)" : "One mini hex-grid per container"
-      if (curMode === mode) b.setAttribute("aria-pressed", "true")
-      else { b.setAttribute("aria-pressed", "false"); b.addEventListener("click", (e) => { e.stopPropagation(); try { game.settings.set(MOD, "ahConfig", Object.assign({}, AH.cfg(), { bagMode: mode })) } catch (err) { console.warn("[pendant-bridge] AH bagMode set failed", err) } }) }
-      seg.appendChild(b)
-    }
-    bagSec.ctl.appendChild(seg)
-  }
   if (ctx.canArrange) {
     if (bagCapacity > 0) {
       const tidy = document.createElement("button"); tidy.type = "button"; tidy.className = "ah-act"; tidy.innerHTML = ahIcon("spark") + " Tidy"; tidy.title = "Auto-pack your loose items into the bag"
