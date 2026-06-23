@@ -37,13 +37,15 @@
    nothing drifts. State is always carried by colour + text, never decoration alone.
    ────────────────────────────────────────────────────────────── */
 .ah-panel {
-  /* ── surfaces (dark, layered: sink < bg < raise) ── */
-  --ah-bg: #181920;            /* the panel itself */
-  --ah-raise: #20222c;         /* slot / chip cards that sit above the panel */
-  --ah-raise-2: #262936;       /* hover lift on a raised card */
-  --ah-sink: #101118;          /* inputs, meter track, dropdown menus */
-  --ah-line: rgba(232, 228, 255, 0.10);
-  --ah-line-2: rgba(232, 228, 255, 0.18);
+  /* ── surfaces — TRANSLUCENT so the panel blends into the host sheet's own colour/texture
+     instead of sitting on top as a foreign dark block (cards = light frosting, recesses = dark). ── */
+  --ah-bg: transparent;                    /* the panel itself — let the sheet show through */
+  --ah-raise: rgba(236, 233, 223, 0.06);   /* slot / chip cards: a faint light frosting over the sheet */
+  --ah-raise-2: rgba(236, 233, 223, 0.12); /* hover lift on a raised card */
+  --ah-sink: rgba(0, 0, 0, 0.26);          /* inputs, meter track, empty cells: a dark recess */
+  --ah-pop: #17151c;                        /* OPAQUE dropdown/menu surface (popovers must stay legible) */
+  --ah-line: rgba(236, 233, 223, 0.12);
+  --ah-line-2: rgba(236, 233, 223, 0.20);
   /* ── ink ramp (all ≥ 4.5:1 on their surface) ── */
   --ah-ink: #ece9df;           /* primary text + values */
   --ah-dim: #c2bfb3;           /* secondary text */
@@ -68,9 +70,9 @@
   --ah-r-lg: 12px; --ah-r: 9px; --ah-r-sm: 6px; --ah-pill: 999px;
   --ah-ease: 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
 
-  /* seamless: a flush section of the Inventory tab, not a floating card.
-     No outer border / radius / shadow / side margins; the dark surface stays so
-     the internal cards keep their contrast whatever theme the host sheet uses. */
+  /* seamless: a flush, TRANSPARENT section of the Inventory tab — it inherits the host
+     sheet's background so it reads as part of the sheet, not a floating card. Internal
+     cards use translucent overlays (above) so they tint with whatever theme the host uses. */
   margin: 0 0 10px;
   padding: 8px 10px 14px;
   border: none;
@@ -127,7 +129,7 @@
 .ah-panel .ah-bin-x:hover { background: var(--ah-bad); color: var(--ah-ink-inverse); }
 .ah-panel .ah-bin.str { border-style: dashed; background: var(--ah-sink); }
 /* saved-outfits dropdown */
-.ah-panel .ah-outfit-menu { position: absolute; right: 0; top: 28px; z-index: 40; min-width: 172px; max-height: 232px; overflow-y: auto; padding: 4px; border-radius: var(--ah-r); background: var(--ah-sink); border: 1px solid var(--ah-line-2); box-shadow: var(--ah-shadow-pop); display: flex; flex-direction: column; gap: 2px; }
+.ah-panel .ah-outfit-menu { position: absolute; right: 0; top: 28px; z-index: 40; min-width: 172px; max-height: 232px; overflow-y: auto; padding: 4px; border-radius: var(--ah-r); background: var(--ah-pop); border: 1px solid var(--ah-line-2); box-shadow: var(--ah-shadow-pop); display: flex; flex-direction: column; gap: 2px; }
 .ah-panel .ah-om-row { display: flex; align-items: center; gap: 2px; }
 .ah-panel .ah-om-apply { flex: 1; min-width: 0; text-align: left; padding: 6px 8px; border: none; border-radius: var(--ah-r-sm); background: transparent; color: var(--ah-ink); font-size: 11.5px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ah-panel .ah-om-apply:hover { background: var(--ah-store-bg); }
@@ -143,18 +145,18 @@
 .ah-panel .ah-use { font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 7px; border-radius: var(--ah-pill); cursor: pointer; background: var(--ah-good-bg); border: 1px solid var(--ah-good-line); color: var(--ah-good-ink); line-height: 1.5; }
 .ah-panel .ah-use:hover { background: rgba(121, 189, 102, 0.32); color: #e6f5e6; }
 /* paperdoll — figure + a wrap grid of square equipment tiles (see .ah-tile below) */
-.ah-panel .ah-doll { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
-.ah-panel .ah-tiles { flex: 1 1 220px; min-width: 0; display: flex; flex-wrap: wrap; gap: 7px; align-content: flex-start; }
-.ah-panel .ah-dollfig { flex: 0 0 64px; display: flex; align-items: flex-start; justify-content: center; }
-.ah-panel .ah-doll-img { width: 60px; max-height: 300px; object-fit: contain; opacity: 0.9; -webkit-user-drag: none; user-select: none; }
+.ah-panel .ah-doll { display: flex; gap: 10px; align-items: flex-start; flex-wrap: nowrap; }   /* figure + tiles stay on one row (slots beside the doll) */
+.ah-panel .ah-tiles { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; }
+.ah-panel .ah-dollfig { flex: 0 0 auto; display: flex; align-items: flex-start; justify-content: center; padding: 5px; background: var(--ah-raise); border: 1px solid var(--ah-line); border-radius: var(--ah-r-sm); }   /* faint backing so the dark silhouette reads on a transparent panel */
+.ah-panel .ah-doll-img { width: 46px; max-height: 116px; object-fit: contain; opacity: 0.92; -webkit-user-drag: none; user-select: none; }
 .ah-panel .ah-slot { position: relative; }   /* base class on every tile (drag/valid/swap hooks + transitions key off it); tile geometry is in .ah-tile below */
 .ah-panel .ah-pick-bag { font-style: normal; font-size: 8.5px; color: var(--ah-mute); margin-left: auto; background: rgba(255, 255, 255, 0.06); border-radius: var(--ah-pill); padding: 0 6px; }
 .ah-panel .ah-bdot { width: 13px; height: 13px; border-radius: 3px; cursor: pointer; box-shadow: var(--ah-ring-dark); border: none; padding: 0; -webkit-appearance: none; appearance: none; }
 .ah-panel .ah-bdot:hover { outline: 1px solid var(--ah-bad); outline-offset: 1px; }
 /* ── square equipment tiles — the slot icon is the identity, the item colour fills it, the name lives
    in the tooltip. Locked + covered slots aren't drawn (a faint footnote notes them). ── */
-.ah-panel .ah-tile { position: relative; box-sizing: border-box; width: 60px; height: 60px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0; border-radius: var(--ah-r); border: 1px solid var(--ah-line); background: var(--ah-raise); }
-.ah-panel .ah-tico { display: inline-flex; align-items: center; justify-content: center; font-size: 23px; line-height: 1; color: var(--ah-dim); }
+.ah-panel .ah-tile { position: relative; box-sizing: border-box; width: 44px; height: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0; border-radius: var(--ah-r-sm); border: 1px solid var(--ah-line); background: var(--ah-raise); }
+.ah-panel .ah-tico { display: inline-flex; align-items: center; justify-content: center; font-size: 17px; line-height: 1; color: var(--ah-dim); }
 .ah-panel .ah-tico .ah-ico { width: 1em; height: 1em; }
 .ah-panel .ah-tbar { position: absolute; top: 0; left: 0; right: 0; height: 4px; border-radius: var(--ah-r) var(--ah-r) 0 0; }
 .ah-panel .ah-tile.empty { background: var(--ah-sink); border-style: dashed; cursor: pointer; }
@@ -162,8 +164,8 @@
 .ah-panel .ah-tile.empty:hover { border-style: solid; border-color: var(--ah-action); background: var(--ah-raise); }
 .ah-panel .ah-tile.empty:hover .ah-tico { color: var(--ah-action-ink); }
 .ah-panel .ah-tile.empty:hover .ah-tplus, .ah-panel .ah-tile.empty:focus-visible .ah-tplus { opacity: 1; }
-.ah-panel .ah-tplus { position: absolute; top: 3px; right: 6px; font-size: 13px; line-height: 1; color: var(--ah-action-ink); opacity: 0; transition: opacity var(--ah-ease); }
-.ah-panel .ah-tx { position: absolute; top: 2px; right: 2px; width: 17px; height: 17px; border: none; border-radius: 50%; background: transparent; color: var(--ah-faint); font-size: 13px; line-height: 1; cursor: pointer; padding: 0; opacity: 0; transition: opacity var(--ah-ease), background var(--ah-ease), color var(--ah-ease); }
+.ah-panel .ah-tplus { position: absolute; top: 2px; right: 4px; font-size: 11px; line-height: 1; color: var(--ah-action-ink); opacity: 0; transition: opacity var(--ah-ease); }
+.ah-panel .ah-tx { position: absolute; top: 1px; right: 1px; width: 15px; height: 15px; border: none; border-radius: 50%; background: transparent; color: var(--ah-faint); font-size: 12px; line-height: 1; cursor: pointer; padding: 0; opacity: 0; transition: opacity var(--ah-ease), background var(--ah-ease), color var(--ah-ease); }
 .ah-panel .ah-tile:hover .ah-tx, .ah-panel .ah-tile:focus-within .ah-tx { opacity: 1; }
 .ah-panel .ah-tx:hover { background: var(--ah-bad); color: var(--ah-ink-inverse); }
 .ah-panel .ah-tdraw { position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%); font-size: 7.5px; text-transform: uppercase; letter-spacing: 0.03em; padding: 0 6px; border-radius: var(--ah-pill); background: var(--ah-action-bg); border: 1px solid var(--ah-action-line); color: var(--ah-action-ink); line-height: 1.5; cursor: pointer; white-space: nowrap; opacity: 0; transition: opacity var(--ah-ease); }
@@ -218,7 +220,7 @@
 .ah-panel .ah-cont-sw { width: 9px; height: 9px; border-radius: 3px; flex: 0 0 auto; box-shadow: var(--ah-ring-dark); }
 /* click-an-empty-slot picker (anchored under the clicked slot card) */
 .ah-panel .ah-pickmenu { position: absolute; left: 0; top: 100%; margin-top: 4px; z-index: 30; min-width: 132px; max-width: 200px;
-  max-height: 168px; overflow-y: auto; padding: 4px; border-radius: var(--ah-r); background: var(--ah-sink); border: 1px solid var(--ah-line-2);
+  max-height: 168px; overflow-y: auto; padding: 4px; border-radius: var(--ah-r); background: var(--ah-pop); border: 1px solid var(--ah-line-2);
   box-shadow: var(--ah-shadow-pop); display: flex; flex-direction: column; gap: 2px; }
 .ah-panel .ah-pick-it { display: flex; align-items: center; gap: 7px; width: 100%; text-align: left; padding: 5px 7px;
   border: none; border-radius: var(--ah-r-sm); background: transparent; color: var(--ah-ink); font-size: 11px; cursor: pointer; }
@@ -232,7 +234,7 @@
 .ah-panel .ah-gear-x { width: 16px; height: 16px; border: none; border-radius: 50%; background: transparent; color: var(--ah-dim); cursor: pointer; font-size: 13px; line-height: 1; padding: 0; }
 .ah-panel .ah-gear-x:hover { background: var(--ah-bad); color: var(--ah-ink-inverse); }
 .ah-panel .ah-gear-empty { font-size: 10.5px; font-style: italic; color: var(--ah-faint); }
-.ah-panel .ah-gear-menu { position: absolute; right: 0; top: 22px; z-index: 40; min-width: 184px; max-height: 230px; overflow-y: auto; padding: 4px; border-radius: var(--ah-r); background: var(--ah-sink); border: 1px solid var(--ah-line-2); box-shadow: var(--ah-shadow-pop); display: flex; flex-direction: column; gap: 2px; }
+.ah-panel .ah-gear-menu { position: absolute; right: 0; top: 22px; z-index: 40; min-width: 184px; max-height: 230px; overflow-y: auto; padding: 4px; border-radius: var(--ah-r); background: var(--ah-pop); border: 1px solid var(--ah-line-2); box-shadow: var(--ah-shadow-pop); display: flex; flex-direction: column; gap: 2px; }
 .ah-panel .ah-gear-mi { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; text-align: left; padding: 6px 8px; border: none; border-radius: var(--ah-r-sm); background: transparent; color: var(--ah-ink); cursor: pointer; }
 .ah-panel .ah-gear-mi:hover { background: var(--ah-action-bg); }
 .ah-panel .ah-gear-mi.full { cursor: not-allowed; opacity: 0.5; }

@@ -2284,7 +2284,7 @@ function ahBoardSVG(ctx) {
   const names = []; ctx.placed.forEach((p, id) => { const u = ctx.unitById[id]; if (u) names.push(u.name) })
   const aria = "Item bag, " + (names.length ? names.length + " packed: " + names.join(", ") : "empty")
   let s = '<svg class="ah-svg" role="img" aria-label="' + ahEscX(aria) + '" width="' + g.width.toFixed(0) + '" height="' + g.height.toFixed(0) + '">'
-  for (const c of ctx.validList) { const ct = ahCenter(g, c.col, c.row); s += '<polygon points="' + ahPts(ct.x, ct.y, g.S) + '" fill="#101118" stroke="#3a3d4c" stroke-width="2"/>' }
+  for (const c of ctx.validList) { const ct = ahCenter(g, c.col, c.row); s += '<polygon points="' + ahPts(ct.x, ct.y, g.S) + '" fill="rgba(0,0,0,0.26)" stroke="rgba(236,233,223,0.13)" stroke-width="2"/>' }
   ctx.placed.forEach((p, id) => {
     const it = ctx.unitById[id]; if (!it) return; const cs = ahCellsFor(it, p, p.rot)
     let sx = 0, sy = 0, n = 0
@@ -2627,7 +2627,7 @@ function ahBinBoardSVG(ctx, bin) {
   const entries = []; ctx.placed.forEach((p, uid) => { if (p.bin === bin.binId && !p.of) { const u = ctx.unitById[uid]; if (u) entries.push({ uid, p, u }) } })
   const aria = bin.label + " — " + (entries.length ? entries.length + " packed" : "empty")
   let s = '<svg class="ah-svg" role="img" aria-label="' + ahEscX(aria) + '" width="' + g.width.toFixed(0) + '" height="' + g.height.toFixed(0) + '">'
-  for (const c of bin.validList) { const ct = ahCenter(g, c.col, c.row); s += '<polygon points="' + ahPts(ct.x, ct.y, g.S) + '" fill="#101118" stroke="#3a3d4c" stroke-width="2"/>' }
+  for (const c of bin.validList) { const ct = ahCenter(g, c.col, c.row); s += '<polygon points="' + ahPts(ct.x, ct.y, g.S) + '" fill="rgba(0,0,0,0.26)" stroke="rgba(236,233,223,0.13)" stroke-width="2"/>' }
   for (const e of entries) {
     const cs = ahCellsFor(e.u, e.p, e.p.rot); let sx = 0, sy = 0, n = 0
     for (const c of cs) {
