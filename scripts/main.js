@@ -2867,6 +2867,24 @@ function ahGearBits(cat) {
   if (cat.restrict) bits.push(cat.restrict)
   return bits
 }
+// How many wearable containers each body location holds (keeps the worn set small).
+const AH_WEARLOAD = { Belt: 4, Back: 2, Chest: 2, Hip: 2 }
+/** The body location a container occupies (from its slot label; first listed wins). null = unworn (sack). */
+function ahGearSlotKey(cat) {
+  const s = String((cat && cat.slot) || "").toLowerCase().split("/")[0].trim()
+  if (s.indexOf("belt") === 0) return "Belt"
+  if (s.indexOf("back") === 0) return "Back"
+  if (s.indexOf("chest") === 0) return "Chest"
+  if (s.indexOf("hip") === 0) return "Hip"
+  return null
+}
+function ahWearCap(slotKey) { return slotKey && AH_WEARLOAD[slotKey] != null ? AH_WEARLOAD[slotKey] : Infinity }
+/** Count of equipped containers per body location, e.g. { Belt: 2, Back: 1 }. */
+function ahWornLoad(actor) {
+  const cat = ahGearCatalog(), load = {}
+  for (const g of ahGearList(actor)) { const sk = ahGearSlotKey(cat[g.kind]); if (sk) load[sk] = (load[sk] || 0) + 1 }
+  return load
+}
 // DM custom gear (world setting) merged ON TOP of the built-ins, so the DM can add
 // their own belts/packs (name + storage spaces + granted slots) from the app editor.
 function ahGearDefs() { try { const d = game.settings.get(MOD, "ahGearDefs"); return (d && typeof d === "object") ? d : {} } catch { return {} } }
@@ -3192,7 +3210,7 @@ function ahCloseMenu(ctx) { if (ctx._menuOff) { ctx._menuOff(); ctx._menuOff = n
  *  Escape closes + returns focus to the trigger. */
 function ahWireMenu(menu, trigger, close) {
   menu.setAttribute("role", "menu"); menu.setAttribute("tabindex", "-1")
-  const items = Array.prototype.slice.call(menu.querySelectorAll("button"))
+  const items = Array.prototype.slice.call(menu.querySelectorAll("button:not([disabled])"))
   items.forEach(b => b.setAttribute("role", "menuitem"))
   setTimeout(() => { (items[0] || menu).focus() }, 0)
   menu.addEventListener("keydown", (e) => {
@@ -3211,13 +3229,22 @@ function ahOpenGearMenu(actor, anchorEl, triggerEl) {
   anchorEl.querySelectorAll(".ah-gear-menu").forEach(n => n.remove())
   const menu = document.createElement("div"); menu.className = "ah-gear-menu"
   const catalog = ahGearCatalog()
+  const load = ahWornLoad(actor)   // containers already worn, per body location
+  // header: how full each capped location is, so the player sees the limits at a glance
+  const hbits = Object.keys(AH_WEARLOAD).map(k => k + " " + (load[k] || 0) + "/" + AH_WEARLOAD[k])
+  const head = document.createElement("div"); head.className = "ah-gear-mhead"; head.textContent = hbits.join(" · "); menu.appendChild(head)
   for (const kind of ahGearOrder()) {
     const cat = catalog[kind]; if (!cat) continue
+    const sk = ahGearSlotKey(cat), cap = ahWearCap(sk), full = sk != null && (load[sk] || 0) >= cap
     const bits = ahGearBits(cat)
-    const b = document.createElement("button"); b.className = "ah-gear-mi"
-    b.innerHTML = '<span class="ah-gear-mi-n">' + ahEscX(cat.name) + '</span>' + (bits.length ? '<span class="ah-gear-mi-m">' + ahEscX(bits.join(" · ")) + '</span>' : "")
-    b.addEventListener("click", async (e) => {
+    const b = document.createElement("button"); b.className = "ah-gear-mi" + (full ? " full" : "")
+    if (full) { b.disabled = true; b.setAttribute("aria-disabled", "true") }
+    const tail = full ? ' <span class="ah-gear-mi-full">' + ahEscX(sk + " full") + "</span>" : ""
+    b.innerHTML = '<span class="ah-gear-mi-n">' + ahEscX(cat.name) + tail + '</span>' + (bits.length ? '<span class="ah-gear-mi-m">' + ahEscX(bits.join(" · ")) + '</span>' : "")
+    if (!full) b.addEventListener("click", async (e) => {
       e.stopPropagation()
+      if (sk != null && (ahWornLoad(actor)[sk] || 0) >= ahWearCap(sk)) return   // re-check: location filled meanwhile
+      close()   // close on first add so a rapid second click can't over-cap the same location (TOCTOU)
       const list = ahGearList(actor).slice(); list.push({ id: "g" + Math.random().toString(36).slice(2, 8), kind })
       try { await actor.setFlag(MOD, "ahGear", list) } catch (er) { console.warn("[pendant-bridge] AH gear add failed", er) }
     })

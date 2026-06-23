@@ -214,8 +214,12 @@
 .ah-panel .ah-gear-menu { position: absolute; right: 0; top: 22px; z-index: 40; min-width: 184px; max-height: 230px; overflow-y: auto; padding: 4px; border-radius: var(--ah-r); background: var(--ah-sink); border: 1px solid var(--ah-line-2); box-shadow: var(--ah-shadow-pop); display: flex; flex-direction: column; gap: 2px; }
 .ah-panel .ah-gear-mi { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; text-align: left; padding: 6px 8px; border: none; border-radius: var(--ah-r-sm); background: transparent; color: var(--ah-ink); cursor: pointer; }
 .ah-panel .ah-gear-mi:hover { background: var(--ah-action-bg); }
+.ah-panel .ah-gear-mi.full { cursor: not-allowed; opacity: 0.5; }
+.ah-panel .ah-gear-mi.full:hover { background: transparent; }
 .ah-panel .ah-gear-mi-n { font-size: 12px; font-weight: 600; }
+.ah-panel .ah-gear-mi-full { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ah-bad-ink); }
 .ah-panel .ah-gear-mi-m { font-size: 9.5px; color: var(--ah-mute); }
+.ah-panel .ah-gear-mhead { font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ah-mute); padding: 3px 8px 5px; border-bottom: 1px solid var(--ah-line); margin-bottom: 3px; }
 /* the comb (SVG board, scrolls horizontally) */
 .ah-panel .ah-scroll { overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; }
 .ah-panel .ah-svgholder { display: inline-block; }
