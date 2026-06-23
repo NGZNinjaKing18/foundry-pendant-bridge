@@ -2398,12 +2398,22 @@ function ahRenderTray(ctx) {
 }
 
 function ahPixelCell(ctx, e) {
-  const svg = ctx.holder && ctx.holder.querySelector(".ah-svg"); if (!svg) return null
-  const r = svg.getBoundingClientRect()
-  if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) return null
+  const svg = ctx.holder && ctx.holder.querySelector(".ah-svg"); if (!svg || !svg.isConnected) return null
   const g = ctx.geom
-  const px = (e.clientX - r.left) * (g.width / (r.width || g.width)) - g.originX
-  const py = (e.clientY - r.top) * (g.height / (r.height || g.height)) - g.originY
+  // Map the cursor into the SVG's OWN coordinate space via its screen matrix. This is exact
+  // under horizontal scroll, CSS zoom, and the app panel's scale() — unlike a hand-rolled
+  // width-ratio, which drifts the preview away from the cursor the more the sheet is scaled.
+  let lx, ly
+  try {
+    const ctm = svg.getScreenCTM(); if (!ctm) return null
+    const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY
+    const loc = pt.matrixTransform(ctm.inverse()); lx = loc.x; ly = loc.y
+  } catch {
+    const r = svg.getBoundingClientRect(); if (!r.width || !r.height) return null
+    lx = (e.clientX - r.left) * (g.width / r.width); ly = (e.clientY - r.top) * (g.height / r.height)
+  }
+  if (lx < -g.HW || lx > g.width + g.HW || ly < -g.S || ly > g.height + g.S) return null   // slack for edge drops
+  const px = lx - g.originX, py = ly - g.originY
   // pointy-top pixel → axial → cube → cube-round = the true nearest hex (accurate at edges,
   // unlike the old rectangular-bin guess that could land a cell off and drop the item off-grid).
   const qf = (Math.sqrt(3) / 3 * px - 1 / 3 * py) / g.S
@@ -2493,6 +2503,10 @@ function ahStowItem(ctx, uid) {
 /** Keyboard "unpack" (no drag): pull a packed item back out to the loose tray. */
 function ahUnplaceItem(ctx, uid) { if (ctx.placed.has(uid)) { ctx.placed.delete(uid); ahSavePlace(ctx.actor, ahPlaceObj(ctx)) } }
 
+// A drag holds the panel still: if the sheet tries to re-render mid-drag (e.g. an over-capacity
+// self-heal setFlag), we skip the rebuild so the drag isn't orphaned onto a detached grid, then
+// catch up once the drag ends.
+const _ahDrag = { active: false, missed: false, actorId: null }
 /** Spend one of a consumable (owner action): quantity − 1 (deletes the last one) + a chat line. */
 const _ahUsing = new Set()
 async function ahUseItem(actor, itemId) {
@@ -3150,6 +3164,7 @@ function ahCountFits(ctx, key) {
   const used = new Set(ahEquippedIds(ctx)); let n = 0
   for (const it of ctx.items) {
     if (used.has(it.id) || (ctx.bundleN[it.id] || 1) > 1) continue
+    if (ctx.placed && ctx.placed.has(it.id)) continue            // already packed in the bag → not "loose & fits here"
     const m = ctx.metaById[it.id]; if (m && ahFreeBody(ctx, m).has(key)) n++
   }
   return n
@@ -3301,6 +3316,7 @@ function ahDragItem(ctx, id, from, ev) {
   let origPlace = null
   if (from === "bag") { origPlace = ctx.placed.get(id); ctx.placed.delete(id) }
   ctx.held = { id, realId, item: it, rot: origPlace ? origPlace.rot : 0, from, origPlace }
+  _ahDrag.active = true; _ahDrag.actorId = ctx.actor && ctx.actor.id   // hold THIS actor's panel still while dragging
   ctx.hover = null
   ctx.validBody = ahFreeBody(ctx, m)
   // slots the item COULD take that are currently occupied → drop there to SWAP
@@ -3310,13 +3326,14 @@ function ahDragItem(ctx, id, from, ev) {
   ahRenderDoll(ctx); ahRenderBoard(ctx); ahRenderTray(ctx)
   // coalesce hover-recompute + board redraw to one paint per frame (mousemove can fire >100/s)
   let raf = 0, lastE = null
-  const draw = () => { raf = 0; if (!ctx.held || !lastE) return; ahMoveGhost(ctx, lastE); ctx.hover = ahPixelCell(ctx, lastE); ahRenderBoard(ctx) }
+  const draw = () => { raf = 0; if (!ctx.held || !lastE) return; if (ctx.holder && !ctx.holder.isConnected) { finish(true); return } ahMoveGhost(ctx, lastE); ctx.hover = ahPixelCell(ctx, lastE); ahRenderBoard(ctx) }
   const schedule = () => { if (!raf) raf = requestAnimationFrame(draw) }
-  const move = (e) => { if (!ctx.held) return; lastE = e; schedule() }
+  const move = (e) => { if (!ctx.held) return; if (ctx.holder && !ctx.holder.isConnected) { finish(true); return } lastE = e; schedule() }
   const key = (e) => { if (!ctx.held) return; if (e.key === "r" || e.key === "R") { ctx.held.rot = (ctx.held.rot + 1) % 6; schedule() } else if (e.key === "Escape") finish(true) }
   const up = (e) => finish(false, e)
   function finish(cancel, e) {
     if (raf) { cancelAnimationFrame(raf); raf = 0 }
+    _ahDrag.active = false                  // release the panel; setFlag re-renders below proceed normally
     document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); document.removeEventListener("keydown", key)
     if (ctx.ghostEl) ctx.ghostEl.style.display = "none"
     const held = ctx.held; ctx.held = null; const vb = ctx.validBody || new Set(); const vs = ctx.validSwap || new Set(); ctx.validBody = null; ctx.validSwap = null; const hc = (e ? ahPixelCell(ctx, e) : ctx.hover); ctx.hover = null
@@ -3336,6 +3353,7 @@ function ahDragItem(ctx, id, from, ev) {
       else if (hc && ahBagAccepts(ctx, held.id)) { const fit = ahSnapPlace(ctx, held.item, hc, held.rot); if (fit) { ctx.placed.set(held.id, { col: fit.col, row: fit.row, rot: held.rot }); ahSavePlace(ctx.actor, ahPlaceObj(ctx)); done = true } }
     }
     if (!done) { if (held.from === "bag" && held.origPlace) ctx.placed.set(held.id, held.origPlace); ahRenderDoll(ctx); ahRenderBoard(ctx); ahRenderTray(ctx) }
+    if (_ahDrag.missed) { _ahDrag.missed = false; try { const sh = ctx.actor && ctx.actor.sheet; if (sh && sh.rendered) sh.render(false) } catch {} }   // catch up a render we skipped mid-drag
   }
   document.addEventListener("mousemove", move); document.addEventListener("mouseup", up); document.addEventListener("keydown", key)
 }
@@ -3598,6 +3616,8 @@ function ahInjectPanel(app, html) {
   const actor = app?.actor || (app?.document?.documentName === "Actor" ? app.document : null)
   if (!actor) return
   if (actor.type === "group" || actor.type === "party") return   // containers of actors, not carriers
+  // Don't rebuild this actor's panel out from under an in-progress drag — defer until it ends.
+  if (_ahDrag.active && _ahDrag.actorId === actor.id) { _ahDrag.missed = true; return }
   const root = (html instanceof HTMLElement) ? html : (html && html[0]) ? html[0] : null
   if (!root || typeof root.querySelector !== "function") return
   // A re-render replaces sheet content, but ApplicationV2 can patch in place —
