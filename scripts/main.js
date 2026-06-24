@@ -2367,7 +2367,7 @@ function ahRenderBoard(ctx) {
       const ce = ctx.binCapEls && ctx.binCapEls[bin.binId]
       if (ce) { let used = 0; ctx.placed.forEach((p, uid) => { if (p.bin === bin.binId && !p.of) { const u = ctx.unitById[uid]; if (u) used += (Number(u.spaces) || 0) } }); ce.textContent = ahFmt(used) + " / " + ahFmt(bin.cap) }
       const card = ctx.binCards && ctx.binCards[bin.binId]
-      if (card) { const active = !!(ctx.held && ctx.hoverBin === bin.binId), ok = active && ahSepBinAccepts(ctx, bin, ctx.held.id); card.classList.toggle("drop-ok", active && ok); card.classList.toggle("drop-no", active && !ok) }
+      if (card) { const active = !!(ctx.held && ctx.hoverBin === bin.binId), ok = active && !!ahSepDropTarget(ctx, bin, ctx.held.id, ctx.held.rot, ctx.hoverCell); card.classList.toggle("drop-ok", active && ok); card.classList.toggle("drop-no", active && !ok) }
     }
     if (ctx.legendEl) ctx.legendEl.innerHTML = ahLegendHTML(ctx)
     return
@@ -2427,9 +2427,11 @@ function ahRenderTray(ctx) {
   ctx.trayEl.innerHTML = h
 }
 
-function ahPixelCell(ctx, e) {
-  const svg = ctx.holder && ctx.holder.querySelector(".ah-svg"); if (!svg || !svg.isConnected) return null
-  const g = ctx.geom
+/** Map a cursor event to the nearest hex (col,row) of a SPECIFIC grid SVG + its geometry. Used for
+ *  the merged board AND each separate-mode mini-grid (one geom per bin), so manual placement tracks
+ *  the cursor in whichever grid it's over. Returns null if off the grid (beyond the edge slack). */
+function ahPixelCellGeom(svg, g, e) {
+  if (!svg || !svg.isConnected || !g) return null
   // Map the cursor into the SVG's OWN coordinate space via its screen matrix. This is exact
   // under horizontal scroll, CSS zoom, and the app panel's scale() — unlike a hand-rolled
   // width-ratio, which drifts the preview away from the cursor the more the sheet is scaled.
@@ -2457,6 +2459,8 @@ function ahPixelCell(ctx, e) {
   let col = cell.col; if (col < 0) col = 0
   return { col, row }
 }
+function ahPixelCell(ctx, e) { const svg = ctx.holder && ctx.holder.querySelector(".ah-svg"); return ahPixelCellGeom(svg, ctx.geom, e) }
+function ahCellEq(a, b) { if (!a && !b) return true; if (!a || !b) return false; return a.col === b.col && a.row === b.row }
 /** The anchor where `item` (at `rot`) actually fits: the hovered cell, else the nearest
  *  open spot within 2 cells. Lets an edge/overhanging drop snap in instead of vanishing. */
 function ahSnapPlace(ctx, item, anchor, rot) {
@@ -2587,6 +2591,77 @@ function ahPackInto(bin, units) {
   }
   return out
 }
+// ── per-cell MANUAL placement within a bin (the merged-style "choose the exact hex + R to rotate",
+//    now per container). `ahPlaceSep[uid]` is EITHER a bin-id STRING (auto-pack — legacy / Tidy /
+//    keyboard-stow) OR an object `{bin,col,row,rot}` (the user dropped it on a specific hex). These
+//    two readers normalise both forms; ahSepEntryEq compares them (idempotent saves / self-heal). ──
+function ahSepBinOf(a) { return (typeof a === "string") ? a : (a && a.bin) || null }
+function ahSepCellOf(a) { return (a && typeof a === "object" && a.col != null) ? { col: a.col, row: a.row, rot: a.rot | 0 } : null }
+function ahSepEntryEq(a, b) {
+  if (a === b) return true
+  const sa = typeof a === "string", sb = typeof b === "string"
+  if (sa || sb) return a === b
+  if (!a || !b) return false
+  return a.bin === b.bin && a.col === b.col && a.row === b.row && (a.rot | 0) === (b.rot | 0)
+}
+/** Occupied cells in `binId` from CURRENT placements (excludes `excludeUid` and overflow markers) —
+ *  the free space a manual drop must fit into, WITHOUT rearranging the items already in the bin. */
+function ahBinOcc(ctx, binId, excludeUid) {
+  const m = new Set()
+  ctx.placed.forEach((p, uid) => { if (uid === excludeUid || !p || p.bin !== binId || p.of || p.col == null) return; const u = ctx.unitById[uid]; if (!u) return; for (const c of ahCellsFor(u, p, p.rot)) m.add(c.col + "," + c.row) })
+  return m
+}
+function ahBinFitsAt(bin, occ, item, anchor, rot) {
+  for (const c of ahCellsFor(item, anchor, rot)) { const k = c.col + "," + c.row; if (!bin.validSet.has(k) || occ.has(k)) return false }
+  return true
+}
+/** The anchor where `item` (at `rot`) fits in `bin`: the hovered cell, else the nearest open spot
+ *  within 2 cells (so an edge/overhanging drop snaps in instead of vanishing — mirrors merged). */
+function ahBinSnap(bin, occ, item, anchor, rot) {
+  if (!anchor) return null
+  if (ahBinFitsAt(bin, occ, item, anchor, rot)) return { col: anchor.col, row: anchor.row }
+  for (let d = 1; d <= 2; d++) for (let dr = -d; dr <= d; dr++) for (let dc = -d; dc <= d; dc++) {
+    if (Math.max(Math.abs(dr), Math.abs(dc)) !== d) continue
+    if (ahBinFitsAt(bin, occ, item, { col: anchor.col + dc, row: anchor.row + dr }, rot)) return { col: anchor.col + dc, row: anchor.row + dr }
+  }
+  return null
+}
+/** Pack a bin honouring EXPLICIT per-cell placements first, then FFD the rest into the cells they
+ *  leave free. `explicit` = Map(uid → {col,row,rot}) of requested cells (validated here — an out-of-
+ *  grid / colliding request silently falls through to the auto pass). Returns Map(uid → {col,row,rot})
+ *  of everything that fit; callers mark the leftovers as overflow. */
+function ahPackBinPlaced(bin, units, explicit) {
+  const occ = new Set(), out = new Map()
+  const cellsOk = (cells) => { for (const c of cells) { const k = c.col + "," + c.row; if (!bin.validSet.has(k) || occ.has(k)) return false } return true }
+  const claim = (cells) => { for (const c of cells) occ.add(c.col + "," + c.row) }
+  // 1) explicit requested cells, stable order so collision resolution is deterministic
+  const exUnits = units.filter(u => explicit && explicit.has(u.uid)).sort((a, b) => String(a.uid).localeCompare(String(b.uid)))
+  const placedExplicit = new Set()
+  for (const u of exUnits) {
+    const req = explicit.get(u.uid), rot = req.rot | 0, cells = ahCellsFor(u, { col: req.col, row: req.row }, rot)
+    if (cellsOk(cells)) { claim(cells); out.set(u.uid, { col: req.col, row: req.row, rot }); placedExplicit.add(u.uid) }
+  }
+  // 2) the rest — auto-pack FFD (biggest first) into the cells the explicit ones left free
+  const auto = units.filter(u => !placedExplicit.has(u.uid)).sort((a, b) => ((b.shape ? b.shape.length : 1) - (a.shape ? a.shape.length : 1)) || String(a.uid).localeCompare(String(b.uid)))
+  for (const u of auto) {
+    let done = false
+    for (const cell of bin.validList) { for (let rot = 0; rot < 6; rot++) { const cells = ahCellsFor(u, cell, rot); if (cellsOk(cells)) { claim(cells); out.set(u.uid, { col: cell.col, row: cell.row, rot }); done = true; break } } if (done) break }
+  }
+  return out
+}
+/** Where a held unit would land if dropped over `bin` with the cursor at `cell` (in the bin's grid).
+ *  Returns {col,row,rot} (ALWAYS a concrete, fitting cell) or null if it can't go in at all (wrong
+ *  type / bin full). Prefers the cursor cell (snap within 2 — what the player sees) and only falls
+ *  back to the first free spot when the cursor is on a packed area, so preview === where it lands. */
+function ahSepDropTarget(ctx, bin, uid, rot, cell) {
+  const u = ctx.unitById[uid]; if (!u) return null
+  if (!ahCanBag(ctx, uid)) return null
+  if (bin.types && bin.types.indexOf(ahTagFor(ctx, u.itemId)) < 0) return null
+  const occ = ahBinOcc(ctx, bin.binId, uid)
+  if (cell) { const snap = ahBinSnap(bin, occ, u, cell, rot); if (snap) return { col: snap.col, row: snap.row, rot } }
+  for (const c of bin.validList) for (let r = 0; r < 6; r++) if (ahBinFitsAt(bin, occ, u, c, r)) return { col: c.col, row: c.row, rot: r }
+  return null
+}
 /** Unit objects actually PACKED in `binId` (excluding `exceptUid` and non-drawn overflow markers). */
 function ahSepUnitsIn(ctx, binId, exceptUid) {
   const out = []; ctx.placed.forEach((p, uid) => { if (uid !== exceptUid && p.bin === binId && !p.of) { const u = ctx.unitById[uid]; if (u) out.push(u) } }); return out
@@ -2628,58 +2703,85 @@ function ahNativeCapLabel(ctx, containerId) {
 function ahBuildSepPlaced(ctx) {
   let assign = {}; try { assign = ctx.actor.getFlag(MOD, "ahPlaceSep") || {} } catch {}
   if (!assign || typeof assign !== "object") assign = {}
-  const bind = ahBinding(ctx), byBin = new Map(), valid = []
+  const bind = ahBinding(ctx), byBin = new Map(), cellByBin = new Map(), reqCell = new Map(), valid = []
   for (const u of ctx.units) {
     const uid = u.uid
     if (!ahCanBag(ctx, uid)) continue                                        // worn-only can't be bagged
+    const a = assign[uid], aBin = ahSepBinOf(a), aCell = ahSepCellOf(a)       // entry is a bin-id string OR {bin,col,row,rot}
     let binId = null
     if (bind) {
       const cid = ahItemContainer(ctx, u.itemId)                             // real container = authoritative for it: bins
       if (cid && ctx.binById["it:" + cid]) binId = "it:" + cid
-      else { const a = assign[uid]; if (a && ctx.binById[a]) binId = a }     // flag fallback: AH-only bins (gr:/str) AND legacy it: bins not yet migrated to system.container (so old bags don't fall out when binding turns on; they migrate the next time the item is moved)
-    } else {
-      const a = assign[uid]; if (a && ctx.binById[a]) binId = a              // legacy: the flag drives everything
-    }
+      else if (aBin && ctx.binById[aBin]) binId = aBin                       // flag fallback: AH-only bins (gr:/str) AND legacy it: bins not yet migrated to system.container (so old bags don't fall out when binding turns on; they migrate the next time the item is moved)
+    } else if (aBin && ctx.binById[aBin]) binId = aBin                        // legacy: the flag drives everything
     if (!binId) continue
     const bin = ctx.binById[binId]
     if (bin.types && bin.types.indexOf(ahTagFor(ctx, u.itemId)) < 0) continue  // type not allowed by this bin
-    valid.push({ uid, binId }); if (!byBin.has(binId)) byBin.set(binId, []); byBin.get(binId).push(u)
+    valid.push({ uid, binId }); if (!byBin.has(binId)) { byBin.set(binId, []); cellByBin.set(binId, new Map()) }
+    byBin.get(binId).push(u)
+    // an explicit cell applies only if it was stored FOR this resolved bin (a moved item drops it)
+    if (aCell && aBin === binId) { cellByBin.get(binId).set(uid, aCell); reqCell.set(uid, { bin: binId, col: aCell.col, row: aCell.row, rot: aCell.rot | 0 }) }
   }
   const placed = new Map()
-  for (const bin of ctx.bins) ahPackInto(bin, byBin.get(bin.binId) || []).forEach((pos, uid) => placed.set(uid, { col: pos.col, row: pos.row, rot: pos.rot, bin: bin.binId }))
+  // explicit (player-chosen) cells claim their spot first; the rest auto-pack into what's left
+  for (const bin of ctx.bins) ahPackBinPlaced(bin, byBin.get(bin.binId) || [], cellByBin.get(bin.binId) || new Map()).forEach((pos, uid) => placed.set(uid, { col: pos.col, row: pos.row, rot: pos.rot, bin: bin.binId }))
+  // uids that carry an explicit requested cell → persisted as the object form (so manual placement
+  // survives re-renders); everything else stays a bin-id string (auto-pack flows on the next build).
+  ctx._sepEx = new Set(reqCell.keys())
   // valid-but-unpacked (bin capacity shrank) → non-drawn `of:true` marker: shows as loose but its
-  // chosen bin is remembered (re-packs if room returns). For it: bins the memory IS system.container.
-  for (const { uid, binId } of valid) if (!placed.has(uid)) placed.set(uid, { bin: binId, of: true })
+  // chosen bin (and explicit cell, if any) is remembered → re-packs there if room returns.
+  for (const { uid, binId } of valid) if (!placed.has(uid)) { const rc = reqCell.get(uid); placed.set(uid, rc ? { bin: binId, of: true, col: rc.col, row: rc.row, rot: rc.rot } : { bin: binId, of: true }) }
   return placed
 }
-/** Assign one unit to a bin (binId) or make it loose (null) from an EXPLICIT user action. Mirror: a
- *  real `it:` bin writes the item's dnd5e system.container; AH-only bins (gr:/str) use the ahPlaceSep
- *  flag — and each clears the other so there's a single source of truth. NEVER call during render. */
-function ahAssignUnit(ctx, uid, binId) {
+/** Assign one unit to a bin (binId) or make it loose (null) from an EXPLICIT user action. `cell`
+ *  ({col,row,rot}) = the exact hex the player dropped it on → stored as the object form so manual
+ *  placement persists; omit it for auto-pack (keyboard stow / un-assign). Mirror: a real `it:` bin
+ *  writes the item's dnd5e system.container; AH-only bins (gr:/str) live in the ahPlaceSep flag —
+ *  and each clears the other so there's a single source of truth. NEVER call during render. */
+function ahAssignUnit(ctx, uid, binId, cell) {
   const u = ctx.unitById[uid], realId = (u && u.itemId) || uid, bind = ahBinding(ctx)
   if (bind) {
     const it = ctx.actor && ctx.actor.items && ctx.actor.items.get(realId)
     const target = (binId && binId.slice(0, 3) === "it:") ? binId.slice(3) : null   // real container id, else loose / AH-only bin
     if (it && it.system) { const cur = it.system.container || null; if (cur !== target) { try { Promise.resolve(it.update({ "system.container": target })).catch(e => console.warn("[pendant-bridge] AH container write failed", e)) } catch (e) { console.warn("[pendant-bridge] AH container write failed", e) } } }
   }
-  // the flag stores ONLY AH-only bins when binding (it: membership lives in system.container); legacy = all.
   // clone the stored flag (getFlag may return a frozen/source ref) so delete/assign actually take.
   let assign = {}; try { assign = { ...(ctx.actor.getFlag(MOD, "ahPlaceSep") || {}) } } catch {}
   if (!assign || typeof assign !== "object") assign = {}
-  const keep = binId && (!bind || binId.slice(0, 3) !== "it:")
-  if (keep) { if (assign[uid] !== binId) { assign[uid] = binId; ahSavePlaceSep(ctx.actor, assign) } }
+  // What to store in the flag:
+  //  - binding OFF: full membership (+ cell when supplied) for every bin.
+  //  - binding ON: AH-only bins (gr:/str) store membership (+ cell); a real it: bin lives in
+  //    system.container, so its flag entry is ONLY the cosmetic cell (and only when we have one).
+  const isItBin = binId && binId.slice(0, 3) === "it:"
+  const cellEntry = cell ? { bin: binId, col: cell.col, row: cell.row, rot: cell.rot | 0 } : null
+  let entry = null
+  if (binId) {
+    if (!bind || !isItBin) entry = cellEntry || binId
+    else entry = cellEntry   // binding it: → cell-only (null when no cell: membership is system.container)
+  }
+  if (entry != null) { if (!ahSepEntryEq(assign[uid], entry)) { assign[uid] = entry; ahSavePlaceSep(ctx.actor, assign) } }
   else if (uid in assign) { delete assign[uid]; ahSavePlaceSep(ctx.actor, assign) }
 }
-/** The {uid: binId} object to persist — derived from ctx.placed, INCLUDING overflow markers so a
- *  remembered-but-unfitting assignment is preserved across unrelated saves. */
+/** The {uid: entry} object to persist — derived from ctx.placed, INCLUDING overflow markers so a
+ *  remembered-but-unfitting assignment is preserved across unrelated saves. A uid that holds an
+ *  explicit (player-chosen) cell is written as the object form `{bin,col,row,rot}`; auto-packed
+ *  units stay a bin-id string so Tidy/adds re-flow them. Must MATCH what ahAssignUnit writes so the
+ *  self-heal comparison (ahSepEntryEq) never loops. */
 function ahSepAssignObj(ctx) {
-  const bind = ahBinding(ctx), o = {}
+  const bind = ahBinding(ctx), ex = ctx._sepEx, o = {}
   ctx.placed.forEach((p, uid) => {
     if (!p || !p.bin) return
-    // when binding, an it: bin lives in system.container — keep it in the flag ONLY while the item
-    // hasn't been migrated yet (no system.container), so legacy bags survive the switch without churn
-    if (bind && p.bin.slice(0, 3) === "it:") { const u = ctx.unitById[uid]; if (u && ahItemContainer(ctx, u.itemId)) return }
-    o[uid] = p.bin
+    const explicit = !!(ex && ex.has(uid)) && p.col != null   // landed at / remembers a chosen cell
+    const isItBin = p.bin.slice(0, 3) === "it:"
+    const cellEntry = explicit ? { bin: p.bin, col: p.col, row: p.row, rot: p.rot | 0 } : null
+    if (bind && isItBin) {
+      // membership = system.container. Keep a cosmetic cell once migrated; keep the legacy membership
+      // string only while NOT yet migrated (no system.container), so legacy bags survive the switch.
+      if (cellEntry) o[uid] = cellEntry
+      else { const u = ctx.unitById[uid]; if (u && !ahItemContainer(ctx, u.itemId)) o[uid] = p.bin }
+    } else {
+      o[uid] = cellEntry || p.bin
+    }
   })
   return o
 }
@@ -2748,13 +2850,13 @@ function ahBinBoardSVG(ctx, bin) {
     s += '<text x="' + r.cx.toFixed(1) + '" y="' + (r.cy + 3).toFixed(1) + '" text-anchor="middle" font-size="10" font-weight="700" fill="#fff" stroke="rgba(0,0,0,.62)" stroke-width="2.6" stroke-linejoin="round" paint-order="stroke" style="pointer-events:none">' + ahEscX(ahMark(e.u.name)) + "</text>"
   }
   if (ctx.held && ctx.hoverBin === bin.binId) {
-    if (ahSepBinAccepts(ctx, bin, ctx.held.id)) {
-      // green: show exactly where the held unit would auto-pack
-      const trial = ahSepUnitsIn(ctx, bin.binId, ctx.held.id); trial.push(ctx.held.item)
-      const pos = ahPackInto(bin, trial).get(ctx.held.id)
-      const cs = pos ? ahCellsFor(ctx.held.item, pos, pos.rot) : []
+    // GREEN preview at the cursor's hex (snap within 2 — what you see is where it lands), at the
+    // held rotation; falls back to the first free spot only when the cursor is on a packed area.
+    const t = ahSepDropTarget(ctx, bin, ctx.held.id, ctx.held.rot, ctx.hoverCell)
+    if (t) {
+      const cs = ahCellsFor(ctx.held.item, { col: t.col, row: t.row }, t.rot)
       let hx = 0, hy = 0, hn = 0
-      for (const c of cs) { const ct = ahCenter(g, c.col, c.row); s += '<polygon points="' + ahPts(ct.x, ct.y, g.S) + '" fill="rgba(121,189,102,.45)" stroke="#79bd66" stroke-width="2.5" style="pointer-events:none"/>'; hx += ct.x; hy += ct.y; hn++ }
+      for (const c of cs) { if (!bin.validSet.has(c.col + "," + c.row)) continue; const ct = ahCenter(g, c.col, c.row); s += '<polygon points="' + ahPts(ct.x, ct.y, g.S) + '" fill="rgba(121,189,102,.45)" stroke="#79bd66" stroke-width="2.5" style="pointer-events:none"/>'; hx += ct.x; hy += ct.y; hn++ }
       if (hn) s += '<text x="' + (hx / hn).toFixed(1) + '" y="' + (hy / hn + 5).toFixed(1) + '" text-anchor="middle" font-size="15" font-weight="700" fill="#fff" stroke="rgba(0,0,0,.6)" stroke-width="3" stroke-linejoin="round" paint-order="stroke" style="pointer-events:none">✓</text>'
     } else {
       // red wash: won't fit (full, or wrong type for this container)
@@ -3699,7 +3801,7 @@ function ahDragItem(ctx, id, from, ev) {
   if (from === "bag") { origPlace = ctx.placed.get(id); ctx.placed.delete(id) }
   ctx.held = { id, realId, item: it, rot: origPlace ? origPlace.rot : 0, from, origPlace }
   _ahDrag.active = true; _ahDrag.actorId = ctx.actor && ctx.actor.id   // hold THIS actor's panel still while dragging
-  ctx.hover = null; ctx.hoverBin = null
+  ctx.hover = null; ctx.hoverBin = null; ctx.hoverCell = null; ctx.hoverRot = null   // hoverCell/Rot = the cursor's hex + held rotation within the hovered bin (separate mode)
   ctx.validBody = ahFreeBody(ctx, m)
   // slots the item COULD take that are currently occupied → drop there to SWAP
   const occ0 = ahOccupancy(ctx); ctx.validSwap = new Set()
@@ -3708,7 +3810,7 @@ function ahDragItem(ctx, id, from, ev) {
   ahRenderDoll(ctx); ahRenderBoard(ctx); ahRenderTray(ctx)
   // coalesce hover-recompute + board redraw to one paint per frame (mousemove can fire >100/s)
   const sx = ev.clientX, sy = ev.clientY   // drag origin → a small movement threshold (below)
-  let raf = 0, lastE = null, moved = false
+  let raf = 0, lastE = ev, moved = false   // seed lastE so R-rotate repaints even before the first move
   const draw = () => {
     raf = 0; if (!ctx.held || !lastE) return
     const host = ctx.separate ? ctx.binsEl : ctx.holder
@@ -3718,7 +3820,12 @@ function ahDragItem(ctx, id, from, ev) {
       const el = document.elementFromPoint(lastE.clientX, lastE.clientY)
       const be = el && el.closest && el.closest("[data-bin]")
       const hb = (be && ctx.binsEl && ctx.binsEl.contains(be)) ? be.getAttribute("data-bin") : null   // only THIS actor's bins
-      if (hb !== ctx.hoverBin) { ctx.hoverBin = hb; ahRenderBoard(ctx) }   // repaint boards only when the hovered bin changes
+      // the cursor's exact hex IN that bin's own grid (per-bin geom + screen matrix → tracks the cursor)
+      let hc = null
+      if (hb) { const holder = ctx.binHolders && ctx.binHolders[hb]; const svg = holder && holder.querySelector(".ah-svg"); const bin = ctx.binById[hb]; hc = ahPixelCellGeom(svg, bin && bin.geom, lastE) }
+      if (hb !== ctx.hoverBin || !ahCellEq(hc, ctx.hoverCell) || ctx.held.rot !== ctx.hoverRot) {   // repaint only when the target hex (or rotation) changes
+        ctx.hoverBin = hb; ctx.hoverCell = hc; ctx.hoverRot = ctx.held.rot; ahRenderBoard(ctx)
+      }
       return
     }
     ctx.hover = ahPixelCell(ctx, lastE); ahRenderBoard(ctx)
@@ -3734,7 +3841,7 @@ function ahDragItem(ctx, id, from, ev) {
     _ahDrag.active = false                  // release the panel; setFlag re-renders below proceed normally
     document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); document.removeEventListener("keydown", key)
     if (ctx.ghostEl) ctx.ghostEl.style.display = "none"
-    const held = ctx.held; ctx.held = null; const vb = ctx.validBody || new Set(); const vs = ctx.validSwap || new Set(); ctx.validBody = null; ctx.validSwap = null; const hc = ctx.separate ? null : (e ? ahPixelCell(ctx, e) : ctx.hover); ctx.hover = null; ctx.hoverBin = null
+    const held = ctx.held; ctx.held = null; const vb = ctx.validBody || new Set(); const vs = ctx.validSwap || new Set(); ctx.validBody = null; ctx.validSwap = null; const hc = ctx.separate ? null : (e ? ahPixelCell(ctx, e) : ctx.hover); ctx.hover = null; ctx.hoverBin = null; ctx.hoverCell = null; ctx.hoverRot = null
     if (!held) return
     let done = false
     if (!cancel && e) {
@@ -3748,10 +3855,15 @@ function ahDragItem(ctx, id, from, ev) {
         if (hm && hm.twoHanded && (slot === "LHand" || slot === "RHand")) { const oth = slot === "LHand" ? "RHand" : "LHand"; const o2 = ahOccupancy(ctx)[oth]; if (o2) ahUnequip(ctx, o2) }
         ahEquipItem(ctx, held.realId, slot); done = true
       }
-      else if (ctx.separate) {   // multi-grid: assign to whichever bin the cursor was released over (if it fits)
+      else if (ctx.separate) {   // multi-grid: assign to whichever bin the cursor was released over, at the exact hex
         const binEl = tgt && tgt.closest && tgt.closest("[data-bin]")
         const bin = binEl && ctx.binsEl && ctx.binsEl.contains(binEl) && ctx.binById[binEl.getAttribute("data-bin")]   // only THIS actor's bins
-        if (bin && ahSepBinAccepts(ctx, bin, held.id)) { ahAssignUnit(ctx, held.id, bin.binId); done = true }   // mirror: it: bins write system.container; the re-render auto-packs
+        if (bin) {
+          const holder = ctx.binHolders && ctx.binHolders[bin.binId]; const svg = holder && holder.querySelector(".ah-svg")
+          const cell = ahPixelCellGeom(svg, bin.geom, e)                       // recompute from the mouseup event (rAF could have staled the hover)
+          const t = ahSepDropTarget(ctx, bin, held.id, held.rot, cell)         // the exact landing hex (same as the green preview)
+          if (t) { ahAssignUnit(ctx, held.id, bin.binId, { col: t.col, row: t.row, rot: t.rot }); done = true }   // store the chosen cell; mirror: it: bins also write system.container
+        }
       }
       else if (hc && ahBagAccepts(ctx, held.id)) { const fit = ahSnapPlace(ctx, held.item, hc, held.rot); if (fit) { ctx.placed.set(held.id, { col: fit.col, row: fit.row, rot: held.rot }); ahSavePlace(ctx.actor, ahPlaceObj(ctx)); done = true } }
     }
@@ -3839,7 +3951,7 @@ function ahBuildPanel(actor) {
   // SEPARATE: compare the DESIRED flag (gr:/str only when binding — it: membership lives in
   // system.container, not the flag) to the saved flag, so binding never triggers a render loop.
   let needHeal
-  if (ctx.separate) { const want = ahSepAssignObj(ctx), wk = Object.keys(want), sk = Object.keys(savedPlace); needHeal = wk.length !== sk.length || wk.some(k => want[k] !== savedPlace[k]) }
+  if (ctx.separate) { const want = ahSepAssignObj(ctx), wk = Object.keys(want), sk = Object.keys(savedPlace); needHeal = wk.length !== sk.length || wk.some(k => !ahSepEntryEq(want[k], savedPlace[k])) }   // ahSepEntryEq, not !==: entries can be {bin,col,row,rot} objects (a new ref each build → would loop)
   else needHeal = ctx.placed.size !== Object.keys(savedPlace).length
   if (ctx.canArrange && !ahAnyActiveGM() && ahIsWriteAuthority(actor) && needHeal) ahPersistPlace(ctx)
 
