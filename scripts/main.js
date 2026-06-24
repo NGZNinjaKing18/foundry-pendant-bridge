@@ -2658,8 +2658,12 @@ function ahSepDropTarget(ctx, bin, uid, rot, cell) {
   if (!ahCanBag(ctx, uid)) return null
   if (bin.types && bin.types.indexOf(ahTagFor(ctx, u.itemId)) < 0) return null
   const occ = ahBinOcc(ctx, bin.binId, uid)
-  if (cell) { const snap = ahBinSnap(bin, occ, u, cell, rot); if (snap) return { col: snap.col, row: snap.row, rot } }
-  for (const c of bin.validList) for (let r = 0; r < 6; r++) if (ahBinFitsAt(bin, occ, u, c, r)) return { col: c.col, row: c.row, rot: r }
+  // HONOUR the chosen rotation: snap within 2 of the cursor at THIS rotation (so R visibly rotates
+  // the preview, and a shape that won't fit at the cursor shows RED instead of silently re-rotating
+  // to some other cell — that silent re-rotate was why "R wasn't working").
+  if (cell) { const snap = ahBinSnap(bin, occ, u, cell, rot); return snap ? { col: snap.col, row: snap.row, rot } : null }
+  // dropped on the card but off the grid (no cursor hex) → first free spot at the SAME rotation
+  for (const c of bin.validList) if (ahBinFitsAt(bin, occ, u, c, rot)) return { col: c.col, row: c.row, rot }
   return null
 }
 /** Unit objects actually PACKED in `binId` (excluding `exceptUid` and non-drawn overflow markers). */
@@ -2871,7 +2875,7 @@ function ahBinBoardSVG(ctx, bin) {
 // A drag holds the panel still: if the sheet tries to re-render mid-drag (e.g. an over-capacity
 // self-heal setFlag), we skip the rebuild so the drag isn't orphaned onto a detached grid, then
 // catch up once the drag ends.
-const _ahDrag = { active: false, missed: false, actorId: null }
+const _ahDrag = { active: false, missed: false, actorId: null, cancel: null }
 // Safety net so a drag can NEVER permanently freeze the panel. If our document mouseup doesn't fire
 // (e.g. the button was released OUTSIDE the Foundry window), the per-drag finish() never runs, so
 // _ahDrag.active would stay true and ahInjectPanel would block every future rebuild → frozen panel.
@@ -2881,6 +2885,9 @@ const _ahDrag = { active: false, missed: false, actorId: null }
 // per-drag finish() (so it no-ops on a normal drag). finish() still owns the real placement cleanup.
 function ahReleaseStuckDrag() {
   if (!_ahDrag.active) return
+  // prefer the active drag's own cancel → removes its move/up/keydown listeners + cleanly reverts
+  // (no zombie listeners). Falls back to flag-clear + sheet re-render if no cancel is registered.
+  if (typeof _ahDrag.cancel === "function") { try { _ahDrag.cancel(); return } catch {} }
   const aid = _ahDrag.actorId
   _ahDrag.active = false; _ahDrag.missed = false
   try { const a = aid && game.actors && game.actors.get(aid); const sh = a && a.sheet; if (sh && sh.rendered) sh.render(false) } catch {}
@@ -3801,6 +3808,7 @@ function ahDragItem(ctx, id, from, ev) {
   if (from === "bag") { origPlace = ctx.placed.get(id); ctx.placed.delete(id) }
   ctx.held = { id, realId, item: it, rot: origPlace ? origPlace.rot : 0, from, origPlace }
   _ahDrag.active = true; _ahDrag.actorId = ctx.actor && ctx.actor.id   // hold THIS actor's panel still while dragging
+  _ahDrag.cancel = () => finish(true)   // orphan backstop calls this → cleanly removes listeners + reverts (finish is hoisted)
   ctx.hover = null; ctx.hoverBin = null; ctx.hoverCell = null; ctx.hoverRot = null   // hoverCell/Rot = the cursor's hex + held rotation within the hovered bin (separate mode)
   ctx.validBody = ahFreeBody(ctx, m)
   // slots the item COULD take that are currently occupied → drop there to SWAP
@@ -3832,14 +3840,16 @@ function ahDragItem(ctx, id, from, ev) {
   }
   const schedule = () => { if (!raf) raf = requestAnimationFrame(draw) }
   const move = (e) => { if (!ctx.held) return; const host = ctx.separate ? ctx.binsEl : ctx.holder; if (host && !host.isConnected) { finish(true); return } if (!moved && (Math.abs(e.clientX - sx) > 5 || Math.abs(e.clientY - sy) > 5)) moved = true; lastE = e; schedule() }
-  const key = (e) => { if (!ctx.held) return; if (e.key === "r" || e.key === "R") { ctx.held.rot = (ctx.held.rot + 1) % 6; schedule() } else if (e.key === "Escape") finish(true) }
+  // R rotates, Esc cancels. CAPTURE on window + preventDefault/stopPropagation so the key reaches us
+  // BEFORE any Foundry/system/module keybind can swallow "R" (which was making rotate look dead).
+  const key = (e) => { if (!ctx.held) return; if (e.key === "r" || e.key === "R") { e.preventDefault(); e.stopPropagation(); ctx.held.rot = (ctx.held.rot + 1) % 6; schedule() } else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); finish(true) } }
   // released WITHOUT a real drag (a click / let-go-too-soon) → pass no event so finish drops nothing
   // and cleanly reverts (bag item back to its bin, loose item stays loose). Only a genuine drag drops.
   const up = (e) => finish(false, moved ? e : null)
   function finish(cancel, e) {
     if (raf) { cancelAnimationFrame(raf); raf = 0 }
-    _ahDrag.active = false                  // release the panel; setFlag re-renders below proceed normally
-    document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); document.removeEventListener("keydown", key)
+    _ahDrag.active = false; _ahDrag.cancel = null   // release the panel; setFlag re-renders below proceed normally
+    document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); window.removeEventListener("keydown", key, true)
     if (ctx.ghostEl) ctx.ghostEl.style.display = "none"
     const held = ctx.held; ctx.held = null; const vb = ctx.validBody || new Set(); const vs = ctx.validSwap || new Set(); ctx.validBody = null; ctx.validSwap = null; const hc = ctx.separate ? null : (e ? ahPixelCell(ctx, e) : ctx.hover); ctx.hover = null; ctx.hoverBin = null; ctx.hoverCell = null; ctx.hoverRot = null
     if (!held) return
@@ -3862,7 +3872,12 @@ function ahDragItem(ctx, id, from, ev) {
           const holder = ctx.binHolders && ctx.binHolders[bin.binId]; const svg = holder && holder.querySelector(".ah-svg")
           const cell = ahPixelCellGeom(svg, bin.geom, e)                       // recompute from the mouseup event (rAF could have staled the hover)
           const t = ahSepDropTarget(ctx, bin, held.id, held.rot, cell)         // the exact landing hex (same as the green preview)
-          if (t) { ahAssignUnit(ctx, held.id, bin.binId, { col: t.col, row: t.row, rot: t.rot }); done = true }   // store the chosen cell; mirror: it: bins also write system.container
+          if (t) {
+            ahAssignUnit(ctx, held.id, bin.binId, { col: t.col, row: t.row, rot: t.rot })   // store the chosen cell; mirror: it: bins also write system.container
+            ctx.placed.set(held.id, { col: t.col, row: t.row, rot: t.rot, bin: bin.binId })  // reflect NOW — if the flag write is a no-op (dropped on the same spot) nothing would re-render and the item would vanish until the next render
+            ahRenderBoard(ctx); ahRenderTray(ctx)
+            done = true
+          }
         }
       }
       else if (hc && ahBagAccepts(ctx, held.id)) { const fit = ahSnapPlace(ctx, held.item, hc, held.rot); if (fit) { ctx.placed.set(held.id, { col: fit.col, row: fit.row, rot: held.rot }); ahSavePlace(ctx.actor, ahPlaceObj(ctx)); done = true } }
@@ -3870,7 +3885,7 @@ function ahDragItem(ctx, id, from, ev) {
     if (!done) { if (held.from === "bag" && held.origPlace) ctx.placed.set(held.id, held.origPlace); ahRenderDoll(ctx); ahRenderBoard(ctx); ahRenderTray(ctx) }
     if (_ahDrag.missed) { _ahDrag.missed = false; try { const sh = ctx.actor && ctx.actor.sheet; if (sh && sh.rendered) sh.render(false) } catch {} }   // catch up a render we skipped mid-drag
   }
-  document.addEventListener("mousemove", move); document.addEventListener("mouseup", up); document.addEventListener("keydown", key)
+  document.addEventListener("mousemove", move); document.addEventListener("mouseup", up); window.addEventListener("keydown", key, true)   // keydown on window/CAPTURE → R/Esc reach us before Foundry keybinds
 }
 
 function ahBuildPanel(actor) {
