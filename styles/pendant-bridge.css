@@ -194,7 +194,6 @@
 .ah-panel .ah-gb-nm { font-size: 12px; font-weight: 600; color: var(--ah-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ah-panel .ah-gb-nm.muted { font-weight: 500; color: var(--ah-dim); }
 .ah-panel .ah-gb-sl { font-size: 9.5px; color: var(--ah-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ah-panel .ah-gb-dots { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 3px; max-width: 44px; justify-content: flex-end; }
 .ah-panel .ah-gb-x { position: absolute; top: 1px; right: 1px; z-index: 3; width: 18px; height: 18px; border: none; border-radius: 50%; background: var(--ah-pop); color: var(--ah-dim); font-size: 13px; line-height: 1; cursor: pointer; padding: 0; opacity: 0; transition: opacity var(--ah-ease), background var(--ah-ease), color var(--ah-ease); }
 .ah-panel .ah-gb:hover .ah-gb-x, .ah-panel .ah-gb:focus-within .ah-gb-x { opacity: 1; }
 .ah-panel .ah-gb-x:hover { background: var(--ah-bad); color: var(--ah-ink-inverse); }
@@ -213,8 +212,6 @@
 .ah-panel .ah-gb-swap { position: absolute; top: 2px; right: 5px; font-size: 10px; color: var(--ah-action-ink); }
 .ah-panel .ah-slot { position: relative; }   /* base class on every tile (drag/valid/swap hooks + transitions key off it); tile geometry is in .ah-tile below */
 .ah-panel .ah-pick-bag { font-style: normal; font-size: 8.5px; color: var(--ah-mute); margin-left: auto; background: rgba(255, 255, 255, 0.06); border-radius: var(--ah-pill); padding: 0 6px; }
-.ah-panel .ah-bdot { width: 13px; height: 13px; border-radius: 3px; cursor: pointer; box-shadow: var(--ah-ring-dark); border: none; padding: 0; -webkit-appearance: none; appearance: none; }
-.ah-panel .ah-bdot:hover { outline: 1px solid var(--ah-bad); outline-offset: 1px; }
 /* ── square equipment tiles — the slot icon is the identity, the item colour fills it, the name lives
    in the tooltip. Locked + covered slots aren't drawn (a faint footnote notes them). ── */
 .ah-panel .ah-tile { position: relative; box-sizing: border-box; width: 44px; height: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0; border-radius: var(--ah-r-sm); border: 1px solid var(--ah-line); background: var(--ah-raise); }
@@ -292,6 +289,16 @@
 .ah-panel .ah-pick-it:hover { background: var(--ah-action-bg); }
 .ah-panel .ah-pick-it .ah-art { width: 22px; height: 22px; }
 .ah-panel .ah-pick-empty { font-size: 10px; font-style: italic; color: var(--ah-faint); padding: 6px 8px; }
+/* Back manage dropdown: count header · equipped rows (hover-× to remove) · divider · add suggestions */
+.ah-panel .ah-pick-head { font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ah-mute); padding: 4px 8px 3px; }
+.ah-panel .ah-pick-div { height: 1px; background: var(--ah-line); margin: 4px 6px; }
+.ah-panel .ah-pick-worn { display: flex; align-items: center; gap: 7px; padding: 4px 6px; border-radius: var(--ah-r-sm); }
+.ah-panel .ah-pick-worn:hover { background: var(--ah-bad-bg); }
+.ah-panel .ah-pick-worn .ah-art { width: 22px; height: 22px; }
+.ah-panel .ah-pw-nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--ah-ink); }
+.ah-panel .ah-pw-x { flex: 0 0 auto; width: 18px; height: 18px; border: none; border-radius: 50%; background: transparent; color: var(--ah-faint); font-size: 13px; line-height: 1; cursor: pointer; padding: 0; opacity: 0; transition: opacity var(--ah-ease), background var(--ah-ease), color var(--ah-ease); }
+.ah-panel .ah-pick-worn:hover .ah-pw-x, .ah-panel .ah-pw-x:focus-visible { opacity: 1; }
+.ah-panel .ah-pw-x:hover { background: var(--ah-bad); color: var(--ah-ink-inverse); }
 .ah-panel .ah-bag-empty { font-size: 11px; font-style: italic; color: var(--ah-faint); padding: 18px 6px; }
 /* add-on storage gear */
 .ah-panel .ah-gear-lbl { display: block; margin-bottom: 6px; font-size: 11px; font-weight: 500; color: var(--ah-dim); }

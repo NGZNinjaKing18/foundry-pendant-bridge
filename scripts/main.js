@@ -3646,20 +3646,21 @@ function ahSlotCard(ctx, key, occ, caps, gsrc) {
   const gby = (gsrc && gsrc[key] && gsrc[key].length) ? " · granted by " + gsrc[key].join(", ") : ""
   const txt = (nm, sl, muted) => '<span class="ah-gb-tx"><span class="ah-gb-nm' + (muted ? " muted" : "") + '">' + ahEscX(nm) + '</span><span class="ah-gb-sl">' + ahEscX(sl) + "</span></span>"
   if (key === "Back") {
-    const n = ctx.back.length, cap = caps.Back || 0
-    const valid = ctx.validBody && ctx.validBody.has("Back"), canAdd = ctx.canArrange && n < cap
+    const n = ctx.back.length, cap = caps.Back || 0, left = Math.max(0, cap - n)
+    const valid = ctx.validBody && ctx.validBody.has("Back"), canAdd = ctx.canArrange && left > 0
     const cls = "ah-slot ah-gb back" + (n ? " filled" : " empty") + (valid ? " valid" : "")
+    // the whole box opens the Back DROPDOWN (lists every equipped back item with a hover-× to remove,
+    // shows slots left, and suggests items for the open slots) — no more per-item colour dots.
+    const pick = ctx.canArrange ? ' role="button" tabindex="0" data-pick="Back"' : ""
+    const hint = canAdd ? '<span class="ah-gb-plus" aria-hidden="true">+</span>' : (ctx.canArrange && n ? '<span class="ah-gb-plus" aria-hidden="true">⋯</span>' : "")
     if (n) {
       const lb = ctx.byId[ctx.back[0]] || {}
       const names = ctx.back.map(bid => (ctx.byId[bid] && ctx.byId[bid].name) || "").filter(Boolean).join(", ")
       const lead = lb.color || "var(--ah-dim)"
-      const dots = ctx.back.map(bid => '<button type="button" class="ah-bdot" data-rm="' + ahEscX(bid) + '" aria-label="' + ahEscX("Remove " + ctx.byId[bid].name + " from Back") + '" title="' + ahEscX(ctx.byId[bid].name + " — remove") + '" style="background:' + ctx.byId[bid].color + '"></button>').join("")
-      // room for more → the box itself is the add picker (click anywhere but a dot); dots still remove
-      const pick = canAdd ? ' role="button" tabindex="0" data-pick="Back"' : ""
-      return '<div class="' + cls + '" data-slot="Back"' + pick + ' style="border-top-color:' + lead + '" title="' + ahEscX("Back — " + n + "/" + cap + (canAdd ? " · click to add another" : "") + gby) + '" aria-label="' + ahEscX("Back, " + n + " of " + cap + " used" + (canAdd ? ", click to add another" : "")) + '">' + ahArtThumb(lb.img, lead, "back") + txt(names, "back " + n + "/" + cap + (canAdd ? " · add" : "")) + '<span class="ah-gb-dots">' + dots + "</span></div>"
+      const tip = "Back — " + n + "/" + cap + (left ? " · " + left + " open" : " · full") + (ctx.canArrange ? " · click to manage" : "") + gby
+      return '<div class="' + cls + '" data-slot="Back"' + pick + ' style="border-top-color:' + lead + '" title="' + ahEscX(tip) + '" aria-label="' + ahEscX("Back, " + n + " of " + cap + " used" + (ctx.canArrange ? ", click to manage" : "")) + '">' + ahArtThumb(lb.img, lead, "back") + txt(names, "back " + n + "/" + cap + (left ? " · " + left + " left" : "")) + hint + "</div>"
     }
-    const pick = canAdd ? ' role="button" tabindex="0" data-pick="Back"' : ""   // empty+addable Back is the picker target; a filled Back is a drop target with its own dot buttons
-    return '<div class="' + cls + '" data-slot="Back"' + pick + ' title="' + ahEscX("Back — 0/" + cap + gby) + '" aria-label="' + ahEscX("Back, empty, 0 of " + cap) + '">' + ico + txt("Back", "0/" + cap + (canAdd ? " · add" : ""), true) + (canAdd ? '<span class="ah-gb-plus" aria-hidden="true">+</span>' : "") + "</div>"
+    return '<div class="' + cls + '" data-slot="Back"' + pick + ' title="' + ahEscX("Back — 0/" + cap + (canAdd ? " · click to add" : "") + gby) + '" aria-label="' + ahEscX("Back, empty, 0 of " + cap) + '">' + ico + txt("Back", "0/" + cap + (canAdd ? " · add" : ""), true) + hint + "</div>"
   }
   const id = occ[key]
   if (id) {
@@ -3690,6 +3691,7 @@ function ahSlotCard(ctx, key, occ, caps, gsrc) {
 
 /** Click an empty slot → a menu of fitting items (loose AND in the bag); click one to equip. */
 function ahOpenSlotMenu(ctx, slotKey, anchorEl) {
+  if (slotKey === "Back") return ahOpenBackMenu(ctx, anchorEl)   // Back holds several → a richer manage dropdown
   ahCloseMenu(ctx)
   const equipped = new Set(ahEquippedIds(ctx))   // bag items ARE candidates now (equip pulls them out)
   const cands = ctx.items.filter(it => (ctx.bundleN[it.id] || 1) <= 1 && !equipped.has(it.id) && ctx.metaById[it.id] && ahFreeBody(ctx, ctx.metaById[it.id]).has(slotKey))
@@ -3714,6 +3716,47 @@ function ahOpenSlotMenu(ctx, slotKey, anchorEl) {
   }, 0)
 }
 function ahCloseMenu(ctx) { if (ctx._menuOff) { ctx._menuOff(); ctx._menuOff = null } if (ctx._menu) { ctx._menu.remove(); ctx._menu = null } }
+/** Back dropdown: a slot-count header, every equipped Back item (hover-× to take off), then the
+ *  fitting items to fill any open slots. Replaces the old colour-dot remove buttons. */
+function ahOpenBackMenu(ctx, anchorEl) {
+  ahCloseMenu(ctx)
+  const cap = (ahCaps(ctx).Back) || 0, n = ctx.back.length, left = Math.max(0, cap - n)
+  const menu = document.createElement("div"); menu.className = "ah-pickmenu ah-backmenu"
+  const head = document.createElement("div"); head.className = "ah-pick-head"
+  head.textContent = "Back · " + n + " / " + cap + (left ? "  ·  " + left + " open" : "  ·  full")
+  menu.appendChild(head)
+  // equipped back items — each removable on hover
+  for (const id of ctx.back) {
+    const it = ctx.byId[id]; if (!it) continue
+    const row = document.createElement("div"); row.className = "ah-pick-worn"
+    row.innerHTML = ahArtThumb(it.img, it.color, "back") + '<span class="ah-pw-nm">' + ahEscX(it.name) + "</span>"
+    const x = document.createElement("button"); x.type = "button"; x.className = "ah-pw-x"; x.textContent = "×"; x.title = "Take off"; x.setAttribute("aria-label", "Take " + it.name + " off the back")
+    x.addEventListener("click", (e) => { e.stopPropagation(); ahUnequip(ctx, id) })   // re-render rebuilds the panel (closes the menu)
+    row.appendChild(x); menu.appendChild(row)
+  }
+  // suggestions to fill the open slots (loose AND bag items that fit Back)
+  if (left > 0) {
+    if (n) { const d = document.createElement("div"); d.className = "ah-pick-div"; menu.appendChild(d) }
+    const equipped = new Set(ahEquippedIds(ctx))
+    const cands = ctx.items.filter(it => (ctx.bundleN[it.id] || 1) <= 1 && !equipped.has(it.id) && ctx.metaById[it.id] && ahFreeBody(ctx, ctx.metaById[it.id]).has("Back"))
+      .sort((a, b) => (ctx.placed.has(a.id) ? 1 : 0) - (ctx.placed.has(b.id) ? 1 : 0) || (a.name || "").localeCompare(b.name || ""))
+    if (!cands.length) { const e = document.createElement("div"); e.className = "ah-pick-empty"; e.textContent = n ? "Nothing else fits here" : "Nothing you have fits here"; menu.appendChild(e) }
+    else for (const it of cands) {
+      const b = document.createElement("button"); b.type = "button"; b.className = "ah-pick-it"
+      b.innerHTML = ahArtThumb(it.img, it.color, "back") + "<span>" + ahEscX(it.name) + "</span>" + (ctx.placed.has(it.id) ? '<em class="ah-pick-bag">in bag</em>' : "")
+      b.addEventListener("click", (e) => { e.stopPropagation(); ahCloseMenu(ctx); ahEquipItem(ctx, it.id, "Back") })
+      menu.appendChild(b)
+    }
+  }
+  menu.setAttribute("aria-label", "Back — manage equipped items and fill open slots")
+  const host = (anchorEl && anchorEl.closest && anchorEl.closest(".ah-slot")) || ctx.dollEl
+  host.appendChild(menu); ctx._menu = menu
+  ahWireMenu(menu, anchorEl, () => ahCloseMenu(ctx))
+  setTimeout(() => {
+    const onDoc = (e) => { if (ctx._menu && !ctx._menu.contains(e.target)) ahCloseMenu(ctx) }
+    document.addEventListener("mousedown", onDoc); ctx._menuOff = () => document.removeEventListener("mousedown", onDoc)
+  }, 0)
+}
 /** Give a popup the ARIA menu pattern: role=menu/menuitem, focus first item, arrow-key nav,
  *  Escape closes + returns focus to the trigger. */
 function ahWireMenu(menu, trigger, close) {
