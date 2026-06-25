@@ -125,7 +125,7 @@
 /* fit-to-width: the inner holds Body+Bag+Loose at natural size; JS (ahFitScaleEl) scales it down
    uniformly via transform when the sheet is too narrow, so all three sections shrink in sync to fit */
 .ah-panel .ah-fit { width: 100%; overflow: hidden; }
-.ah-panel .ah-fit-inner { transform-origin: top left; width: fit-content; max-width: 100%; }   /* shrink to the Body+Bag block width so Loose can align under it */
+.ah-panel .ah-fit-inner { transform-origin: top left; width: fit-content; }   /* fit-content so Loose aligns under Body+Bag. NO max-width: ahFitScaleEl sets this to the natural width (wider than the sheet) and the transform shrinks it to fit — a max-width would clamp that and clip the content instead of scaling it. */
 .ah-panel .ah-zones-row { display: flex; flex-wrap: nowrap; align-items: stretch; gap: 12px; }   /* ALWAYS side by side (never wrap); stretch = Body & Bag share one height */
 .ah-panel .ah-zone { flex: 0 0 auto; width: fit-content; max-width: 100%; margin: 12px 0 10px; border-left: 2px solid var(--ah-band-edge); border-right: 2px solid var(--ah-band-edge); }   /* red lines drop down BOTH sides of each section */
 /* Loose = its own full-width banded section (red bar on top + red line around left/right/bottom) below Body+Bag */
