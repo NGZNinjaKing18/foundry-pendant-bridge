@@ -69,12 +69,13 @@
   /* ── shape + motion ── */
   --ah-r-lg: 12px; --ah-r: 9px; --ah-r-sm: 6px; --ah-tile: 3px;   /* --ah-tile = crisp squared tokens/tiles/tags (no pills) */
   --ah-pill: var(--ah-r-sm);   /* NO PILLS: was 999px — aliased to a soft box so buttons/anything left on this token square off instead of forming a capsule */
-  /* maroon SECTION BAND (Body / Bag zone headers) — matches the native dnd5e header bar */
-  --ah-band: linear-gradient(90deg, rgba(112, 46, 52, 0.95), rgba(68, 26, 31, 0.86));
-  --ah-band-top: rgba(170, 88, 94, 0.45);   /* top sheen */
-  --ah-band-edge: rgba(150, 66, 72, 0.6);   /* band bottom border + the vertical drop-down rule */
-  --ah-band-ink: #f1ddd4;                    /* title + icon on the band */
-  --ah-band-dim: rgba(241, 221, 212, 0.72);  /* meta text on the band */
+  /* maroon SECTION BAND (Body / Bag zone headers) — imitates the native dnd5e quadrone header bar:
+     an oxblood gradient (lighter left → dark right) under a soft vertical sheen (lighter top) */
+  --ah-band: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(0, 0, 0, 0.16)), linear-gradient(90deg, #6e2b31 0%, #46191e 68%, #391519 100%);
+  --ah-band-top: rgba(198, 124, 130, 0.4);   /* thin top highlight line */
+  --ah-band-edge: rgba(118, 50, 56, 0.6);    /* the vertical drop-down rule */
+  --ah-band-ink: #f4e9e4;                     /* title + icon on the band (warm near-white) */
+  --ah-band-dim: rgba(244, 233, 228, 0.7);    /* meta text on the band */
   --ah-ease: 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
 
   /* seamless: a flush, TRANSPARENT section of the Inventory tab — it inherits the host
@@ -131,7 +132,7 @@
    the zone's own content width; a vertical rule drops down the right edge to set it off from the
    blank space beyond. Buttons ride the far right of the bar (.ah-sec-ctl margin-left:auto). ── */
 .ah-panel .ah-zone { width: fit-content; max-width: 100%; margin: 12px 0 10px; border-right: 2px solid var(--ah-band-edge); }
-.ah-panel .ah-zone > .ah-sec { margin: 0; padding: 5px 9px; flex-wrap: wrap; background: var(--ah-band); border-bottom: 1px solid var(--ah-band-edge); border-radius: 0; box-shadow: inset 0 1px 0 var(--ah-band-top); }
+.ah-panel .ah-zone > .ah-sec { margin: 0; padding: 5px 10px; flex-wrap: wrap; background: var(--ah-band); border-bottom: 1px solid rgba(0, 0, 0, 0.4); border-radius: var(--ah-tile) var(--ah-tile) 0 0; box-shadow: inset 0 1px 0 var(--ah-band-top); }
 .ah-panel .ah-zone > .ah-sec .ah-sec-rule { display: none; }   /* the band itself separates — no hairline filler */
 .ah-panel .ah-zone > .ah-sec .ah-sec-h, .ah-panel .ah-zone > .ah-sec .ah-sec-i { color: var(--ah-band-ink); }
 .ah-panel .ah-zone > .ah-sec .ah-sec-meta { color: var(--ah-band-dim); }
