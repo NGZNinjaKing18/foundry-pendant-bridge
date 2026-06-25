@@ -4023,16 +4023,16 @@ function ahBuildPanel(actor) {
     outf.addEventListener("click", (e) => { e.stopPropagation(); ahOpenOutfitMenu(ctx, bodySec.ctl, outf) })
     bodySec.ctl.appendChild(suit); bodySec.ctl.appendChild(strip); bodySec.ctl.appendChild(outf)
   }
-  // zone = a shrink-to-content wrapper so the header band spans only the body's width (a vertical
-  // rule on the zone's right edge sets it off from the blank space beyond — see .ah-zone CSS)
-  const bodyZone = document.createElement("div"); bodyZone.className = "ah-zone ah-zone-body"; wrap.appendChild(bodyZone)
+  // Body + Bag sit SIDE BY SIDE in a wrapping row; each zone is a shrink-to-content wrapper so its
+  // header band spans only that section's content width, with a vertical rule on the right edge that
+  // hugs the last item (doll / last container grid) and widens with it (see .ah-zones-row/.ah-zone CSS).
+  const zonesRow = document.createElement("div"); zonesRow.className = "ah-zones-row"; wrap.appendChild(zonesRow)
+  const bodyZone = document.createElement("div"); bodyZone.className = "ah-zone ah-zone-body"; zonesRow.appendChild(bodyZone)
   bodyZone.appendChild(bodySec.sec)
   const dollEl = document.createElement("div"); dollEl.className = "ah-doll"; ctx.dollEl = dollEl; bodyZone.appendChild(dollEl)
 
   // BAG — header carries the spaces readout + Tidy + (separate) Add; content below
-  const bagMetaTxt = bagCapacity > 0
-    ? (ahFmt(nonWornSpaces) + " / " + ahFmt(bagCapacity) + " spaces" + (ctx.canArrange ? (ctx.separate ? " · drag onto a container" : " · drag, R rotates") : ""))
-    : "no storage yet"
+  const bagMetaTxt = bagCapacity > 0 ? (ahFmt(nonWornSpaces) + " / " + ahFmt(bagCapacity)) : "no storage"   // keep it short so the band stays as narrow as the grids
   const bagSec = mkSec("back", "ah-sec-bag", "Bag", "· " + bagMetaTxt)
   if (isGM) {   // GM-only quick toggle for the experimental dnd5e-container binding (also in Module Settings)
     const cur = ahBinding(ctx)
@@ -4052,7 +4052,7 @@ function ahBuildPanel(actor) {
     add.addEventListener("click", (e) => { e.stopPropagation(); ahOpenGearMenu(actor, bagSec.ctl, add) })
     bagSec.ctl.appendChild(add)
   }
-  const bagZone = document.createElement("div"); bagZone.className = "ah-zone ah-zone-bag"; wrap.appendChild(bagZone)
+  const bagZone = document.createElement("div"); bagZone.className = "ah-zone ah-zone-bag"; zonesRow.appendChild(bagZone)
   bagZone.appendChild(bagSec.sec)
 
   const bagCol = document.createElement("div"); bagCol.className = "ah-bagcol"

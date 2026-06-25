@@ -128,11 +128,14 @@
 .ah-panel.is-over .ah-sec-loose .ah-sec-h, .ah-panel.is-over .ah-sec-loose .ah-sec-i { color: var(--ah-bad); }
 .ah-panel .ah-sec-rule { flex: 1 1 24px; height: 1px; min-width: 16px; background: linear-gradient(90deg, var(--ah-line), transparent); }
 .ah-panel .ah-sec-ctl { position: relative; display: flex; align-items: center; gap: 6px; margin-left: auto; }
-/* ── zone band: the Body & Bag headers become a maroon section bar (like the native sheet) sized to
-   the zone's own content width; a vertical rule drops down the right edge to set it off from the
-   blank space beyond. Buttons ride the far right of the bar (.ah-sec-ctl margin-left:auto). ── */
+/* ── zone band: the Body & Bag headers become a maroon section bar (like the native sheet). Body &
+   Bag sit SIDE BY SIDE in .ah-zones-row. Each zone is sized to its CONTENT (the doll / the container
+   grids) — the band, meter, legend & gear rows fill that width but don't push it (width:0;min-width:
+   100%) — so the band and its right-edge vertical rule hug the last item and widen as grids are added. ── */
+.ah-panel .ah-zones-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; }
 .ah-panel .ah-zone { width: fit-content; max-width: 100%; margin: 12px 0 10px; border-right: 2px solid var(--ah-band-edge); }
-.ah-panel .ah-zone > .ah-sec { margin: 0; padding: 5px 10px; flex-wrap: wrap; background: var(--ah-band); border-bottom: 1px solid rgba(0, 0, 0, 0.4); border-radius: var(--ah-tile) var(--ah-tile) 0 0; box-shadow: inset 0 1px 0 var(--ah-band-top); }
+.ah-panel .ah-zone > .ah-sec { box-sizing: border-box; width: 0; min-width: 100%; margin: 0; padding: 5px 10px; flex-wrap: wrap; background: var(--ah-band); border-bottom: 1px solid rgba(0, 0, 0, 0.4); border-radius: var(--ah-tile) var(--ah-tile) 0 0; box-shadow: inset 0 1px 0 var(--ah-band-top); }
+.ah-panel .ah-zone-bag > .ah-bagcol > .ah-meter, .ah-panel .ah-zone-bag > .ah-bagcol > .ah-overflow, .ah-panel .ah-zone-bag > .ah-bagcol > .ah-legend, .ah-panel .ah-zone-bag > .ah-bagcol > .ah-cont { box-sizing: border-box; width: 0; min-width: 100%; }
 .ah-panel .ah-zone > .ah-sec .ah-sec-rule { display: none; }   /* the band itself separates — no hairline filler */
 .ah-panel .ah-zone > .ah-sec .ah-sec-h, .ah-panel .ah-zone > .ah-sec .ah-sec-i { color: var(--ah-band-ink); }
 .ah-panel .ah-zone > .ah-sec .ah-sec-meta { color: var(--ah-band-dim); }
