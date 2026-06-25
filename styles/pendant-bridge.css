@@ -168,7 +168,7 @@
 .ah-panel .ah-doll { display: flex; flex-direction: column; gap: 7px; align-items: stretch; }   /* game panel + footnotes stack */
 /* ── game-panel paperdoll: figure centred, framed by two columns of named gear boxes ── */
 .ah-panel .ah-game { display: flex; align-items: stretch; gap: 7px; width: max-content; max-width: 100%; align-self: flex-start; }   /* shrink-to-content so the body stays narrow (blank space on the right is intentional) */
-.ah-panel .ah-gcol { flex: 0 0 auto; width: 88px; min-width: 0; display: flex; flex-direction: column; gap: 5px; justify-content: center; }   /* slim gear boxes (~60% narrower than the old stretched columns); long names truncate, full name is in the tooltip */
+.ah-panel .ah-gcol { flex: 0 0 auto; width: 124px; min-width: 0; display: flex; flex-direction: column; gap: 5px; justify-content: center; }   /* slim gear boxes, but wide enough to show ~10 chars of the name before truncating (full name in tooltip) */
 .ah-panel .ah-gfig { flex: 0 0 auto; position: relative; display: flex; align-items: center; justify-content: center; padding: 4px; background: var(--ah-raise); border: 1px solid var(--ah-line); border-radius: var(--ah-r-sm); }   /* faint backing so the dark silhouette reads on a transparent panel */
 .ah-panel .ah-doll-img { width: 62px; max-height: 178px; object-fit: contain; opacity: 0.95; -webkit-user-drag: none; user-select: none; display: block; }
 /* one named gear box (icon · item name · slot · inline actions); item colour tints the top edge + icon */
@@ -184,7 +184,7 @@
 .ah-panel .ah-gb-nm.muted { font-weight: 500; color: var(--ah-dim); }
 .ah-panel .ah-gb-sl { font-size: 9.5px; color: var(--ah-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ah-panel .ah-gb-dots { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 3px; max-width: 44px; justify-content: flex-end; }
-.ah-panel .ah-gb-x { position: absolute; top: 1px; right: 1px; z-index: 2; width: 16px; height: 16px; border: none; border-radius: 50%; background: var(--ah-pop); color: var(--ah-faint); font-size: 12px; line-height: 1; cursor: pointer; padding: 0; opacity: 0; transition: opacity var(--ah-ease), background var(--ah-ease), color var(--ah-ease); }
+.ah-panel .ah-gb-x { position: absolute; top: 1px; right: 1px; z-index: 3; width: 18px; height: 18px; border: none; border-radius: 50%; background: var(--ah-pop); color: var(--ah-dim); font-size: 13px; line-height: 1; cursor: pointer; padding: 0; opacity: 0.6; transition: opacity var(--ah-ease), background var(--ah-ease), color var(--ah-ease); }
 .ah-panel .ah-gb:hover .ah-gb-x, .ah-panel .ah-gb:focus-within .ah-gb-x { opacity: 1; }
 .ah-panel .ah-gb-x:hover { background: var(--ah-bad); color: var(--ah-ink-inverse); }
 .ah-panel .ah-gb-draw { position: absolute; bottom: 2px; right: 2px; z-index: 2; font-size: 8px; text-transform: uppercase; letter-spacing: 0.03em; padding: 1px 6px; border-radius: var(--ah-tile); background: var(--ah-action-bg); border: 1px solid var(--ah-action-line); color: var(--ah-action-ink); line-height: 1.5; cursor: pointer; white-space: nowrap; opacity: 0; transition: opacity var(--ah-ease); }

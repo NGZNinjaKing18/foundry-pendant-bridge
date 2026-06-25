@@ -4145,9 +4145,9 @@ function ahBuildPanel(actor) {
     if (ctx.holder) ctx.holder.addEventListener("mousedown", (e) => { const t = e.target.closest("[data-item]"); if (t) ahDragItem(ctx, t.getAttribute("data-item"), "bag", e) })
     dollEl.addEventListener("click", (e) => {
       if (e.target.closest(".ah-pickmenu")) return   // events inside an open picker are the menu's own
-      const dr = e.target.closest("[data-draw]"); if (dr) { e.stopPropagation(); ahDrawSheathe(ctx, dr.getAttribute("data-draw")); return }
-      const rm = e.target.closest("[data-rm]"); if (rm) { ahUnequip(ctx, rm.getAttribute("data-rm")); return }
-      const pk = e.target.closest("[data-pick]"); if (pk) ahOpenSlotMenu(ctx, pk.getAttribute("data-pick"), pk)
+      const dr = e.target.closest("[data-draw]"); if (dr) { e.preventDefault(); e.stopPropagation(); ahDrawSheathe(ctx, dr.getAttribute("data-draw")); return }
+      const rm = e.target.closest("[data-rm]"); if (rm) { e.preventDefault(); e.stopPropagation(); ahUnequip(ctx, rm.getAttribute("data-rm")); return }
+      const pk = e.target.closest("[data-pick]"); if (pk) { e.preventDefault(); e.stopPropagation(); ahOpenSlotMenu(ctx, pk.getAttribute("data-pick"), pk) }
     })
     dollEl.addEventListener("keydown", (e) => {
       if (e.key !== "Enter" && e.key !== " ") return
