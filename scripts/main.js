@@ -3612,11 +3612,7 @@ function ahRenderDoll(ctx) {
   }
   const left = colHTML(AH_DOLL_LEFT), right = colHTML(AH_DOLL_RIGHT)
   let foot = ""
-  if (covered.length) {
-    const by = {}; for (const c of covered) (by[c.by] = by[c.by] || []).push(AH_SLOT_LABEL[c.key] || c.key)
-    const parts = Object.keys(by).map(nm => by[nm].join(" & ") + (nm ? " covered by " + ahShort(nm) : " covered"))
-    foot += '<span class="ah-doll-note">' + ahIcon("clothes") + " " + ahEscX(parts.join(" · ")) + "</span>"
-  }
+  // (covered slots are still hidden as boxes; the "Head & Feet covered by…" footnote was removed per request)
   if (anyLocked && ctx.canArrange) foot += '<span class="ah-doll-note">' + ahIcon("lock") + " Equip clothing or armor to unlock more slots</span>"
   ctx.dollEl.innerHTML =
     '<div class="ah-game">' +
@@ -4169,10 +4165,11 @@ function ahBuildPanel(actor) {
   bagZone.appendChild(bagCol)
 
   // LOOSE — the not-worn-or-packed tray
-  const looseMeta = looseN ? ("· " + looseN + (ctx.canArrange ? " · drag to the body or a container" : "")) : (ctx.canArrange ? "· all worn or packed" : "")
+  const looseMeta = looseN ? ("· " + looseN) : (ctx.canArrange ? "· all worn or packed" : "")   // short, so it fits the band
+  const looseZone = document.createElement("div"); looseZone.className = "ah-zone ah-zone-loose"; fitInner.appendChild(looseZone)   // its own banded + red-bordered section, like Body/Bag
   const looseSec = mkSec("stack", "ah-sec-loose", "Loose", looseMeta)
-  fitInner.appendChild(looseSec.sec)
-  const trayEl = document.createElement("div"); trayEl.className = "ah-tray-chips"; ctx.trayEl = trayEl; fitInner.appendChild(trayEl)
+  looseZone.appendChild(looseSec.sec)
+  const trayEl = document.createElement("div"); trayEl.className = "ah-tray-chips"; ctx.trayEl = trayEl; looseZone.appendChild(trayEl)
 
   // floating drag label
   const ghost = document.createElement("div"); ghost.className = "ah-ghost"; ghost.style.display = "none"; ctx.ghostEl = ghost; wrap.appendChild(ghost)

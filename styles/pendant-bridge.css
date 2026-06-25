@@ -125,9 +125,12 @@
 /* fit-to-width: the inner holds Body+Bag+Loose at natural size; JS (ahFitScaleEl) scales it down
    uniformly via transform when the sheet is too narrow, so all three sections shrink in sync to fit */
 .ah-panel .ah-fit { width: 100%; overflow: hidden; }
-.ah-panel .ah-fit-inner { transform-origin: top left; }
+.ah-panel .ah-fit-inner { transform-origin: top left; width: fit-content; max-width: 100%; }   /* shrink to the Body+Bag block width so Loose can align under it */
 .ah-panel .ah-zones-row { display: flex; flex-wrap: nowrap; align-items: stretch; gap: 12px; }   /* ALWAYS side by side (never wrap); stretch = Body & Bag share one height */
-.ah-panel .ah-zone { flex: 0 0 auto; width: fit-content; max-width: 100%; margin: 12px 0 10px; border-right: 2px solid var(--ah-band-edge); }
+.ah-panel .ah-zone { flex: 0 0 auto; width: fit-content; max-width: 100%; margin: 12px 0 10px; border-left: 2px solid var(--ah-band-edge); border-right: 2px solid var(--ah-band-edge); }   /* red lines drop down BOTH sides of each section */
+/* Loose = its own full-width banded section (red bar on top + red line around left/right/bottom) below Body+Bag */
+.ah-panel .ah-zone-loose { width: 0; min-width: 100%; border-bottom: 2px solid var(--ah-band-edge); }
+.ah-panel .ah-zone-loose > .ah-tray-chips { padding: 8px 10px; }
 .ah-panel .ah-zone > .ah-sec { box-sizing: border-box; margin: 0; padding: 5px 10px; flex-wrap: nowrap; white-space: nowrap; background: var(--ah-band); border-bottom: 1px solid rgba(0, 0, 0, 0.4); border-radius: var(--ah-tile) var(--ah-tile) 0 0; box-shadow: inset 0 1px 0 var(--ah-band-top); }
 /* Body fills the shared (stretched) height so its bottom lines up with the Bag: the doll + game grow
    and the gear boxes flex to fill the column. */
