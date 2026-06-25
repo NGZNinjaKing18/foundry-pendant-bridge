@@ -261,7 +261,9 @@
 .ah-panel .ah-leg-empty { font-size: 10.5px; font-style: italic; color: var(--ah-faint); }
 .ah-panel .ah-leg-bin { font-size: 9px; text-transform: uppercase; letter-spacing: .03em; color: var(--ah-faint); flex: 0 0 auto; }
 /* separate bag mode — one mini hex-grid per container, drop an item onto a card to assign it */
-.ah-panel .ah-bins { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; }
+/* container grids stack 2 HIGH, then flow into a new column to the right (and again) — fills the
+   vertical space next to the body instead of one long horizontal row */
+.ah-panel .ah-bins { display: grid; grid-template-rows: repeat(2, auto); grid-auto-flow: column; grid-auto-columns: max-content; gap: 10px; justify-content: start; align-items: start; }
 .ah-panel .ah-bin { border: 1px solid var(--ah-line); border-radius: var(--ah-r-sm); background: var(--ah-raise); padding: 6px 7px 7px; max-width: 100%; transition: border-color var(--ah-ease), box-shadow var(--ah-ease); }
 .ah-panel .ah-bin-head { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--ah-dim); margin-bottom: 5px; }
 .ah-panel .ah-bin-sw { width: 9px; height: 9px; border-radius: 3px; flex: 0 0 auto; box-shadow: var(--ah-ring-dark); }

@@ -4012,8 +4012,7 @@ function ahBuildPanel(actor) {
   }
 
   // BODY — game-panel doll (figure framed by named gear boxes) + Suit up / Strip / Outfits
-  const wornCount = ahEquippedIds(ctx).length
-  const bodySec = mkSec("clothes", "ah-sec-body", "Body", wornCount ? "· " + wornCount + " worn" : "")
+  const bodySec = mkSec("clothes", "ah-sec-body", "Body", "")   // no "· N worn" — keeps Suit up/Strip/Outfits on the header line
   if (ctx.canArrange) {
     const suit = document.createElement("button"); suit.type = "button"; suit.className = "ah-act"; suit.innerHTML = ahIcon("spark") + " Suit up"; suit.title = "Auto-equip clothes, armor & packs (not weapons)"
     suit.addEventListener("click", (e) => { e.stopPropagation(); ahSuitUp(ctx) })
