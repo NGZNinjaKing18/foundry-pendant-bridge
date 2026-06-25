@@ -9,7 +9,7 @@
   letter-spacing: 0.05em;
   text-transform: uppercase;
   padding: 5px 9px;
-  border-radius: 999px;
+  border-radius: 4px;
   background: rgba(10, 5, 22, 0.78);
   color: #d4cef5;
   border: 1px solid rgba(124, 92, 191, 0.35);
@@ -67,7 +67,8 @@
   --ah-shadow-pop:  0 12px 28px rgba(0, 0, 0, 0.6); /* dropdown / picker elevation */
   --ah-ink-inverse: #fff;                            /* text on a filled accent (hover destructive) */
   /* ── shape + motion ── */
-  --ah-r-lg: 12px; --ah-r: 9px; --ah-r-sm: 6px; --ah-pill: 999px;
+  --ah-r-lg: 12px; --ah-r: 9px; --ah-r-sm: 6px; --ah-tile: 3px;   /* --ah-tile = crisp squared tokens/tiles/tags (no pills) */
+  --ah-pill: var(--ah-r-sm);   /* NO PILLS: was 999px — aliased to a soft box so buttons/anything left on this token square off instead of forming a capsule */
   --ah-ease: 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
 
   /* seamless: a flush, TRANSPARENT section of the Inventory tab — it inherits the host
@@ -214,7 +215,7 @@
 .ah-panel .ah-doll-note { display: inline-flex; align-items: center; gap: 5px; font-size: 9.5px; font-style: italic; color: var(--ah-faint); }
 .ah-panel .ah-doll-note .ah-ico { width: 11px; height: 11px; flex: 0 0 auto; }
 /* bag capacity meter + overflow */
-.ah-panel .ah-meter { height: 6px; background: var(--ah-sink); border-radius: var(--ah-pill); overflow: hidden; margin-bottom: 9px; box-shadow: inset 0 0 0 1px var(--ah-line); }
+.ah-panel .ah-meter { height: 6px; background: var(--ah-sink); border-radius: 0; overflow: hidden; margin-bottom: 9px; box-shadow: inset 0 0 0 1px var(--ah-line); }   /* flat capacity bar, not a pill */
 .ah-panel .ah-meter-fill { height: 100%; background: var(--ah-good); transition: width var(--ah-ease), background var(--ah-ease); }
 .ah-panel .ah-meter.full .ah-meter-fill { background: var(--ah-action); }
 .ah-panel .ah-meter.over .ah-meter-fill { background: var(--ah-bad); }
@@ -222,7 +223,7 @@
 .ah-panel .ah-overflow b { color: #f6c6c6; }
 /* bag legend — colour → item name, as a compact WRAPPING row of chips (not a tall list) */
 .ah-panel .ah-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 5px; margin-top: 8px; }
-.ah-panel .ah-leg { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--ah-dim); background: var(--ah-raise); border: 1px solid var(--ah-line); border-radius: var(--ah-pill); padding: 1px 5px 1px 6px; max-width: 100%; }
+.ah-panel .ah-leg { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--ah-dim); background: var(--ah-raise); border: 1px solid var(--ah-line); border-radius: var(--ah-tile); padding: 1px 6px; max-width: 100%; }
 .ah-panel .ah-leg-sw { width: 9px; height: 9px; border-radius: 3px; flex: 0 0 auto; box-shadow: var(--ah-ring-dark); }
 .ah-panel .ah-leg-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 132px; }
 .ah-panel .ah-leg-sz { margin-left: auto; font-size: 10px; color: var(--ah-mute); }
@@ -231,7 +232,7 @@
 .ah-panel .ah-leg .ah-leg-sz { margin-left: auto; }
 .ah-panel .ah-leg .ah-leg-x { margin-left: 2px; }
 .ah-panel .ah-leg-bq { color: var(--ah-mute); font-variant-numeric: tabular-nums; }
-.ah-panel .ah-leg-ch, .ah-panel .ah-tray-ch { font-size: 9px; color: var(--ah-good-ink); background: var(--ah-good-bg); border: 1px solid var(--ah-good-line); border-radius: var(--ah-pill); padding: 0 5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ah-panel .ah-leg-ch, .ah-panel .ah-tray-ch { font-size: 9px; color: var(--ah-good-ink); background: var(--ah-good-bg); border: 1px solid var(--ah-good-line); border-radius: var(--ah-tile); padding: 0 5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ah-panel .ah-leg-empty { font-size: 10.5px; font-style: italic; color: var(--ah-faint); }
 .ah-panel .ah-leg-bin { font-size: 9px; text-transform: uppercase; letter-spacing: .03em; color: var(--ah-faint); flex: 0 0 auto; }
 /* separate bag mode — one mini hex-grid per container, drop an item onto a card to assign it */
@@ -240,8 +241,8 @@
 .ah-panel .ah-bin-head { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--ah-dim); margin-bottom: 5px; }
 .ah-panel .ah-bin-sw { width: 9px; height: 9px; border-radius: 3px; flex: 0 0 auto; box-shadow: var(--ah-ring-dark); }
 .ah-panel .ah-bin-nm { font-weight: 600; color: var(--ah-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
-.ah-panel .ah-bin-types { text-transform: uppercase; letter-spacing: .04em; font-size: 9px; color: var(--ah-store-ink); background: var(--ah-store-bg); border: 1px solid var(--ah-store-line); border-radius: var(--ah-pill); padding: 0 5px; flex: 0 0 auto; }
-.ah-panel .ah-bin-native { font-size: 9px; color: var(--ah-faint); border: 1px solid var(--ah-line); border-radius: var(--ah-pill); padding: 0 5px; flex: 0 0 auto; white-space: nowrap; }
+.ah-panel .ah-bin-types { text-transform: uppercase; letter-spacing: .04em; font-size: 9px; color: var(--ah-store-ink); background: var(--ah-store-bg); border: 1px solid var(--ah-store-line); border-radius: var(--ah-tile); padding: 0 5px; flex: 0 0 auto; }
+.ah-panel .ah-bin-native { font-size: 9px; color: var(--ah-faint); border: 1px solid var(--ah-line); border-radius: var(--ah-tile); padding: 0 5px; flex: 0 0 auto; white-space: nowrap; }
 .ah-panel .ah-bin-cap { margin-left: auto; color: var(--ah-mute); font-variant-numeric: tabular-nums; flex: 0 0 auto; padding-left: 6px; }
 .ah-panel .ah-bin-grid { overflow-x: auto; overflow-y: hidden; }
 .ah-panel .ah-bin-grid .ah-svg { display: block; user-select: none; -webkit-user-select: none; }
@@ -250,7 +251,7 @@
 /* containers & storage row (worn packs + add-on gear, side by side) */
 .ah-panel .ah-cont { position: relative; margin-top: 12px; }
 .ah-panel .ah-cont-row { display: flex; flex-wrap: wrap; gap: 6px; }
-.ah-panel .ah-cont-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; padding: 3px 4px 3px 9px; border-radius: var(--ah-pill); border: 1px solid; }
+.ah-panel .ah-cont-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; padding: 3px 4px 3px 9px; border-radius: var(--ah-tile); border: 1px solid; }
 .ah-panel .ah-cont-chip.worn { background: var(--ah-good-bg); border-color: var(--ah-good-line); color: var(--ah-good-ink); }
 .ah-panel .ah-cont-chip.gear { background: var(--ah-store-bg); border-color: var(--ah-store-line); color: var(--ah-store-ink); }
 .ah-panel .ah-cont-sw { width: 9px; height: 9px; border-radius: 3px; flex: 0 0 auto; box-shadow: var(--ah-ring-dark); }
@@ -288,9 +289,9 @@
 .ah-panel .ah-ghost { position: fixed; z-index: 99; pointer-events: none; padding: 3px 8px; border-radius: var(--ah-r-sm);
   background: var(--ah-raise-2); border: 1px solid var(--ah-action); font-size: 11px; white-space: nowrap; color: var(--ah-ink); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5); }
 /* tray of not-yet-placed (loose) items */
-/* loose tray = one flowing row: category PILLS, each opening its items inline right after it */
+/* loose tray = one flowing row: category TILES (squared, fill when open), each opening its items inline right after it */
 .ah-panel .ah-tray-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; max-height: 176px; overflow-y: auto; padding-right: 3px; }
-.ah-panel .ah-tcat { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px 3px 10px; border-radius: var(--ah-pill); border: 1px solid var(--ah-line-2); background: var(--ah-raise); color: var(--ah-dim); font-size: 11px; line-height: 1.4; cursor: pointer; }
+.ah-panel .ah-tcat { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: var(--ah-tile); border: 1px solid var(--ah-line-2); background: var(--ah-raise); color: var(--ah-dim); font-size: 11px; line-height: 1.4; cursor: pointer; }
 .ah-panel .ah-tcat:hover { border-color: var(--ah-action-line); color: var(--ah-ink); }
 .ah-panel .ah-tcat.open { background: var(--ah-action-bg); border-color: var(--ah-action-line); color: var(--ah-action-ink); }
 .ah-panel .ah-tcat-n { font-size: 9px; color: var(--ah-mute); font-variant-numeric: tabular-nums; }
@@ -304,7 +305,7 @@
 .ah-panel .ah-tray-it .ah-art { width: 28px; height: 28px; }   /* real item artwork thumbnail */
 .ah-panel .ah-tray-nm { font-size: 11.5px; }
 .ah-panel .ah-tray-sz { font-size: 10px; color: var(--ah-mute); }
-.ah-panel .ah-tray-tag { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 5px; border-radius: var(--ah-pill); line-height: 1.4; }
+.ah-panel .ah-tray-tag { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 5px; border-radius: var(--ah-tile); line-height: 1.4; }
 .ah-panel .ah-tray-tag.wear { background: var(--ah-bad-bg); border: 1px solid var(--ah-bad-line); color: var(--ah-bad-ink); }
 .ah-panel .ah-tray-tag.free { background: var(--ah-good-bg); border: 1px solid var(--ah-good-line); color: var(--ah-good-ink); }
 .ah-panel .ah-tray-tag.bundle { background: var(--ah-action-bg); border: 1px solid var(--ah-action-line); color: var(--ah-action-ink); }
