@@ -4008,10 +4008,14 @@ function ahBuildPanel(actor) {
     outf.addEventListener("click", (e) => { e.stopPropagation(); ahOpenOutfitMenu(ctx, bodySec.ctl, outf) })
     bodySec.ctl.appendChild(suit); bodySec.ctl.appendChild(strip); bodySec.ctl.appendChild(outf)
   }
-  // Body + Bag sit SIDE BY SIDE in a wrapping row; each zone is a shrink-to-content wrapper so its
-  // header band spans only that section's content width, with a vertical rule on the right edge that
-  // hugs the last item (doll / last container grid) and widens with it (see .ah-zones-row/.ah-zone CSS).
-  const zonesRow = document.createElement("div"); zonesRow.className = "ah-zones-row"; wrap.appendChild(zonesRow)
+  // a "fit" wrapper holds Body+Bag+Loose at natural size; if the sheet gets too narrow to show them
+  // all, ahFitScaleEl scales the whole block down uniformly (so the 3 sections stay synced) to fit.
+  const fit = document.createElement("div"); fit.className = "ah-fit"
+  const fitInner = document.createElement("div"); fitInner.className = "ah-fit-inner"
+  fit.appendChild(fitInner); wrap.appendChild(fit)
+  // Body + Bag sit SIDE BY SIDE; each zone is a shrink-to-content wrapper so its header band spans only
+  // that section's content width, with a vertical rule on the right edge that hugs the last item.
+  const zonesRow = document.createElement("div"); zonesRow.className = "ah-zones-row"; fitInner.appendChild(zonesRow)
   const bodyZone = document.createElement("div"); bodyZone.className = "ah-zone ah-zone-body"; zonesRow.appendChild(bodyZone)
   bodyZone.appendChild(bodySec.sec)
   const dollEl = document.createElement("div"); dollEl.className = "ah-doll"; ctx.dollEl = dollEl; bodyZone.appendChild(dollEl)
@@ -4124,8 +4128,8 @@ function ahBuildPanel(actor) {
   // LOOSE — the not-worn-or-packed tray
   const looseMeta = looseN ? ("· " + looseN + (ctx.canArrange ? " · drag to the body or a container" : "")) : (ctx.canArrange ? "· all worn or packed" : "")
   const looseSec = mkSec("stack", "ah-sec-loose", "Loose", looseMeta)
-  wrap.appendChild(looseSec.sec)
-  const trayEl = document.createElement("div"); trayEl.className = "ah-tray-chips"; ctx.trayEl = trayEl; wrap.appendChild(trayEl)
+  fitInner.appendChild(looseSec.sec)
+  const trayEl = document.createElement("div"); trayEl.className = "ah-tray-chips"; ctx.trayEl = trayEl; fitInner.appendChild(trayEl)
 
   // floating drag label
   const ghost = document.createElement("div"); ghost.className = "ah-ghost"; ghost.style.display = "none"; ctx.ghostEl = ghost; wrap.appendChild(ghost)
@@ -4163,7 +4167,46 @@ function ahBuildPanel(actor) {
   // (the on-sheet GM "Tune items" panel was removed — item size/type/spaces/slots are edited in the
   // app's TTRPG Rules → Anti-Hammer tool)
 
+  ahFitObserve(fit)   // scale the Body/Bag/Loose block down to fit when the sheet is too narrow
   return wrap
+}
+
+// ── fit-to-width: when the sheet is too narrow to show Body+Bag (+Loose) at full size, scale the
+//    whole block down UNIFORMLY (all three sections synced) to the largest scale that still fits,
+//    instead of clipping or scrolling. CSS can't do this, so a ResizeObserver drives a transform. ──
+let _ahFitObs = null
+const _ahFitEls = new Set()
+function ahFitScaleEl(fit) {
+  try {
+    if (!fit || !fit.isConnected) return
+    const inner = fit.querySelector(".ah-fit-inner"); if (!inner) return
+    const avail = fit.clientWidth
+    // React to WIDTH changes only. Skip the same width (the height we set below would re-fire the
+    // observer) AND a 2-cycle: setting the height can toggle the sheet's vertical scrollbar, which
+    // bounces the available width between two values — settle instead of oscillating forever.
+    if (avail <= 0 || avail === fit._ahW1 || avail === fit._ahW2) return
+    fit._ahW2 = fit._ahW1; fit._ahW1 = avail
+    // measure the natural (unscaled) width of the side-by-side zones at full size
+    inner.style.width = ""; inner.style.transform = "none"; fit.style.height = ""
+    const zones = inner.querySelector(".ah-zones-row")
+    const natural = Math.max(inner.scrollWidth, zones ? zones.scrollWidth : 0)
+    let scale = (natural > avail) ? avail / natural : 1
+    if (scale < 0.3) scale = 0.3
+    if (scale < 1) {
+      inner.style.width = Math.ceil(natural) + "px"   // give the content its full width (Loose wraps at this width), then shrink it visually to fit
+      inner.style.transform = "scale(" + scale + ")"
+      fit.style.height = Math.ceil(inner.scrollHeight * scale) + "px"   // collapse the box to the scaled height (no gap below)
+    }
+  } catch (e) { console.warn("[pendant-bridge] AH fit-scale failed", e) }
+}
+function ahFitObserve(fit) {
+  try {
+    if (typeof ResizeObserver === "undefined") return
+    if (!_ahFitObs) _ahFitObs = new ResizeObserver(es => { for (const e of es) ahFitScaleEl(e.target) })
+    for (const el of _ahFitEls) if (!el.isConnected) { try { _ahFitObs.unobserve(el) } catch {} _ahFitEls.delete(el) }   // drop panels that were rebuilt/removed
+    fit._ahW1 = -1; fit._ahW2 = -1; _ahFitEls.add(fit); _ahFitObs.observe(fit)
+    requestAnimationFrame(() => ahFitScaleEl(fit))   // initial pass once laid out
+  } catch (e) { console.warn("[pendant-bridge] AH fit-observe failed", e) }
 }
 
 function ahInjectPanel(app, html) {
