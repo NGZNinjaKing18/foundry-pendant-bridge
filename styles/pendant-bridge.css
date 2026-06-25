@@ -136,8 +136,15 @@
 .ah-panel .ah-zone > .ah-sec .ah-sec-rule { display: none; }   /* the band itself separates — no hairline filler */
 .ah-panel .ah-zone > .ah-sec .ah-sec-h, .ah-panel .ah-zone > .ah-sec .ah-sec-i { color: var(--ah-band-ink); }
 .ah-panel .ah-zone > .ah-sec .ah-sec-meta { color: var(--ah-band-dim); }
-.ah-panel .ah-zone > .ah-sec .ah-ghostbtn { border-color: rgba(241, 221, 212, 0.32); color: var(--ah-band-ink); }
-.ah-panel .ah-zone > .ah-sec .ah-ghostbtn:hover { border-color: var(--ah-band-ink); }
+/* band controls styled like the native header's column labels: small UPPERCASE tracked muted-light
+   text, no box chrome — so they blend with the band instead of reading as foreign amber/outline pills */
+.ah-panel .ah-zone > .ah-sec .ah-act, .ah-panel .ah-zone > .ah-sec .ah-ghostbtn {
+  padding: 2px 6px; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.06em; line-height: 1.5;
+  background: transparent; border: none; color: var(--ah-band-dim); box-shadow: none; }
+.ah-panel .ah-zone > .ah-sec .ah-act:hover, .ah-panel .ah-zone > .ah-sec .ah-ghostbtn:hover {
+  background: rgba(255, 255, 255, 0.1); color: var(--ah-band-ink); box-shadow: none; }
+.ah-panel .ah-zone > .ah-sec .ah-ghostbtn.on { background: rgba(255, 255, 255, 0.12); color: var(--ah-band-ink); }
+.ah-panel .ah-zone > .ah-sec .ah-act .ah-ico, .ah-panel .ah-zone > .ah-sec .ah-ghostbtn .ah-ico { width: 11px; height: 11px; opacity: 0.85; }
 .ah-panel .ah-zone-body > .ah-doll, .ah-panel .ah-zone-bag > .ah-bagcol { padding: 8px 9px 2px; }   /* align content under the band's text indent */
 /* neutral ghost button (Strip · Outfits · Add) — pairs with the amber .ah-act primary */
 .ah-panel .ah-ghostbtn { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; line-height: 1.4; padding: 3px 11px; border-radius: var(--ah-pill); cursor: pointer; background: transparent; border: 1px solid var(--ah-line-2); color: var(--ah-dim); }
