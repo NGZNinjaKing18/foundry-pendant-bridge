@@ -191,7 +191,7 @@
 .ah-panel .ah-gb-nm.muted { font-weight: 500; color: var(--ah-dim); }
 .ah-panel .ah-gb-sl { font-size: 9.5px; color: var(--ah-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ah-panel .ah-gb-dots { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 3px; max-width: 44px; justify-content: flex-end; }
-.ah-panel .ah-gb-x { position: absolute; top: 1px; right: 1px; z-index: 3; width: 18px; height: 18px; border: none; border-radius: 50%; background: var(--ah-pop); color: var(--ah-dim); font-size: 13px; line-height: 1; cursor: pointer; padding: 0; opacity: 0.6; transition: opacity var(--ah-ease), background var(--ah-ease), color var(--ah-ease); }
+.ah-panel .ah-gb-x { position: absolute; top: 1px; right: 1px; z-index: 3; width: 18px; height: 18px; border: none; border-radius: 50%; background: var(--ah-pop); color: var(--ah-dim); font-size: 13px; line-height: 1; cursor: pointer; padding: 0; opacity: 0; transition: opacity var(--ah-ease), background var(--ah-ease), color var(--ah-ease); }
 .ah-panel .ah-gb:hover .ah-gb-x, .ah-panel .ah-gb:focus-within .ah-gb-x { opacity: 1; }
 .ah-panel .ah-gb-x:hover { background: var(--ah-bad); color: var(--ah-ink-inverse); }
 .ah-panel .ah-gb-draw { position: absolute; bottom: 2px; right: 2px; z-index: 2; font-size: 8px; text-transform: uppercase; letter-spacing: 0.03em; padding: 1px 6px; border-radius: var(--ah-tile); background: var(--ah-action-bg); border: 1px solid var(--ah-action-line); color: var(--ah-action-ink); line-height: 1.5; cursor: pointer; white-space: nowrap; opacity: 0; transition: opacity var(--ah-ease); }
@@ -256,7 +256,6 @@
 .ah-panel .ah-leg .ah-leg-x { margin-left: 2px; }
 .ah-panel .ah-leg-bq { color: var(--ah-mute); font-variant-numeric: tabular-nums; }
 .ah-panel .ah-leg-ch, .ah-panel .ah-tray-ch { font-size: 9px; color: var(--ah-good-ink); background: var(--ah-good-bg); border: 1px solid var(--ah-good-line); border-radius: var(--ah-tile); padding: 0 5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.ah-panel .ah-leg-empty { font-size: 10.5px; font-style: italic; color: var(--ah-faint); }
 .ah-panel .ah-leg-bin { font-size: 9px; text-transform: uppercase; letter-spacing: .03em; color: var(--ah-faint); flex: 0 0 auto; }
 /* separate bag mode — one mini hex-grid per container, drop an item onto a card to assign it */
 /* container grids stack 2 HIGH, then flow into a new column to the right (and again) — fills the

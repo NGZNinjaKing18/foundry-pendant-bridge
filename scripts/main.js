@@ -2348,7 +2348,7 @@ function ahBoardSVG(ctx) {
 function ahLegendHTML(ctx) {
   const rows = []
   ctx.placed.forEach((p, id) => { const it = ctx.unitById[id]; if (it && !(p && p.of)) rows.push({ it, bin: p && p.bin }) })
-  if (!rows.length) return '<span class="ah-leg-empty">Nothing packed yet — drag items onto the grid.</span>'
+  if (!rows.length) return ""
   rows.sort((a, b) => (ctx.separate ? String(a.bin || "").localeCompare(String(b.bin || "")) : 0) || (a.it.name || "").localeCompare(b.it.name || ""))
   return rows.map(({ it, bin }) => {
     const bi = ctx.byId[it.itemId]
