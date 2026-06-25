@@ -105,16 +105,6 @@
 }
 /* one monochrome inline-SVG icon family (inherits currentColor + the token palette) */
 .ah-panel .ah-ico { display: inline-block; width: 1em; height: 1em; vertical-align: -0.14em; flex: 0 0 auto; }
-/* header */
-.ah-panel .ah-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; padding-bottom: 9px; border-bottom: 1px solid var(--ah-line); }
-.ah-panel .ah-title { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; font-size: 14.5px; letter-spacing: 0.01em; }
-.ah-panel .ah-title .ah-ico { width: 16px; height: 16px; color: var(--ah-action); }
-.ah-panel .ah-stat { font-size: 12px; color: var(--ah-dim); }
-.ah-panel .ah-stat b { color: var(--ah-ink); }
-.ah-panel .ah-cap { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ah-mute); }
-.ah-panel .ah-cap-input { width: 50px; height: 22px; padding: 0 5px; font-size: 12px; text-align: center;
-  border: 1px solid var(--ah-line-2); border-radius: var(--ah-r-sm); background: var(--ah-sink); color: var(--ah-ink); }
-.ah-panel .ah-cap-input:hover { border-color: var(--ah-action); }
 .ah-panel .ah-bagcol { min-width: 0; }
 /* ── zone section headers: Body · Bag · Loose (one strong anchor per zone, not a gray eyebrow per section) ── */
 .ah-panel .ah-sec { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin: 11px 0 7px; }
@@ -339,33 +329,6 @@
 .ah-panel .ah-tray-empty { font-size: 11px; font-style: italic; color: var(--ah-good); }
 .ah-panel .ah-tray-chips::-webkit-scrollbar { width: 9px; }
 .ah-panel .ah-tray-chips::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); border-radius: var(--ah-r-sm); border: 2px solid transparent; background-clip: padding-box; }
-/* GM tuning */
-.ah-panel .ah-items { margin-top: 12px; border-top: 1px solid var(--ah-line); padding-top: 6px; }
-.ah-panel .ah-items > summary { cursor: pointer; font-size: 11px; color: var(--ah-mute); padding: 2px 0; list-style: revert; }
-.ah-panel .ah-items > summary:hover { color: var(--ah-dim); }
-.ah-panel .ah-list { margin-top: 5px; display: flex; flex-direction: column; gap: 2px; }
-.ah-panel .ah-row-sw { width: 11px; height: 11px; border-radius: 3px; flex: 0 0 auto; }
-.ah-panel .ah-row-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-.ah-panel .ah-row-qty { font-size: 10px; color: var(--ah-mute); flex-shrink: 0; }
-.ah-panel .ah-row-sp { width: 48px; height: 22px; padding: 0 4px; font-size: 11px; text-align: center; flex-shrink: 0;
-  border: 1px solid var(--ah-line-2); border-radius: var(--ah-r-sm); background: var(--ah-sink); color: var(--ah-ink); }
-.ah-panel .ah-row-sp.ovr { border-color: var(--ah-action); background: var(--ah-action-bg); font-weight: 700; }
-/* GM per-item editor rows */
-.ah-panel .ah-erow { padding: 5px 4px; border-radius: var(--ah-r-sm); }
-.ah-panel .ah-erow + .ah-erow { border-top: 1px solid var(--ah-line); }
-.ah-panel .ah-erow.ovr { background: var(--ah-action-bg); }
-.ah-panel .ah-erow-top { display: flex; align-items: center; gap: 7px; }
-.ah-panel .ah-erow-mid { display: flex; gap: 6px; margin: 5px 0 0 18px; }
-.ah-panel .ah-row-sel { flex: 1; min-width: 0; height: 22px; font-size: 10px; padding: 0 4px; color: var(--ah-ink);
-  background: var(--ah-sink); border: 1px solid var(--ah-line-2); border-radius: var(--ah-r-sm); }
-.ah-panel .ah-row-rst { width: 22px; height: 22px; flex: 0 0 auto; border: 1px solid var(--ah-line-2);
-  background: transparent; color: var(--ah-mute); border-radius: var(--ah-r-sm); cursor: pointer; font-size: 12px; line-height: 1; }
-.ah-panel .ah-row-rst:hover { color: var(--ah-ink); border-color: var(--ah-action); }
-.ah-panel .ah-slotchips { display: flex; flex-wrap: wrap; gap: 3px; margin: 5px 0 0 18px; }
-.ah-panel .ah-slotchip { font-size: 9px; padding: 2px 6px; border-radius: var(--ah-pill); cursor: pointer;
-  background: transparent; border: 1px solid var(--ah-line-2); color: var(--ah-mute); }
-.ah-panel .ah-slotchip.on { background: var(--ah-action-bg); border-color: var(--ah-action); color: var(--ah-ink); }
-
 /* ── hit areas (WCAG 2.5.8 / 2.5.5) ──
    Tiny inline icon buttons keep their visual size but gain a transparent ≥24px
    (44px on coarse pointers) hit target via ::after, so the dense desktop layout
@@ -377,13 +340,9 @@
   content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
   width: 100%; height: 100%; min-width: 24px; min-height: 24px;
 }
-.ah-panel .ah-cap-input, .ah-panel .ah-row-sp, .ah-panel .ah-row-sel, .ah-panel .ah-row-rst { min-height: 24px; }
 @media (pointer: coarse) {
   .ah-panel .ah-gear-x::after, .ah-panel .ah-bdot::after, .ah-panel .ah-leg-x::after,
   .ah-panel .ah-use::after, .ah-panel .ah-bin-x::after, .ah-panel .ah-om-x::after, .ah-panel .ah-tx::after, .ah-panel .ah-tdraw::after { min-width: 44px; min-height: 44px; }
-  .ah-panel .ah-cap-input, .ah-panel .ah-row-sp, .ah-panel .ah-row-sel, .ah-panel .ah-row-rst { min-height: 40px; }
-  .ah-panel .ah-row-rst { width: 40px; }
-  .ah-panel .ah-slotchip { padding: 7px 11px; }
   .ah-panel .ah-act, .ah-panel .ah-ghostbtn { padding-top: 8px; padding-bottom: 8px; }
 }
 

@@ -3984,25 +3984,9 @@ function ahBuildPanel(actor) {
   // a broken/missing item image (rare — Foundry assigns a default) → drop it so the fallback slot
   // icon shows. Capturing listener (error doesn't bubble) on the panel root covers every art img.
   wrap.addEventListener("error", (e) => { const t = e.target; if (t && t.tagName === "IMG" && t.classList && t.classList.contains("ah-art-img")) t.remove() }, true)
-  const titleId = "ah-title-" + actor.id
-  wrap.setAttribute("role", "region"); wrap.setAttribute("aria-labelledby", titleId)
-
-  // header: title · worn/packed/loose · (GM) bag capacity
-  const head = document.createElement("div"); head.className = "ah-head"
-  const title = document.createElement("span"); title.className = "ah-title"; title.id = titleId; title.setAttribute("role", "heading"); title.setAttribute("aria-level", "2"); title.innerHTML = ahIcon("back", "ah-ico") + " Anti-Hammer Space"; head.appendChild(title)
-  const stat = document.createElement("span"); stat.className = "ah-stat"
-  stat.innerHTML = "<b>" + wornN + "</b> worn · <b>" + packedN + "</b> packed" + (looseN ? " · <b>" + looseN + "</b> loose" : "")
-  head.appendChild(stat)
-  if (isGM) {
-    const cap = document.createElement("label"); cap.className = "ah-cap"; cap.appendChild(document.createTextNode("Bag"))
-    const inp = document.createElement("input"); inp.type = "number"; inp.min = "0"; inp.className = "ah-cap-input"
-    inp.value = sum.capacityOverride != null ? String(sum.capacityOverride) : ""
-    inp.placeholder = ahFmt(cfg.defaultCapacity)
-    inp.title = "Slots per container (blank = world default " + ahFmt(cfg.defaultCapacity) + ")"
-    inp.addEventListener("change", async () => { const v = inp.value.trim(); try { v === "" ? await actor.unsetFlag(MOD, "capacity") : await actor.setFlag(MOD, "capacity", Number(v) || 0) } catch (e) { console.warn("[pendant-bridge] AH setCapacity failed", e) } })
-    cap.appendChild(inp); head.appendChild(cap)
-  }
-  wrap.appendChild(head)
+  wrap.setAttribute("role", "region"); wrap.setAttribute("aria-label", "Anti-Hammer Space")
+  // no on-sheet title/stat header or GM capacity input — the maroon Body/Bag bands label the panel,
+  // and bag capacity + item rules are edited in the app's TTRPG Rules tool
 
   // ── stacked zones: Body · Bag · Loose — each a clear header (replaces the gray eyebrows) ──
   const mkSec = (iconName, zoneCls, label, metaTxt) => {
@@ -4173,56 +4157,8 @@ function ahBuildPanel(actor) {
   }
   ahRenderDoll(ctx); ahRenderBoard(ctx); ahRenderTray(ctx)
 
-  // GM tuning — override the rules per item (size · carry type · spaces · slots)
-  if (isGM && sum.items.length) {
-    const det = document.createElement("details"); det.className = "ah-items"
-    const summ = document.createElement("summary"); summ.textContent = "Tune items (GM) — size · type · spaces · slots"
-    det.appendChild(summ)
-    const list = document.createElement("div"); list.className = "ah-list"
-    const mkSelect = (opts, value, onChange) => {
-      const s = document.createElement("select"); s.className = "ah-row-sel"
-      for (const o of opts) { const op = document.createElement("option"); op.value = o; op.textContent = o; if (o === value) op.selected = true; s.appendChild(op) }
-      s.addEventListener("change", () => onChange(s.value))
-      return s
-    }
-    for (const it of sum.items) {
-      const item = actor.items.get(it.id); if (!item) continue
-      const m = it.meta || {}
-      const row = document.createElement("div"); row.className = "ah-erow" + (m.override || it.override != null ? " ovr" : "")
-      const top = document.createElement("div"); top.className = "ah-erow-top"
-      const sw = document.createElement("span"); sw.className = "ah-row-sw"; sw.style.background = ahColorFor(it.id); top.appendChild(sw)
-      const name = document.createElement("span"); name.className = "ah-row-name"; name.textContent = it.name || "—"; top.appendChild(name)
-      if (it.qty > 1) { const q = document.createElement("span"); q.className = "ah-row-qty"; q.textContent = "×" + it.qty; top.appendChild(q) }
-      // spaces (bag footprint)
-      const sp = document.createElement("input"); sp.type = "number"; sp.min = "0"; sp.step = "0.5"; sp.className = "ah-row-sp" + (it.override != null ? " ovr" : "")
-      sp.value = it.override != null ? String(it.override) : ""; sp.placeholder = ahFmt(it.spaces); sp.title = "Bag spaces (blank = auto)"
-      sp.addEventListener("change", async () => { const v = sp.value.trim(); try { (v === "" && item) ? await item.unsetFlag(MOD, "spaces") : await item.setFlag(MOD, "spaces", Number(v) || 0) } catch (e) { console.warn("[pendant-bridge] AH spaces failed", e) } })
-      top.appendChild(sp)
-      // reset
-      const rst = document.createElement("button"); rst.type = "button"; rst.className = "ah-row-rst"; rst.textContent = "↺"; rst.title = "Reset this item to the rules"
-      rst.addEventListener("click", async () => { try { await item.unsetFlag(MOD, "meta"); await item.unsetFlag(MOD, "spaces") } catch (e) { console.warn("[pendant-bridge] AH reset failed", e) } })
-      top.appendChild(rst)
-      row.appendChild(top)
-      // size + carry selects
-      const mid = document.createElement("div"); mid.className = "ah-erow-mid"
-      mid.appendChild(mkSelect(AH_SIZE_OPTS, m.size, (v) => ahSetMetaField(item, "size", v)))
-      mid.appendChild(mkSelect(AH_CARRY_OPTS, m.carryType, (v) => ahSetMetaField(item, "carryType", v)))
-      row.appendChild(mid)
-      // equip-slot toggle chips
-      const slots = document.createElement("div"); slots.className = "ah-slotchips"
-      const cur = Array.isArray(m.equipSlots) ? m.equipSlots.slice() : []
-      for (const sName of AH_SLOT_OPTS) {
-        const on = cur.indexOf(sName) >= 0
-        const chip = document.createElement("button"); chip.type = "button"; chip.className = "ah-slotchip" + (on ? " on" : ""); chip.textContent = AH_SLOT_KEY[sName] && AH_SLOT_KEY[sName] !== sName ? sName.replace("Left ", "L.").replace("Right ", "R.") : sName
-        chip.addEventListener("click", () => { const set = new Set(Array.isArray((it.meta || {}).equipSlots) ? it.meta.equipSlots : cur); set.has(sName) ? set.delete(sName) : set.add(sName); ahSetMetaField(item, "equipSlots", [...set]) })
-        slots.appendChild(chip)
-      }
-      row.appendChild(slots)
-      list.appendChild(row)
-    }
-    det.appendChild(list)
-    wrap.appendChild(det)
-  }
+  // (the on-sheet GM "Tune items" panel was removed — item size/type/spaces/slots are edited in the
+  // app's TTRPG Rules → Anti-Hammer tool)
 
   return wrap
 }
