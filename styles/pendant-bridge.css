@@ -130,7 +130,7 @@
 .ah-panel .ah-zone { flex: 0 0 auto; width: fit-content; max-width: 100%; margin: 12px 0 10px; border-left: 2px solid var(--ah-band-edge); border-right: 2px solid var(--ah-band-edge); }   /* red lines drop down BOTH sides of each section */
 /* Loose = its own full-width banded section (red bar on top + red line around left/right/bottom) below Body+Bag */
 .ah-panel .ah-zone-loose { width: 0; min-width: 100%; border-bottom: 2px solid var(--ah-band-edge); }
-.ah-panel .ah-zone-loose > .ah-tray-chips { padding: 8px 10px; }
+.ah-panel .ah-zone-loose > .ah-tray-chips { padding: 6px 9px; }
 .ah-panel .ah-zone > .ah-sec { box-sizing: border-box; margin: 0; padding: 5px 10px; flex-wrap: nowrap; white-space: nowrap; background: var(--ah-band); border-bottom: 1px solid rgba(0, 0, 0, 0.4); border-radius: var(--ah-tile) var(--ah-tile) 0 0; box-shadow: inset 0 1px 0 var(--ah-band-top); }
 /* Body fills the shared (stretched) height so its bottom lines up with the Bag: the doll + game grow
    and the gear boxes flex to fill the column. */
@@ -328,8 +328,8 @@
   background: var(--ah-raise-2); border: 1px solid var(--ah-action); font-size: 11px; white-space: nowrap; color: var(--ah-ink); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5); }
 /* tray of not-yet-placed (loose) items */
 /* loose tray = one flowing row: category TILES (squared, fill when open), each opening its items inline right after it */
-.ah-panel .ah-tray-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; max-height: 176px; overflow-y: auto; padding-right: 3px; }
-.ah-panel .ah-tcat { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: var(--ah-tile); border: 1px solid var(--ah-line-2); background: var(--ah-raise); color: var(--ah-dim); font-size: 11px; line-height: 1.4; cursor: pointer; }
+.ah-panel .ah-tray-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; max-height: 176px; overflow-y: auto; padding-right: 3px; }
+.ah-panel .ah-tcat { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: var(--ah-tile); border: 1px solid var(--ah-line-2); background: var(--ah-raise); color: var(--ah-dim); font-size: 10.5px; line-height: 1.35; cursor: pointer; }
 .ah-panel .ah-tcat:hover { border-color: var(--ah-action-line); color: var(--ah-ink); }
 .ah-panel .ah-tcat.open { background: var(--ah-action-bg); border-color: var(--ah-action-line); color: var(--ah-action-ink); }
 .ah-panel .ah-tcat-n { font-size: 9px; color: var(--ah-mute); font-variant-numeric: tabular-nums; }
@@ -337,12 +337,12 @@
 .ah-panel .ah-tcat-car { width: 11px; height: 11px; transform: rotate(-90deg); transition: transform var(--ah-ease); }
 .ah-panel .ah-tcat.open .ah-tcat-car { transform: rotate(0); }
 .ah-panel .ah-tray-it.collapsed { display: none; }
-.ah-panel .ah-tray-it { display: flex; align-items: center; gap: 7px; padding: 5px 9px 5px 6px; background: var(--ah-raise);
-  border: 1px solid var(--ah-line); border-radius: var(--ah-r); cursor: grab; user-select: none; -webkit-user-select: none; }
+.ah-panel .ah-tray-it { display: flex; align-items: center; gap: 5px; padding: 2px 6px 2px 3px; background: var(--ah-raise);
+  border: 1px solid var(--ah-line); border-radius: var(--ah-r-sm); cursor: grab; user-select: none; -webkit-user-select: none; }
 .ah-panel .ah-tray-it:hover { border-color: var(--ah-action-line); background: var(--ah-raise-2); }
-.ah-panel .ah-tray-it .ah-art { width: 28px; height: 28px; }   /* real item artwork thumbnail */
-.ah-panel .ah-tray-nm { font-size: 11.5px; }
-.ah-panel .ah-tray-sz { font-size: 10px; color: var(--ah-mute); }
+.ah-panel .ah-tray-it .ah-art { width: 21px; height: 21px; }   /* real item artwork thumbnail */
+.ah-panel .ah-tray-nm { font-size: 10.5px; }
+.ah-panel .ah-tray-sz { font-size: 9.5px; color: var(--ah-mute); }
 .ah-panel .ah-tray-tag { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 5px; border-radius: var(--ah-tile); line-height: 1.4; }
 .ah-panel .ah-tray-tag.wear { background: var(--ah-bad-bg); border: 1px solid var(--ah-bad-line); color: var(--ah-bad-ink); }
 .ah-panel .ah-tray-tag.free { background: var(--ah-good-bg); border: 1px solid var(--ah-good-line); color: var(--ah-good-ink); }
