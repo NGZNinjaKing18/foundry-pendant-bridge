@@ -1945,7 +1945,7 @@ async function handleCommand(msg) {
       const m = ctx.metaById[msg.itemId] || { equipSlots: [] }
       if (!ahFreeBody(ctx, m).has(slot)) throw new Error("That slot isn't available for this item")
       if (slot === "Back") { if (ctx.back.indexOf(msg.itemId) < 0) ctx.back.push(msg.itemId) } else ctx.worn[msg.itemId] = slot
-      await a.setFlag(MOD, "ahEquip", { worn: ctx.worn, back: ctx.back })
+      await ahSaveEquipObj(a, ctx.worn, ctx.back)
       try { const pl = a.getFlag(MOD, "ahPlace") || {}; let ch = false; for (const k of Object.keys(pl)) { if (k === msg.itemId || k.startsWith(msg.itemId + "#")) { delete pl[k]; ch = true } } if (ch) await a.setFlag(MOD, "ahPlace", pl) } catch {}   // clear the item's placement + every bundle uid
       try { if (it.system && ("equipped" in it.system)) await it.update({ "system.equipped": true }) } catch {}
       await ahRecomputeActor(a)
@@ -1956,7 +1956,7 @@ async function handleCommand(msg) {
       if (!a) throw new Error("Actor not found: " + msg.actorId)
       const ctx = ahHeadlessCtx(a)
       delete ctx.worn[msg.itemId]; ctx.back = ctx.back.filter(x => x !== msg.itemId)
-      await a.setFlag(MOD, "ahEquip", { worn: ctx.worn, back: ctx.back })
+      await ahSaveEquipObj(a, ctx.worn, ctx.back)
       try { const it = a.items.get(msg.itemId); if (it && it.system && ("equipped" in it.system)) await it.update({ "system.equipped": false }) } catch {}
       await ahRecomputeActor(a)
       return bridge.reply(msg.reqId, { type: "antihammer.actor", actor: AH.actorSummary(a, AH.cfg()) })
@@ -2052,7 +2052,7 @@ async function ahReconcileEquip(actor) {
   const nowIds = new Set(Object.keys(eq.worn).concat(eq.back))
   let eqChanged = savedIds.size !== nowIds.size
   for (const id of savedIds) if (!nowIds.has(id)) { eqChanged = true; const it = actor.items.get(id); if (it && it.system && ("equipped" in it.system) && it.system.equipped) { try { await it.update({ "system.equipped": false }) } catch {} } }
-  if (eqChanged) { try { await actor.setFlag(MOD, "ahEquip", { worn: eq.worn, back: eq.back }) } catch {} }
+  if (eqChanged) { try { await ahSaveEquipObj(actor, eq.worn, eq.back) } catch {} }
   // prune orphaned ahPlace unit keys (deleted items / shrunk bundles / now-worn)
   try {
     const cfg = AH.cfg(), valid = new Set()
@@ -3486,7 +3486,22 @@ function ahIsWriteAuthority(actor) {
     return low(owners).id === me.id
   } catch { return !!(game.user && game.user.isGM) }
 }
-function ahSaveEquip(ctx) { try { ctx.actor.setFlag(MOD, "ahEquip", { worn: ctx.worn, back: ctx.back }) } catch (e) { console.warn("[pendant-bridge] AH equip save failed", e) } }
+/** Persist {worn, back} to the ahEquip flag, DELETING worn keys that are gone. setFlag does a
+ *  recursive MERGE that never removes sub-keys, so removing an item from the `worn` OBJECT and
+ *  re-saving left the old key in place → unequip / Strip silently failed for every worn slot
+ *  (Back worked only because it's an ARRAY, which replaces). Mirrors ahSaveFlagObj (the v0.54 fix). */
+function ahSaveEquipObj(actor, worn, back) {
+  try {
+    let cur = {}; try { cur = (actor.getFlag(MOD, "ahEquip") || {}).worn || {} } catch {}
+    if (!cur || typeof cur !== "object") cur = {}
+    worn = worn || {}
+    const upd = {}; upd["flags." + MOD + ".ahEquip.back"] = Array.isArray(back) ? back.slice() : []
+    for (const k in worn) upd["flags." + MOD + ".ahEquip.worn." + k] = worn[k]
+    for (const k in cur) if (!(k in worn)) upd["flags." + MOD + ".ahEquip.worn.-=" + k] = null   // delete unequipped slots
+    return Promise.resolve(actor.update(upd)).catch(e => console.warn("[pendant-bridge] AH equip save failed", e))
+  } catch (e) { console.warn("[pendant-bridge] AH equip save failed", e) }
+}
+function ahSaveEquip(ctx) { ahSaveEquipObj(ctx.actor, ctx.worn, ctx.back) }
 function ahPlaceObj(ctx) { const o = {}; ctx.placed.forEach((p, id) => { o[id] = { col: p.col, row: p.row, rot: p.rot } }); return o }
 // Mirror the slot state onto dnd5e's own `equipped` flag — an item is "equipped"
 // on the sheet only when it's slotted on the body (per the locked rule).
