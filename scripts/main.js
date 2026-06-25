@@ -3611,9 +3611,6 @@ function ahRenderDoll(ctx) {
     return out.join("")
   }
   const left = colHTML(AH_DOLL_LEFT), right = colHTML(AH_DOLL_RIGHT)
-  // body-part highlight markers over the figure (one per slot; lit on box hover/focus)
-  let marks = ""
-  for (const s of AH_BODY_SLOTS) marks += '<span class="ah-mark" data-mark="' + s[0] + '" style="left:' + s[2] + '%;top:' + s[3] + '%"></span>'
   let foot = ""
   if (covered.length) {
     const by = {}; for (const c of covered) (by[c.by] = by[c.by] || []).push(AH_SLOT_LABEL[c.key] || c.key)
@@ -3624,7 +3621,7 @@ function ahRenderDoll(ctx) {
   ctx.dollEl.innerHTML =
     '<div class="ah-game">' +
       '<div class="ah-gcol l">' + left + "</div>" +
-      '<div class="ah-gfig"><img class="ah-doll-img" src="' + ahDollImg(ctx.actor) + '" alt="" draggable="false"/><span class="ah-doll-marks" aria-hidden="true">' + marks + "</span></div>" +
+      '<div class="ah-gfig"><img class="ah-doll-img" src="' + ahDollImg(ctx.actor) + '" alt="" draggable="false"/></div>' +
       '<div class="ah-gcol r">' + right + "</div>" +
     "</div>" +
     (foot ? '<div class="ah-doll-foot">' + foot + "</div>" : "")
@@ -4026,8 +4023,11 @@ function ahBuildPanel(actor) {
     outf.addEventListener("click", (e) => { e.stopPropagation(); ahOpenOutfitMenu(ctx, bodySec.ctl, outf) })
     bodySec.ctl.appendChild(suit); bodySec.ctl.appendChild(strip); bodySec.ctl.appendChild(outf)
   }
-  wrap.appendChild(bodySec.sec)
-  const dollEl = document.createElement("div"); dollEl.className = "ah-doll"; ctx.dollEl = dollEl; wrap.appendChild(dollEl)
+  // zone = a shrink-to-content wrapper so the header band spans only the body's width (a vertical
+  // rule on the zone's right edge sets it off from the blank space beyond — see .ah-zone CSS)
+  const bodyZone = document.createElement("div"); bodyZone.className = "ah-zone ah-zone-body"; wrap.appendChild(bodyZone)
+  bodyZone.appendChild(bodySec.sec)
+  const dollEl = document.createElement("div"); dollEl.className = "ah-doll"; ctx.dollEl = dollEl; bodyZone.appendChild(dollEl)
 
   // BAG — header carries the spaces readout + Tidy + (separate) Add; content below
   const bagMetaTxt = bagCapacity > 0
@@ -4052,7 +4052,8 @@ function ahBuildPanel(actor) {
     add.addEventListener("click", (e) => { e.stopPropagation(); ahOpenGearMenu(actor, bagSec.ctl, add) })
     bagSec.ctl.appendChild(add)
   }
-  wrap.appendChild(bagSec.sec)
+  const bagZone = document.createElement("div"); bagZone.className = "ah-zone ah-zone-bag"; wrap.appendChild(bagZone)
+  bagZone.appendChild(bagSec.sec)
 
   const bagCol = document.createElement("div"); bagCol.className = "ah-bagcol"
   if (bagCapacity > 0) {
@@ -4133,7 +4134,7 @@ function ahBuildPanel(actor) {
     if (!contItems.length && !gearList.length) { const e = document.createElement("span"); e.className = "ah-gear-empty"; e.textContent = ctx.canArrange ? "None — use + Add above." : "None."; row.appendChild(e) }
     cw.appendChild(row); bagCol.appendChild(cw)
   }
-  wrap.appendChild(bagCol)
+  bagZone.appendChild(bagCol)
 
   // LOOSE — the not-worn-or-packed tray
   const looseMeta = looseN ? ("· " + looseN + (ctx.canArrange ? " · drag to the body or a container" : "")) : (ctx.canArrange ? "· all worn or packed" : "")
@@ -4171,12 +4172,6 @@ function ahBuildPanel(actor) {
       const pk = e.target.closest("[data-pick]"); if (pk && pk.getAttribute("role") === "button") { e.preventDefault(); ahOpenSlotMenu(ctx, pk.getAttribute("data-pick"), pk) }   // role=button slot DIVs only (native buttons self-fire)
     })
   }
-  // hover / focus a gear box → light the matching body region on the figure (read-only, all viewers)
-  const ahLite = (k) => { if (!dollEl) return; dollEl.querySelectorAll(".ah-mark").forEach(m => m.classList.toggle("on", !!k && m.getAttribute("data-mark") === k)) }
-  dollEl.addEventListener("mouseover", (e) => { const s = e.target.closest && e.target.closest("[data-slot]"); ahLite(s ? s.getAttribute("data-slot") : null) })
-  dollEl.addEventListener("mouseleave", () => ahLite(null))
-  dollEl.addEventListener("focusin", (e) => { const s = e.target.closest && e.target.closest("[data-slot]"); ahLite(s ? s.getAttribute("data-slot") : null) })
-  dollEl.addEventListener("focusout", () => ahLite(null))
   ahRenderDoll(ctx); ahRenderBoard(ctx); ahRenderTray(ctx)
 
   // GM tuning — override the rules per item (size · carry type · spaces · slots)

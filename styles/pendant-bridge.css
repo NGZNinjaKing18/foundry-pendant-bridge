@@ -69,6 +69,12 @@
   /* ── shape + motion ── */
   --ah-r-lg: 12px; --ah-r: 9px; --ah-r-sm: 6px; --ah-tile: 3px;   /* --ah-tile = crisp squared tokens/tiles/tags (no pills) */
   --ah-pill: var(--ah-r-sm);   /* NO PILLS: was 999px — aliased to a soft box so buttons/anything left on this token square off instead of forming a capsule */
+  /* maroon SECTION BAND (Body / Bag zone headers) — matches the native dnd5e header bar */
+  --ah-band: linear-gradient(90deg, rgba(112, 46, 52, 0.95), rgba(68, 26, 31, 0.86));
+  --ah-band-top: rgba(170, 88, 94, 0.45);   /* top sheen */
+  --ah-band-edge: rgba(150, 66, 72, 0.6);   /* band bottom border + the vertical drop-down rule */
+  --ah-band-ink: #f1ddd4;                    /* title + icon on the band */
+  --ah-band-dim: rgba(241, 221, 212, 0.72);  /* meta text on the band */
   --ah-ease: 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
 
   /* seamless: a flush, TRANSPARENT section of the Inventory tab — it inherits the host
@@ -121,6 +127,17 @@
 .ah-panel.is-over .ah-sec-loose .ah-sec-h, .ah-panel.is-over .ah-sec-loose .ah-sec-i { color: var(--ah-bad); }
 .ah-panel .ah-sec-rule { flex: 1 1 24px; height: 1px; min-width: 16px; background: linear-gradient(90deg, var(--ah-line), transparent); }
 .ah-panel .ah-sec-ctl { position: relative; display: flex; align-items: center; gap: 6px; margin-left: auto; }
+/* ── zone band: the Body & Bag headers become a maroon section bar (like the native sheet) sized to
+   the zone's own content width; a vertical rule drops down the right edge to set it off from the
+   blank space beyond. Buttons ride the far right of the bar (.ah-sec-ctl margin-left:auto). ── */
+.ah-panel .ah-zone { width: fit-content; max-width: 100%; margin: 12px 0 10px; border-right: 2px solid var(--ah-band-edge); }
+.ah-panel .ah-zone > .ah-sec { margin: 0; padding: 5px 9px; flex-wrap: wrap; background: var(--ah-band); border-bottom: 1px solid var(--ah-band-edge); border-radius: 0; box-shadow: inset 0 1px 0 var(--ah-band-top); }
+.ah-panel .ah-zone > .ah-sec .ah-sec-rule { display: none; }   /* the band itself separates — no hairline filler */
+.ah-panel .ah-zone > .ah-sec .ah-sec-h, .ah-panel .ah-zone > .ah-sec .ah-sec-i { color: var(--ah-band-ink); }
+.ah-panel .ah-zone > .ah-sec .ah-sec-meta { color: var(--ah-band-dim); }
+.ah-panel .ah-zone > .ah-sec .ah-ghostbtn { border-color: rgba(241, 221, 212, 0.32); color: var(--ah-band-ink); }
+.ah-panel .ah-zone > .ah-sec .ah-ghostbtn:hover { border-color: var(--ah-band-ink); }
+.ah-panel .ah-zone-body > .ah-doll, .ah-panel .ah-zone-bag > .ah-bagcol { padding: 8px 9px 2px; }   /* align content under the band's text indent */
 /* neutral ghost button (Strip · Outfits · Add) — pairs with the amber .ah-act primary */
 .ah-panel .ah-ghostbtn { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; line-height: 1.4; padding: 3px 11px; border-radius: var(--ah-pill); cursor: pointer; background: transparent; border: 1px solid var(--ah-line-2); color: var(--ah-dim); }
 .ah-panel .ah-ghostbtn:hover { border-color: var(--ah-action); color: var(--ah-ink); }
@@ -149,13 +166,10 @@
 /* paperdoll — figure + a wrap grid of square equipment tiles (see .ah-tile below) */
 .ah-panel .ah-doll { display: flex; flex-direction: column; gap: 7px; align-items: stretch; }   /* game panel + footnotes stack */
 /* ── game-panel paperdoll: figure centred, framed by two columns of named gear boxes ── */
-.ah-panel .ah-game { display: flex; align-items: stretch; gap: 7px; max-width: 520px; }   /* keep the gear boxes tight on wide sheets instead of sprawling full width */
-.ah-panel .ah-gcol { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 5px; justify-content: center; }
+.ah-panel .ah-game { display: flex; align-items: stretch; gap: 7px; width: max-content; max-width: 100%; align-self: flex-start; }   /* shrink-to-content so the body stays narrow (blank space on the right is intentional) */
+.ah-panel .ah-gcol { flex: 0 0 auto; width: 88px; min-width: 0; display: flex; flex-direction: column; gap: 5px; justify-content: center; }   /* slim gear boxes (~60% narrower than the old stretched columns); long names truncate, full name is in the tooltip */
 .ah-panel .ah-gfig { flex: 0 0 auto; position: relative; display: flex; align-items: center; justify-content: center; padding: 4px; background: var(--ah-raise); border: 1px solid var(--ah-line); border-radius: var(--ah-r-sm); }   /* faint backing so the dark silhouette reads on a transparent panel */
 .ah-panel .ah-doll-img { width: 62px; max-height: 178px; object-fit: contain; opacity: 0.95; -webkit-user-drag: none; user-select: none; display: block; }
-.ah-panel .ah-doll-marks { position: absolute; inset: 4px; pointer-events: none; }
-.ah-panel .ah-mark { position: absolute; width: 17px; height: 17px; transform: translate(-50%, -50%); border-radius: 50%; border: 2px solid var(--ah-steel); background: rgba(126, 162, 196, 0.18); box-shadow: 0 0 10px -1px var(--ah-steel); opacity: 0; transition: opacity var(--ah-ease); }
-.ah-panel .ah-mark.on { opacity: 1; }
 /* one named gear box (icon · item name · slot · inline actions); item colour tints the top edge + icon */
 .ah-panel .ah-gb { position: relative; display: flex; align-items: center; gap: 7px; min-width: 0; padding: 5px 7px; border: 1px solid var(--ah-line); border-top: 2px solid var(--ah-line); border-radius: var(--ah-r-sm); background: var(--ah-raise); }
 /* framed item-art thumbnail: real Foundry image (item.img) over an item-colour tint, with the
@@ -169,12 +183,12 @@
 .ah-panel .ah-gb-nm.muted { font-weight: 500; color: var(--ah-dim); }
 .ah-panel .ah-gb-sl { font-size: 9.5px; color: var(--ah-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ah-panel .ah-gb-dots { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 3px; max-width: 44px; justify-content: flex-end; }
-.ah-panel .ah-gb-x { flex: 0 0 auto; width: 17px; height: 17px; border: none; border-radius: 50%; background: transparent; color: var(--ah-faint); font-size: 12px; line-height: 1; cursor: pointer; padding: 0; opacity: 0; transition: opacity var(--ah-ease), background var(--ah-ease), color var(--ah-ease); }
+.ah-panel .ah-gb-x { position: absolute; top: 1px; right: 1px; z-index: 2; width: 16px; height: 16px; border: none; border-radius: 50%; background: var(--ah-pop); color: var(--ah-faint); font-size: 12px; line-height: 1; cursor: pointer; padding: 0; opacity: 0; transition: opacity var(--ah-ease), background var(--ah-ease), color var(--ah-ease); }
 .ah-panel .ah-gb:hover .ah-gb-x, .ah-panel .ah-gb:focus-within .ah-gb-x { opacity: 1; }
 .ah-panel .ah-gb-x:hover { background: var(--ah-bad); color: var(--ah-ink-inverse); }
-.ah-panel .ah-gb-draw { flex: 0 0 auto; font-size: 8px; text-transform: uppercase; letter-spacing: 0.03em; padding: 1px 6px; border-radius: var(--ah-pill); background: var(--ah-action-bg); border: 1px solid var(--ah-action-line); color: var(--ah-action-ink); line-height: 1.5; cursor: pointer; white-space: nowrap; opacity: 0; transition: opacity var(--ah-ease); }
+.ah-panel .ah-gb-draw { position: absolute; bottom: 2px; right: 2px; z-index: 2; font-size: 8px; text-transform: uppercase; letter-spacing: 0.03em; padding: 1px 6px; border-radius: var(--ah-tile); background: var(--ah-action-bg); border: 1px solid var(--ah-action-line); color: var(--ah-action-ink); line-height: 1.5; cursor: pointer; white-space: nowrap; opacity: 0; transition: opacity var(--ah-ease); }
 .ah-panel .ah-gb:hover .ah-gb-draw, .ah-panel .ah-gb:focus-within .ah-gb-draw { opacity: 1; }
-.ah-panel .ah-gb-plus { flex: 0 0 auto; font-size: 12px; line-height: 1; color: var(--ah-action-ink); opacity: 0; transition: opacity var(--ah-ease); }
+.ah-panel .ah-gb-plus { position: absolute; top: 2px; right: 4px; font-size: 12px; line-height: 1; color: var(--ah-action-ink); opacity: 0; transition: opacity var(--ah-ease); }
 .ah-panel .ah-gb.empty { background: var(--ah-sink); border-style: dashed; cursor: pointer; }
 .ah-panel .ah-gb.empty:hover { border-color: var(--ah-action); border-style: solid; }
 .ah-panel .ah-gb.empty:hover .ah-gb-plus, .ah-panel .ah-gb.empty:focus-visible .ah-gb-plus { opacity: 1; }
