@@ -122,9 +122,16 @@
    Bag sit SIDE BY SIDE in .ah-zones-row. Each zone is sized to its CONTENT (the doll / the container
    grids) — the band, meter, legend & gear rows fill that width but don't push it (width:0;min-width:
    100%) — so the band and its right-edge vertical rule hug the last item and widen as grids are added. ── */
-.ah-panel .ah-zones-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; }
-.ah-panel .ah-zone { width: fit-content; max-width: 100%; margin: 12px 0 10px; border-right: 2px solid var(--ah-band-edge); }
-.ah-panel .ah-zone > .ah-sec { box-sizing: border-box; width: 0; min-width: 100%; margin: 0; padding: 5px 10px; flex-wrap: wrap; background: var(--ah-band); border-bottom: 1px solid rgba(0, 0, 0, 0.4); border-radius: var(--ah-tile) var(--ah-tile) 0 0; box-shadow: inset 0 1px 0 var(--ah-band-top); }
+.ah-panel .ah-zones-row { display: flex; flex-wrap: nowrap; align-items: stretch; gap: 12px; overflow-x: auto; }   /* ALWAYS side by side (never wrap); stretch = Body & Bag share one height; scroll if the sheet is too narrow */
+.ah-panel .ah-zone { flex: 0 0 auto; width: fit-content; max-width: 100%; margin: 12px 0 10px; border-right: 2px solid var(--ah-band-edge); }
+.ah-panel .ah-zone > .ah-sec { box-sizing: border-box; margin: 0; padding: 5px 10px; flex-wrap: nowrap; white-space: nowrap; background: var(--ah-band); border-bottom: 1px solid rgba(0, 0, 0, 0.4); border-radius: var(--ah-tile) var(--ah-tile) 0 0; box-shadow: inset 0 1px 0 var(--ah-band-top); }
+/* Body fills the shared (stretched) height so its bottom lines up with the Bag: the doll + game grow
+   and the gear boxes flex to fill the column. */
+.ah-panel .ah-zone-body { display: flex; flex-direction: column; }
+.ah-panel .ah-zone-body > .ah-doll { flex: 1 1 auto; min-height: 0; }
+.ah-panel .ah-zone-body .ah-game { flex: 1 1 auto; min-height: 0; }
+.ah-panel .ah-zone-body .ah-gcol { justify-content: stretch; }
+.ah-panel .ah-zone-body .ah-gcol > .ah-gb { flex: 1 1 0; }   /* nowrap → title left, controls always on ONE line at the far right; the band fills the zone width so the zone never shrinks below the band's content */
 .ah-panel .ah-zone-bag > .ah-bagcol > .ah-meter, .ah-panel .ah-zone-bag > .ah-bagcol > .ah-overflow, .ah-panel .ah-zone-bag > .ah-bagcol > .ah-legend, .ah-panel .ah-zone-bag > .ah-bagcol > .ah-cont { box-sizing: border-box; width: 0; min-width: 100%; }
 .ah-panel .ah-zone > .ah-sec .ah-sec-rule { display: none; }   /* the band itself separates — no hairline filler */
 .ah-panel .ah-zone > .ah-sec .ah-sec-h, .ah-panel .ah-zone > .ah-sec .ah-sec-i { color: var(--ah-band-ink); }
@@ -170,7 +177,7 @@
 .ah-panel .ah-game { display: flex; align-items: stretch; gap: 7px; width: max-content; max-width: 100%; align-self: flex-start; }   /* shrink-to-content so the body stays narrow (blank space on the right is intentional) */
 .ah-panel .ah-gcol { flex: 0 0 auto; width: 124px; min-width: 0; display: flex; flex-direction: column; gap: 5px; justify-content: center; }   /* slim gear boxes, but wide enough to show ~10 chars of the name before truncating (full name in tooltip) */
 .ah-panel .ah-gfig { flex: 0 0 auto; position: relative; display: flex; align-items: center; justify-content: center; padding: 4px; background: var(--ah-raise); border: 1px solid var(--ah-line); border-radius: var(--ah-r-sm); }   /* faint backing so the dark silhouette reads on a transparent panel */
-.ah-panel .ah-doll-img { width: 62px; max-height: 178px; object-fit: contain; opacity: 0.95; -webkit-user-drag: none; user-select: none; display: block; }
+.ah-panel .ah-doll-img { width: auto; max-width: 66px; height: 100%; max-height: 320px; object-fit: contain; opacity: 0.95; -webkit-user-drag: none; user-select: none; display: block; }   /* grows with the (stretched) body, aspect kept */
 /* one named gear box (icon · item name · slot · inline actions); item colour tints the top edge + icon */
 .ah-panel .ah-gb { position: relative; display: flex; align-items: center; gap: 7px; min-width: 0; padding: 5px 7px; border: 1px solid var(--ah-line); border-top: 2px solid var(--ah-line); border-radius: var(--ah-r-sm); background: var(--ah-raise); }
 /* framed item-art thumbnail: real Foundry image (item.img) over an item-colour tint, with the
