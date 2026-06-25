@@ -3654,7 +3654,9 @@ function ahSlotCard(ctx, key, occ, caps, gsrc) {
       const names = ctx.back.map(bid => (ctx.byId[bid] && ctx.byId[bid].name) || "").filter(Boolean).join(", ")
       const lead = lb.color || "var(--ah-dim)"
       const dots = ctx.back.map(bid => '<button type="button" class="ah-bdot" data-rm="' + ahEscX(bid) + '" aria-label="' + ahEscX("Remove " + ctx.byId[bid].name + " from Back") + '" title="' + ahEscX(ctx.byId[bid].name + " — remove") + '" style="background:' + ctx.byId[bid].color + '"></button>').join("")
-      return '<div class="' + cls + '" data-slot="Back" style="border-top-color:' + lead + '" title="' + ahEscX("Back — " + n + "/" + cap + gby) + '" aria-label="' + ahEscX("Back, " + n + " of " + cap + " used") + '">' + ahArtThumb(lb.img, lead, "back") + txt(names, "back " + n + "/" + cap) + '<span class="ah-gb-dots">' + dots + "</span></div>"
+      // room for more → the box itself is the add picker (click anywhere but a dot); dots still remove
+      const pick = canAdd ? ' role="button" tabindex="0" data-pick="Back"' : ""
+      return '<div class="' + cls + '" data-slot="Back"' + pick + ' style="border-top-color:' + lead + '" title="' + ahEscX("Back — " + n + "/" + cap + (canAdd ? " · click to add another" : "") + gby) + '" aria-label="' + ahEscX("Back, " + n + " of " + cap + " used" + (canAdd ? ", click to add another" : "")) + '">' + ahArtThumb(lb.img, lead, "back") + txt(names, "back " + n + "/" + cap + (canAdd ? " · add" : "")) + '<span class="ah-gb-dots">' + dots + "</span></div>"
     }
     const pick = canAdd ? ' role="button" tabindex="0" data-pick="Back"' : ""   // empty+addable Back is the picker target; a filled Back is a drop target with its own dot buttons
     return '<div class="' + cls + '" data-slot="Back"' + pick + ' title="' + ahEscX("Back — 0/" + cap + gby) + '" aria-label="' + ahEscX("Back, empty, 0 of " + cap) + '">' + ico + txt("Back", "0/" + cap + (canAdd ? " · add" : ""), true) + (canAdd ? '<span class="ah-gb-plus" aria-hidden="true">+</span>' : "") + "</div>"
@@ -4152,6 +4154,7 @@ function ahBuildPanel(actor) {
     dollEl.addEventListener("keydown", (e) => {
       if (e.key !== "Enter" && e.key !== " ") return
       if (e.target.closest(".ah-pickmenu")) return   // don't let a menuitem keydown bubble up and re-open the picker
+      if (e.target.closest("[data-rm]")) return   // a dot/remove button activates itself — don't ALSO open the add picker for the Back box it sits in
       const pk = e.target.closest("[data-pick]"); if (pk && pk.getAttribute("role") === "button") { e.preventDefault(); ahOpenSlotMenu(ctx, pk.getAttribute("data-pick"), pk) }   // role=button slot DIVs only (native buttons self-fire)
     })
   }

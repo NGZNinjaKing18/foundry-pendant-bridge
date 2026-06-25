@@ -191,6 +191,7 @@
 .ah-panel .ah-gb:hover .ah-gb-draw, .ah-panel .ah-gb:focus-within .ah-gb-draw { opacity: 1; }
 .ah-panel .ah-gb-plus { position: absolute; top: 2px; right: 4px; font-size: 12px; line-height: 1; color: var(--ah-action-ink); opacity: 0; transition: opacity var(--ah-ease); }
 .ah-panel .ah-gb.empty { background: var(--ah-sink); border-style: dashed; cursor: pointer; }
+.ah-panel .ah-gb[data-pick] { cursor: pointer; }   /* a filled-but-not-full Back box is clickable to add another */
 .ah-panel .ah-gb.empty:hover { border-color: var(--ah-action); border-style: solid; }
 .ah-panel .ah-gb.empty:hover .ah-gb-plus, .ah-panel .ah-gb.empty:focus-visible .ah-gb-plus { opacity: 1; }
 .ah-panel .ah-gb.empty .ah-art { background: var(--ah-sink); border-style: dashed; }
