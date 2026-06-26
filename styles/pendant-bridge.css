@@ -213,6 +213,15 @@
 .ah-panel .ah-gb.valid .ah-art { border-color: var(--ah-good); }
 .ah-panel .ah-gb.swap { border-color: var(--ah-action); box-shadow: 0 0 0 3px var(--ah-action-bg); }
 .ah-panel .ah-gb-swap { position: absolute; top: 2px; right: 5px; font-size: 10px; color: var(--ah-action-ink); }
+/* (v0.77) Hands read as STATE, not inventory slots — a state-tinted left rail + an uppercase state word
+   (square, no pills, per the v0.57 look). The rail colour shows Holding / Two-handed / Occupied at a glance. */
+.ah-panel .ah-gb.hand { border-left: 3px solid var(--ah-line); }
+.ah-panel .ah-gb.hand .ah-gb-sl { text-transform: uppercase; letter-spacing: 0.05em; }
+.ah-panel .ah-gb.hand[data-handstate="holding"] { border-left-color: var(--ah-action); }
+.ah-panel .ah-gb.hand[data-handstate="two"] { border-left-color: var(--ah-good); }
+.ah-panel .ah-gb.hand[data-handstate="occupied"] { border-left-color: var(--ah-dim); }
+.ah-panel .ah-gb.hand[data-handstate="empty"] { opacity: 0.75; }
+.ah-panel .ah-gb.hand.twohand-off { border-style: dashed; background: var(--ah-sink); border-left-color: var(--ah-line); }   /* secondary "linked" card → neutral rail, not the green "two" state colour */
 .ah-panel .ah-slot { position: relative; }   /* base class on every tile (drag/valid/swap hooks + transitions key off it); tile geometry is in .ah-tile below */
 .ah-panel .ah-pick-bag { font-style: normal; font-size: 8.5px; color: var(--ah-mute); margin-left: auto; background: rgba(255, 255, 255, 0.06); border-radius: var(--ah-pill); padding: 0 6px; }
 /* ── square equipment tiles — the slot icon is the identity, the item colour fills it, the name lives

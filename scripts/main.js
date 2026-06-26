@@ -149,7 +149,7 @@ const AH = {
     items.sort((a, b) => b.spaces - a.spaces || (a.name || "").localeCompare(b.name || ""))
     // render-ready paperdoll state (so the app can show + edit the body too)
     let doll
-    try { const c = ahHeadlessCtx(actor); doll = { gender: ahDollGender(actor), worn: c.worn, back: c.back, occ: ahOccupancy(c), caps: ahCaps(c) } }
+    try { const c = ahHeadlessCtx(actor); doll = { gender: ahDollGender(actor), worn: c.worn, back: c.back, occ: ahOccupancy(c), caps: ahCaps(c), hands: ahHandState(c) } }
     catch { doll = { gender: ahDollGender(actor), worn: {}, back: [], occ: {}, caps: Object.assign({}, AH_BASE_CAP) } }
     return {
       id: actor.id, name: actor.name, img: resolveImg(actor.img), type: actor.type,
@@ -3505,6 +3505,16 @@ function ahOccupancy(ctx) {
   }
   return occ
 }
+// (v0.77) Hands as STATE, not inventory slots: each hand reads empty | holding (a 1-handed weapon) |
+// two (a two-handed item spans BOTH hands) | occupied (a held non-weapon — shield / torch / focus).
+function ahHandStateOf(ctx, occ, key) {
+  const id = occ[key]; if (!id) return { state: "empty" }
+  const m = ctx.metaById[id], it = ctx.byId[id] || {}
+  if (m && m.twoHanded) return { state: "two", id, name: it.name }
+  if (m && m.carryType === "Weapon") return { state: "holding", id, name: it.name }
+  return { state: "occupied", id, name: it.name }
+}
+function ahHandState(ctx) { const occ = ahOccupancy(ctx); return { left: ahHandStateOf(ctx, occ, "LHand"), right: ahHandStateOf(ctx, occ, "RHand") } }
 function ahFreeBody(ctx, m) {
   const caps = ahCaps(ctx), occ = ahOccupancy(ctx), out = new Set()
   for (const sName of (m.equipSlots || [])) {
@@ -3765,6 +3775,8 @@ function ahSlotCard(ctx, key, occ, caps, gsrc) {
   const id = occ[key]
   if (id) {
     const it = ctx.byId[id]
+    // (v0.77) a two-handed weapon spans both hands: show it on the MAIN hand only; the OFF hand reads "Both hands"
+    if (key === "RHand") { const tm = ctx.metaById[id]; if (tm && tm.twoHanded && occ.LHand === id) return '<div class="ah-slot ah-gb hand twohand-off" data-slot="RHand" data-handstate="two" title="' + ahEscX("Off hand — both hands on " + (it ? it.name : "")) + '" aria-label="' + ahEscX("Off hand, both hands on " + (it ? it.name : "")) + '"><span class="ah-gb-tx"><span class="ah-gb-nm muted">Both hands</span><span class="ah-gb-sl">Two-handed</span></span></div>' }
     const swap = (ctx.validSwap && ctx.validSwap.has(key)) ? " swap" : ""
     // one-handed weapon → a draw/sheathe quick-action (sheathe always offered; draw only if a hand is free)
     const dm = ctx.metaById[id]; let dsBtn = ""
@@ -3777,16 +3789,24 @@ function ahSlotCard(ctx, key, occ, caps, gsrc) {
       }
     }
     const rm = ctx.canArrange ? '<button type="button" class="ah-gb-x" data-rm="' + ahEscX(id) + '" aria-label="' + ahEscX("Remove " + it.name) + '" title="Remove">×</button>' : ""
-    const cls = "ah-slot ah-gb filled" + swap
+    // (v0.77) hands read as STATE: lead the sub-label with Holding / Two-handed / Occupied (not "Main hand")
+    const isHand = key === "LHand" || key === "RHand"
+    const hSt = isHand ? (dm && dm.twoHanded ? "two" : (dm && dm.carryType === "Weapon" ? "holding" : "occupied")) : ""
+    const hLbl = hSt === "two" ? "Two-handed" : hSt === "holding" ? "Holding" : hSt === "occupied" ? "Occupied" : label
+    const cls = "ah-slot ah-gb filled" + swap + (isHand ? " hand" : "")
+    const hAttr = isHand ? ' data-handstate="' + hSt + '"' : ""
     // real Foundry item art fills the slot; item colour tints the top border; the NAME reads at a glance
-    return '<div class="' + cls + '" data-slot="' + ahEscX(key) + '" style="border-top-color:' + it.color + '" title="' + ahEscX(it.name + " — " + label + (swap ? " · drop to swap" : gby)) + '" aria-label="' + ahEscX(it.name + ", " + label) + '">' + ahArtThumb(it.img, it.color, AH_SLOT_ICON[key]) + txt(it.name, label) + dsBtn + rm + (swap ? '<span class="ah-gb-swap" aria-hidden="true">↔</span>' : "") + "</div>"
+    return '<div class="' + cls + '"' + hAttr + ' data-slot="' + ahEscX(key) + '" style="border-top-color:' + it.color + '" title="' + ahEscX(it.name + " — " + (isHand ? hLbl + " (" + label + ")" : label) + (swap ? " · drop to swap" : gby)) + '" aria-label="' + ahEscX(it.name + ", " + (isHand ? hLbl + " in " + label : label)) + '">' + ahArtThumb(it.img, it.color, AH_SLOT_ICON[key]) + txt(it.name, isHand ? hLbl : label) + dsBtn + rm + (swap ? '<span class="ah-gb-swap" aria-hidden="true">↔</span>' : "") + "</div>"
   }
   // empty + available → picker target (click/Enter) AND drop target (data-slot)
   const valid = ctx.validBody && ctx.validBody.has(key)
   const fitN = ctx.canArrange ? ahCountFits(ctx, key) : 0
-  const cls = "ah-slot ah-gb empty" + (valid ? " valid" : "")
+  const isHand = key === "LHand" || key === "RHand"   // (v0.77) an empty hand reads "Empty", not "N fit"
+  const cls = "ah-slot ah-gb empty" + (valid ? " valid" : "") + (isHand ? " hand" : "")
+  const hAttr = isHand ? ' data-handstate="empty"' : ""
+  const sub = isHand ? "Empty" : (ctx.canArrange ? (fitN ? fitN + " fit" : "empty") : "empty")
   const pick = ctx.canArrange ? ' data-pick="' + ahEscX(key) + '" role="button" tabindex="0"' : ""
-  return '<div class="' + cls + '" data-slot="' + ahEscX(key) + '"' + pick + ' title="' + ahEscX("Add to " + label + (fitN ? " (" + fitN + " fit)" : "") + gby) + '" aria-label="' + ahEscX("Add to " + label + (fitN ? ", " + fitN + " items fit" : "")) + '">' + ico + txt(label, ctx.canArrange ? (fitN ? fitN + " fit" : "empty") : "empty", true) + (ctx.canArrange ? '<span class="ah-gb-plus" aria-hidden="true">+</span>' : "") + "</div>"
+  return '<div class="' + cls + '"' + hAttr + ' data-slot="' + ahEscX(key) + '"' + pick + ' title="' + ahEscX((isHand ? "Empty hand · " : "") + "Add to " + label + (fitN ? " (" + fitN + " fit)" : "") + gby) + '" aria-label="' + ahEscX("Add to " + label + (fitN ? ", " + fitN + " items fit" : "")) + '">' + ico + txt(label, sub, true) + (ctx.canArrange ? '<span class="ah-gb-plus" aria-hidden="true">+</span>' : "") + "</div>"
 }
 
 /** Click an empty slot → a menu of fitting items (loose AND in the bag); click one to equip. */
