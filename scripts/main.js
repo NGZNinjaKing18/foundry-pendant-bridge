@@ -138,7 +138,7 @@ const AH = {
       const spaces = this.itemSpaces(it, cfg, effOv)
       used += spaces
       let m = null; try { m = ahMeta(it) } catch {}
-      const meta = m ? { size: m.size, weight: m.weight, length: m.length, carryType: m.carryType, equipSlots: m.equipSlots, storageTypes: m.storageTypes, packedCost: m.packedCost, equippedCost: m.equippedCost, needsBackPoint: m.needsBackPoint, twoHanded: m.twoHanded, longItem: m.longItem, baggable: m.baggable, ignoreSlot: m.ignoreSlot, override: m.override } : null
+      const meta = m ? { size: m.size, weight: m.weight, length: m.length, carryType: m.carryType, equipSlots: m.equipSlots, storageTypes: m.storageTypes, coversSlots: m.coversSlots, integratedEquipment: m.integratedEquipment, packedCost: m.packedCost, equippedCost: m.equippedCost, needsBackPoint: m.needsBackPoint, twoHanded: m.twoHanded, longItem: m.longItem, baggable: m.baggable, ignoreSlot: m.ignoreSlot, override: m.override } : null
       let bi = { active: false, count: 1, size: 0 }; try { bi = ahBundleInfo(it, cfg) } catch {}
       let shape = null; try { shape = bi.active ? ahBundleShape(it) : ahEffectiveShape(it, Math.max(1, Math.ceil(spaces))) } catch {}
       items.push({ id: it.id, name: it.name, type: it.type, img: resolveImg(it.img), color: ahColorFor(it.id), weight: this.itemWeight(it), qty: this.itemQty(it), uses: ahReadUses(it), spaces, override: flagOv, ruleKey: ahItemRuleKey(it), hasRule: !!rule, shape, bundleSize: bi.size || 0, bundleCount: bi.count || 1, meta })
@@ -3196,7 +3196,6 @@ function ahMeta(item) {
     return base.filter((k) => lengthAllows(length, k))
   }
   const deriveGrants = (type, sub, name) => safe(() => {
-    const merge = (...objs) => { const out = {}; for (const o of objs) for (const k of Object.keys(o || {})) out[k] = (out[k] || 0) + o[k]; return Object.keys(out).length ? out : null }
     if (type === "container" || type === "backpack") {
       // A backpack has two BUILT-IN back straps (a weapon + a bedroll) on top of its bag.
       if (type === "backpack" || /back\s?pack|rucksack|knapsack/.test(name)) return { Back: 2 }
@@ -3204,18 +3203,15 @@ function ahMeta(item) {
       return null   // satchel / pouch / chest just hold things
     }
     if (type === "equipment" || type === "armor") {
-      // Back: 2 so any armoured character can carry a back weapon AND wear a backpack.
-      const lightSet = { Chest: 1, Belt: 1, "Left Hip": 1, "Right Hip": 1, Back: 2, Feet: 1, Head: 1, Face: 1, Neck: 1 }
+      // (v0.76) clothing/armour grant only the ATTACHMENT slots (Belt / Hips / Back). Head/Face/Neck/Feet
+      // are INHERENT now, so they're never granted here — a helmet/mask/amulet/boots needs no shirt.
       switch (sub) {
-        case "light": return lightSet
-        case "medium": return merge(lightSet, { Back: 1 })
-        case "heavy": return merge(lightSet, { Back: 1 })
+        case "light": case "medium": return { Belt: 1, "Left Hip": 1, "Right Hip": 1, Back: 2 }
+        case "heavy": return { "Left Hip": 1, "Right Hip": 1, Back: 2 }   // user spec: Back×2 + Hips (no belt; coverage handles feet)
         case "clothing": {
-          // ANY clothing grants at least a Back point, so a pack can be slung over plain clothes.
-          if (/traveler|traveller|explorer|adventur/.test(name)) return { Chest: 1, Belt: 1, "Left Hip": 1, "Right Hip": 1, Feet: 1, Back: 1, Head: 1, Face: 1, Neck: 1 }
+          if (/traveler|traveller|explorer|adventur/.test(name)) return { Belt: 1, Back: 1, "Left Hip": 1, "Right Hip": 1 }   // user: Belt + Back×1 + Hips
           if (/harness|bandolier|baldric/.test(name)) return { Belt: 1, "Left Hip": 1, "Right Hip": 1, Back: 2 }
-          if (/clothes|outfit|tunic|robe|garb|dress|shirt|trousers|vestment/.test(name)) return { Chest: 1, Belt: 1, Feet: 1, Back: 1, Head: 1, Face: 1, Neck: 1 }
-          return { Back: 1 }
+          return { Belt: 1, Back: 1 }   // common clothes: a Belt + a Back point (so a pack can still sling over plain clothes)
         }
         default: {
           if (/harness|bandolier|baldric/.test(name)) return { Belt: 1, "Left Hip": 1, "Right Hip": 1, Back: 2 }
@@ -3225,6 +3221,20 @@ function ahMeta(item) {
     }
     return null
   }, null)
+  // (v0.76) per-armour COVERAGE: armour that includes a helmet/sabatons OCCUPIES Head/Feet so a
+  // separate helmet/boots can't be worn over it. Keyed by base name (DM-overridable via coversSlots);
+  // matches the user's table — unknown armour covers nothing (safe). `parts` = display-only labels.
+  const armorCover = (sub, name) => {
+    if (sub !== "light" && sub !== "medium" && sub !== "heavy") return null
+    if (/breastplate/.test(name)) return null                                          // breastplate over clothing — covers nothing
+    if (/half[\s-]?plate/.test(name)) return { slots: ["Head"], parts: ["Helmet"] }
+    if (/\bplate\b|full[\s-]?plate/.test(name)) return { slots: ["Head", "Feet"], parts: ["Helmet", "Sabatons"] }
+    if (/splint/.test(name)) return { slots: ["Head", "Feet"], parts: ["Helmet", "Sabatons"] }
+    if (/chain ?mail/.test(name)) return { slots: ["Head", "Feet"], parts: ["Helmet", "Sabatons"] }
+    if (/ring ?mail/.test(name)) return { slots: ["Head"], parts: ["Helmet"] }
+    if (/scale ?(mail|armou?r)/.test(name)) return { slots: ["Head"], parts: ["Helmet"] }
+    return null                                                                        // padded / leather / studded / hide / chain shirt → none
+  }
   try {
     const type = lc(item && item.type), name = lc(item && item.name), sys = (item && item.system) || {}
     if (!type || NON_PHYSICAL.has(type)) return { size: null, weight: null, length: "Compact", carryType: "Miscellaneous", equipSlots: [], storageTypes: [], packedCost: 0, equippedCost: 0, allowedContainers: [], longItem: false, twoHanded: false, needsBackPoint: false, grantsSlots: null, covers: null, coversSlots: null, attachmentTypes: [], integratedEquipment: [], baggable: false, ignoreSlot: true, nonPhysical: true }
@@ -3234,7 +3244,8 @@ function ahMeta(item) {
     let carryType = deriveCarryType(sys, type, sub, size, name, wLb)
     const eq = deriveEquipSlots(type, sub, name, props, cls)
     let length = deriveLength(type, name, props, eq.twoHanded, cls)
-    const covers = (type === "equipment" && sub === "heavy") ? ["Head", "Feet"] : null   // plate: integrated helm + sabatons (retabled in Phase B)
+    const _cov = armorCover(sub, name)
+    let coversSlots = _cov ? _cov.slots.slice() : null, integratedEquipment = _cov ? _cov.parts.slice() : []
     let equipSlots = eq.equipSlots, needsBackPoint = eq.needsBackPoint
     // shipped starter rule pack (LOWEST override tier) — only for wearable accessories, never armour/
     // weapon/container (those already derive correctly), so it can't mis-slot e.g. "ring mail" → rings.
@@ -3251,6 +3262,8 @@ function ahMeta(item) {
       if (Array.isArray(rule.equipSlots)) { equipSlots = rule.equipSlots.slice(); needsBackPoint = equipSlots.indexOf("Back") >= 0 && equipSlots.length === 1 }
       if (rule.length) length = rule.length; else if (typeof rule.longItem === "boolean") length = rule.longItem ? "Long" : "Compact"
       if (Array.isArray(rule.storageTypes)) stOverride = rule.storageTypes.slice()
+      if (Array.isArray(rule.coversSlots)) coversSlots = rule.coversSlots.slice()
+      if (Array.isArray(rule.integratedEquipment)) integratedEquipment = rule.integratedEquipment.slice()
     }
     // per-item DM override flag → most specific, wins over the world rule + seed + derived
     const ov = safe(() => { const f = item && item.flags && item.flags[MOD]; return (f && f.meta) || null }, null)
@@ -3260,6 +3273,8 @@ function ahMeta(item) {
       if (Array.isArray(ov.equipSlots)) { equipSlots = ov.equipSlots.slice(); needsBackPoint = equipSlots.indexOf("Back") >= 0 && equipSlots.length === 1 }
       if (ov.length) length = ov.length; else if (typeof ov.longItem === "boolean") length = ov.longItem ? "Long" : "Compact"
       if (Array.isArray(ov.storageTypes)) stOverride = ov.storageTypes.slice()
+      if (Array.isArray(ov.coversSlots)) coversSlots = ov.coversSlots.slice()
+      if (Array.isArray(ov.integratedEquipment)) integratedEquipment = ov.integratedEquipment.slice()
     }
     const storageTypes = stOverride || deriveStorageTypes(carryType, type, sub, size, length)
     const longItem = length !== "Compact"
@@ -3269,7 +3284,7 @@ function ahMeta(item) {
     let ignoreSlot = false
     if (rule) { if (typeof rule.baggable === "boolean") baggable = rule.baggable; if (typeof rule.ignoreSlot === "boolean") ignoreSlot = rule.ignoreSlot }
     if (ov) { if (typeof ov.baggable === "boolean") baggable = ov.baggable; if (typeof ov.ignoreSlot === "boolean") ignoreSlot = ov.ignoreSlot }
-    return { size, weight: wLb, length, carryType, equipSlots, storageTypes, packedCost: (AH_SIZE_PACKCOST[size] || 1), equippedCost: 0, allowedContainers: containersForSize(size), longItem, twoHanded: eq.twoHanded, needsBackPoint, grantsSlots: deriveGrants(type, sub, name), covers, coversSlots: covers, attachmentTypes: [], integratedEquipment: [], baggable, ignoreSlot, override: !!ov, nonPhysical: false }
+    return { size, weight: wLb, length, carryType, equipSlots, storageTypes, packedCost: (AH_SIZE_PACKCOST[size] || 1), equippedCost: 0, allowedContainers: containersForSize(size), longItem, twoHanded: eq.twoHanded, needsBackPoint, grantsSlots: deriveGrants(type, sub, name), covers: coversSlots, coversSlots, attachmentTypes: [], integratedEquipment, baggable, ignoreSlot, override: !!ov, nonPhysical: false }
   } catch {
     return { size: "Medium", weight: null, length: "Compact", carryType: "Miscellaneous", equipSlots: [], storageTypes: ["Pack", "Chest", "Vehicle"], packedCost: 1, equippedCost: 0, allowedContainers: ["Backpack", "Chest", "Wagon"], longItem: false, twoHanded: false, needsBackPoint: false, grantsSlots: null, covers: null, coversSlots: null, attachmentTypes: [], integratedEquipment: [], baggable: true, ignoreSlot: false, nonPhysical: false }
   }
@@ -3292,9 +3307,11 @@ const AH_BODY_SLOTS = [  // key, label, x%, y%  (over the figure art; tuned via 
 ]
 // Chest = armor mount, Clothes = clothing mount (so both can be worn at once). Both are
 // always-available base mounts; the granted slots only appear once gear provides them.
-const AH_BASE_CAP = { LHand: 1, RHand: 1, Feet: 1, LRing: 1, RRing: 1, Chest: 1, Clothes: 1, Head: 0, Face: 0, Neck: 0, Belt: 0, LHip: 0, RHip: 0, Back: 0 }
-const AH_GRANTABLE = ["Head", "Face", "Neck", "Belt", "LHip", "RHip", "Back"]
-const AH_BASE_MOUNTS = new Set(["LHand", "RHand", "Feet", "LRing", "RRing", "Chest", "Clothes"])
+// (v0.76) Head/Face/Neck are now INHERENT (everyone has them) so a helmet/mask/amulet can be worn
+// without any clothing/armour granting the slot — headgear comes from headgear, not from a shirt.
+const AH_BASE_CAP = { LHand: 1, RHand: 1, Feet: 1, LRing: 1, RRing: 1, Chest: 1, Clothes: 1, Head: 1, Face: 1, Neck: 1, Belt: 0, LHip: 0, RHip: 0, Back: 0 }
+const AH_GRANTABLE = ["Belt", "LHip", "RHip", "Back"]
+const AH_BASE_MOUNTS = new Set(["LHand", "RHand", "Feet", "LRing", "RRing", "Chest", "Clothes", "Head", "Face", "Neck"])
 const AH_SLOT_KEY = { "Head": "Head", "Face": "Face", "Neck": "Neck", "Chest": "Chest", "Clothes": "Clothes", "Back": "Back", "Belt": "Belt", "Left Hip": "LHip", "Right Hip": "RHip", "Left Hand": "LHand", "Right Hand": "RHand", "Feet": "Feet", "Left Ring": "LRing", "Right Ring": "RRing" }
 // Paperdoll layout: two tidy columns of labelled slot cards flanking the figure
 // (replaces fragile absolute %-positions — no overlap, no per-art tuning).
