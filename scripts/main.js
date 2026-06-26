@@ -3197,8 +3197,10 @@ function ahMeta(item) {
   }
   const deriveGrants = (type, sub, name) => safe(() => {
     if (type === "container" || type === "backpack") {
-      // A backpack has two BUILT-IN back straps (a weapon + a bedroll) on top of its bag.
-      if (type === "backpack" || /back\s?pack|rucksack|knapsack/.test(name)) return { Back: 2 }
+      // (v0.78) Back = ATTACHMENT POINTS (anchors), not inventory. A backpack is NET 0: it consumes the
+      // 1 anchor it's slung from and provides 1 strap on top (so a bedroll/weapon still fits). A purpose-
+      // built carry rig (harness/bandolier) is net +1 (provides 2).
+      if (type === "backpack" || /back\s?pack|rucksack|knapsack/.test(name)) return { Back: 1 }
       if (/harness|baldric|bandolier/.test(name)) return { Back: 2 }
       return null   // satchel / pouch / chest just hold things
     }
@@ -3767,10 +3769,10 @@ function ahSlotCard(ctx, key, occ, caps, gsrc) {
       const lb = ctx.byId[ctx.back[0]] || {}
       const names = ctx.back.map(bid => (ctx.byId[bid] && ctx.byId[bid].name) || "").filter(Boolean).join(", ")
       const lead = lb.color || "var(--ah-dim)"
-      const tip = "Back — " + n + "/" + cap + (left ? " · " + left + " open" : " · full") + (ctx.canArrange ? " · click to manage" : "") + gby
-      return '<div class="' + cls + '" data-slot="Back"' + pick + ' style="border-top-color:' + lead + '" title="' + ahEscX(tip) + '" aria-label="' + ahEscX("Back, " + n + " of " + cap + " used" + (ctx.canArrange ? ", click to manage" : "")) + '">' + ahArtThumb(lb.img, lead, "back") + txt(names, "back " + n + "/" + cap + (left ? " · " + left + " left" : "")) + hint + "</div>"
+      const tip = "Back attachment points — " + n + "/" + cap + (left ? " · " + left + " open" : " · full") + (ctx.canArrange ? " · click to manage" : "") + gby
+      return '<div class="' + cls + '" data-slot="Back"' + pick + ' style="border-top-color:' + lead + '" title="' + ahEscX(tip) + '" aria-label="' + ahEscX("Back attachment points, " + n + " of " + cap + " used" + (ctx.canArrange ? ", click to manage" : "")) + '">' + ahArtThumb(lb.img, lead, "back") + txt(names, n + "/" + cap + " anchor" + (cap === 1 ? "" : "s") + (left ? " · " + left + " open" : "")) + hint + "</div>"
     }
-    return '<div class="' + cls + '" data-slot="Back"' + pick + ' title="' + ahEscX("Back — 0/" + cap + (canAdd ? " · click to add" : "") + gby) + '" aria-label="' + ahEscX("Back, empty, 0 of " + cap) + '">' + ico + txt("Back", "0/" + cap + (canAdd ? " · add" : ""), true) + hint + "</div>"
+    return '<div class="' + cls + '" data-slot="Back"' + pick + ' title="' + ahEscX("Back attachment points — 0/" + cap + (canAdd ? " · click to add" : "") + gby) + '" aria-label="' + ahEscX("Back attachment points, empty, 0 of " + cap) + '">' + ico + txt("Anchors", "0/" + cap + (canAdd ? " · add" : ""), true) + hint + "</div>"
   }
   const id = occ[key]
   if (id) {
@@ -3843,7 +3845,7 @@ function ahOpenBackMenu(ctx, anchorEl) {
   const cap = (ahCaps(ctx).Back) || 0, n = ctx.back.length, left = Math.max(0, cap - n)
   const menu = document.createElement("div"); menu.className = "ah-pickmenu ah-backmenu"
   const head = document.createElement("div"); head.className = "ah-pick-head"
-  head.textContent = "Back · " + n + " / " + cap + (left ? "  ·  " + left + " open" : "  ·  full")
+  head.textContent = "Back attachment points · " + n + " / " + cap + (left ? "  ·  " + left + " open" : "  ·  full")
   menu.appendChild(head)
   // equipped back items — each removable on hover
   for (const id of ctx.back) {
@@ -3868,7 +3870,7 @@ function ahOpenBackMenu(ctx, anchorEl) {
       menu.appendChild(b)
     }
   }
-  menu.setAttribute("aria-label", "Back — manage equipped items and fill open slots")
+  menu.setAttribute("aria-label", "Back attachment points — manage anchored items and fill open anchors")
   const host = (anchorEl && anchorEl.closest && anchorEl.closest(".ah-slot")) || ctx.dollEl
   host.appendChild(menu); ctx._menu = menu
   ahWireMenu(menu, anchorEl, () => ahCloseMenu(ctx))
