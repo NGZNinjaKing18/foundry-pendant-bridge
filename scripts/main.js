@@ -138,7 +138,7 @@ const AH = {
       const spaces = this.itemSpaces(it, cfg, effOv)
       used += spaces
       let m = null; try { m = ahMeta(it) } catch {}
-      const meta = m ? { size: m.size, carryType: m.carryType, equipSlots: m.equipSlots, needsBackPoint: m.needsBackPoint, twoHanded: m.twoHanded, longItem: m.longItem, baggable: m.baggable, ignoreSlot: m.ignoreSlot, override: m.override } : null
+      const meta = m ? { size: m.size, weight: m.weight, length: m.length, carryType: m.carryType, equipSlots: m.equipSlots, storageTypes: m.storageTypes, packedCost: m.packedCost, equippedCost: m.equippedCost, needsBackPoint: m.needsBackPoint, twoHanded: m.twoHanded, longItem: m.longItem, baggable: m.baggable, ignoreSlot: m.ignoreSlot, override: m.override } : null
       let bi = { active: false, count: 1, size: 0 }; try { bi = ahBundleInfo(it, cfg) } catch {}
       let shape = null; try { shape = bi.active ? ahBundleShape(it) : ahEffectiveShape(it, Math.max(1, Math.ceil(spaces))) } catch {}
       items.push({ id: it.id, name: it.name, type: it.type, img: resolveImg(it.img), color: ahColorFor(it.id), weight: this.itemWeight(it), qty: this.itemQty(it), uses: ahReadUses(it), spaces, override: flagOv, ruleKey: ahItemRuleKey(it), hasRule: !!rule, shape, bundleSize: bi.size || 0, bundleCount: bi.count || 1, meta })
@@ -2235,6 +2235,21 @@ function ahValid(ctx, cs, excludeId) {
 // Can this item be packed in the bag at all? Worn-only gear (armor/clothing/containers,
 // or a DM `baggable:false` override) can't — it must be worn, never bagged.
 function ahCanBag(ctx, id) { const u = ctx.unitById && ctx.unitById[id]; const m = ctx.metaById && ctx.metaById[u ? u.itemId : id]; return !m || m.baggable !== false }
+// (v0.75) The single fit predicate: does item `realId` belong in a container described by {class,types}?
+//   class ∈ item.storageTypes (or, for a class-less mount/world/custom bin, the legacy `baggable`),
+//   AND the length class allows that container class, AND the legacy type-narrowing (bandolier=potions,
+//   quiver=ammo …) still passes. Used by EVERY bin/container check so merged & separate agree.
+function ahFitsCont(ctx, realId, c) {
+  const m = ctx.metaById && ctx.metaById[realId]
+  if (c && c.class) {
+    if (!m || (m.storageTypes || []).indexOf(c.class) < 0) return false
+    if (!lengthAllows(m && m.length, c.class)) return false
+  } else if (m && (m.carryType === "Container" || m.carryType === "Armor" || m.carryType === "Clothing")) return false
+  // ^ a class-less bin (custom DM gear with no class) stays legacy-permissive: it excludes only worn-ONLY
+  //   items, so bulky/long cargo (a 10-ft pole, a ladder) still goes in it — a wagon mustn't refuse a pole.
+  if (c && c.types && c.types.indexOf(ahTagFor(ctx, realId)) < 0) return false
+  return true
+}
 // ── bagMode: container type-restriction enforcement (merged vs separate) ─────
 /** Coarse type tag a dnd5e item maps to (referenced by a container's accepted `types`). */
 function ahItemTypeTag(item) {
@@ -2253,25 +2268,25 @@ function ahItemTypeTag(item) {
 /** Equipped storage as { cap, types } — add-on gear (catalog) + container ITEMS (accept anything). */
 function ahBagContainers(ctx) {
   const out = [], cat = ahGearCatalog()
-  for (const g of ahGearList(ctx.actor)) { const c = cat[g.kind]; const cap = Number(c && c.storage) || 0; if (cap > 0) out.push({ cap, types: (c && c.types) || null }) }
+  for (const g of ahGearList(ctx.actor)) { const c = cat[g.kind]; const cap = Number(c && c.storage) || 0; if (cap > 0) out.push({ cap, types: (c && c.types) || null, class: (c && c.class) || null }) }
   const capEach = Number(ctx.capEach) || 0
-  if (capEach > 0) for (const id of ahEquippedIds(ctx)) { const m = ctx.metaById[id]; if (m && m.carryType === "Container") out.push({ cap: capEach, types: null }) }
+  if (capEach > 0) for (const id of ahEquippedIds(ctx)) { const m = ctx.metaById[id]; if (m && m.carryType === "Container") out.push({ cap: capEach, types: null, class: "Pack" }) }
   // Strength bonus = extra general capacity (matches the grid's baseBag + ahStrBonus), so the
   // separate-mode greedy total never disagrees with the number of hexes drawn.
-  if (out.length) { const sb = ahStrBonus(ctx.actor, ctx.cfg || AH.cfg()); if (sb > 0) out.push({ cap: sb, types: null }) }
+  if (out.length) { const sb = ahStrBonus(ctx.actor, ctx.cfg || AH.cfg()); if (sb > 0) out.push({ cap: sb, types: null, class: "Pack" }) }
   return out
 }
 function ahTagFor(ctx, realId) { try { return ahItemTypeTag(ctx.actor.items.get(realId)) } catch { return "general" } }
 /** SEPARATE mode: can every packed unit PLUS `candId` be greedily assigned to a container
  *  (by spaces + accepted type)? Specific containers fill before catch-all ones. */
 function ahSeparateFits(ctx, candId) {
-  const conts = ahBagContainers(ctx).map(c => ({ cap: c.cap, types: c.types, used: 0 }))
+  const conts = ahBagContainers(ctx).map(c => ({ cap: c.cap, types: c.types, class: c.class, used: 0 }))
   if (!conts.length) return true
   const ids = new Set(ctx.placed ? Array.from(ctx.placed.keys()) : []); ids.add(candId)
   const units = Array.from(ids).map(id => ctx.unitById[id]).filter(Boolean).sort((a, b) => (b.spaces || 1) - (a.spaces || 1))
   for (const u of units) {
-    const tag = ahTagFor(ctx, u.itemId || u.id), sp = u.spaces || 1
-    const fit = conts.filter(c => (!c.types || c.types.indexOf(tag) >= 0) && c.used + sp <= c.cap)
+    const sp = u.spaces || 1
+    const fit = conts.filter(c => ahFitsCont(ctx, u.itemId || u.id, c) && c.used + sp <= c.cap)
       .sort((a, b) => (a.types ? a.types.length : 99) - (b.types ? b.types.length : 99))
     if (!fit.length) return false
     fit[0].used += sp
@@ -2283,8 +2298,8 @@ function ahBagAccepts(ctx, id) {
   if (!ahCanBag(ctx, id)) return false
   const conts = ahBagContainers(ctx); if (!conts.length) return true
   if (ctx.separate) return ahSeparateFits(ctx, id)
-  const u = ctx.unitById && ctx.unitById[id], realId = u ? u.itemId : id, tag = ahTagFor(ctx, realId)
-  return conts.some(c => !c.types || c.types.indexOf(tag) >= 0)   // merged: any container accepts the type
+  const u = ctx.unitById && ctx.unitById[id], realId = u ? u.itemId : id
+  return conts.some(c => ahFitsCont(ctx, realId, c))   // merged: any container accepts it
 }
 
 /** SVG for one packed item's footprint in the "constellation" look (the user's hex-bag inspiration):
@@ -2499,12 +2514,12 @@ function ahAutoPack(ctx) {
   const fits = (cells) => { for (const c of cells) { const k = c.col + "," + c.row; if (!ctx.validSet.has(k) || occ.has(k)) return false } return true }
   // honour the container gate so Tidy can't pack what a drag/keyboard add would reject
   const separate = !!ctx.separate
-  const conts = ahBagContainers(ctx).map(c => ({ cap: c.cap, types: c.types, used: 0 }))
+  const conts = ahBagContainers(ctx).map(c => ({ cap: c.cap, types: c.types, class: c.class, used: 0 }))
   const pick = (u) => {   // true = accept (merged / no containers) · a container = accept+consume (separate) · null = reject
     if (!conts.length) return true
-    const tag = ahTagFor(ctx, u.itemId || u.uid), sp = u.spaces || 1
-    if (!separate) return conts.some(c => !c.types || c.types.indexOf(tag) >= 0) ? true : null
-    return conts.filter(c => (!c.types || c.types.indexOf(tag) >= 0) && c.used + sp <= c.cap)
+    const sp = u.spaces || 1
+    if (!separate) return conts.some(c => ahFitsCont(ctx, u.itemId || u.uid, c)) ? true : null
+    return conts.filter(c => ahFitsCont(ctx, u.itemId || u.uid, c) && c.used + sp <= c.cap)
       .sort((a, b) => (a.types ? a.types.length : 99) - (b.types ? b.types.length : 99))[0] || null
   }
   for (const u of units) {
@@ -2543,7 +2558,7 @@ function ahStowItem(ctx, uid) {
     if (typeof ui !== "undefined" && ui.notifications) {
       let why = "no room in the bag and no free body slot"
       const conts = ahBagContainers(ctx)   // distinguish a type restriction from plain "no space"
-      if (conts.length && !conts.some(c => !c.types || c.types.indexOf(ahTagFor(ctx, realId)) >= 0)) why = "no equipped container can hold this kind of item"
+      if (conts.length && !conts.some(c => ahFitsCont(ctx, realId, c))) why = "no equipped container can hold this kind of item"
       ui.notifications.warn(u.name + ": " + why + ".")
     }
   } catch {}
@@ -2569,13 +2584,13 @@ function ahSepBins(ctx) {
   const capEach = Number(ctx.capEach) || 0
   if (capEach > 0) for (const id of ahEquippedIds(ctx)) {
     const m = ctx.metaById[id]
-    if (m && m.carryType === "Container") { const it = ctx.byId[id]; bins.push({ binId: "it:" + id, label: it ? it.name : "Container", kind: "container", cap: capEach, types: null, color: it ? it.color : "#7f8395" }) }
+    if (m && m.carryType === "Container") { const it = ctx.byId[id]; bins.push({ binId: "it:" + id, label: it ? it.name : "Container", kind: "container", cap: capEach, types: null, class: "Pack", color: it ? it.color : "#7f8395" }) }
   }
   for (const g of ahGearList(ctx.actor)) {
     const c = cat[g.kind]; const cap = Number(c && c.storage) || 0
-    if (cap > 0) bins.push({ binId: "gr:" + g.id, label: c.name, kind: "gear", cap, types: (c && c.types) || null, color: ahColorFor("gear:" + g.id) })
+    if (cap > 0) bins.push({ binId: "gr:" + g.id, label: c.name, kind: "gear", cap, types: (c && c.types) || null, class: (c && c.class) || null, color: ahColorFor("gear:" + g.id) })
   }
-  if (bins.length) { const sb = ahStrBonus(ctx.actor, ctx.cfg || AH.cfg()); if (sb > 0) bins.push({ binId: "str", label: "Raw strength", kind: "str", cap: sb, types: null, color: "#8a6db0" }) }
+  if (bins.length) { const sb = ahStrBonus(ctx.actor, ctx.cfg || AH.cfg()); if (sb > 0) bins.push({ binId: "str", label: "Raw strength", kind: "str", cap: sb, types: null, class: "Pack", color: "#8a6db0" }) }
   for (const b of bins) { b.geom = ahGeom(b.cap); const vc = ahValidCells(b.cap); b.validList = vc.list; b.validSet = vc.set }
   return bins
 }
@@ -2656,7 +2671,7 @@ function ahPackBinPlaced(bin, units, explicit) {
 function ahSepDropTarget(ctx, bin, uid, rot, cell) {
   const u = ctx.unitById[uid]; if (!u) return null
   if (!ahCanBag(ctx, uid)) return null
-  if (bin.types && bin.types.indexOf(ahTagFor(ctx, u.itemId)) < 0) return null
+  if (!ahFitsCont(ctx, u.itemId, bin)) return null
   const occ = ahBinOcc(ctx, bin.binId, uid)
   // HONOUR the chosen rotation: snap within 2 of the cursor at THIS rotation (so R visibly rotates
   // the preview, and a shape that won't fit at the cursor shows RED instead of silently re-rotating
@@ -2675,7 +2690,7 @@ function ahSepUnitsIn(ctx, binId, exceptUid) {
 function ahSepBinAccepts(ctx, bin, uid) {
   const u = ctx.unitById[uid]; if (!u) return false
   if (!ahCanBag(ctx, uid)) return false
-  if (bin.types && bin.types.indexOf(ahTagFor(ctx, u.itemId)) < 0) return false
+  if (!ahFitsCont(ctx, u.itemId, bin)) return false
   const trial = ahSepUnitsIn(ctx, bin.binId, uid); trial.push(u)
   return ahPackInto(bin, trial).size === trial.length
 }
@@ -2720,7 +2735,7 @@ function ahBuildSepPlaced(ctx) {
     } else if (aBin && ctx.binById[aBin]) binId = aBin                        // legacy: the flag drives everything
     if (!binId) continue
     const bin = ctx.binById[binId]
-    if (bin.types && bin.types.indexOf(ahTagFor(ctx, u.itemId)) < 0) continue  // type not allowed by this bin
+    if (!ahFitsCont(ctx, u.itemId, bin)) continue  // class / type / length not allowed by this bin
     valid.push({ uid, binId }); if (!byBin.has(binId)) { byBin.set(binId, []); cellByBin.set(binId, new Map()) }
     byBin.get(binId).push(u)
     // an explicit cell applies only if it was stored FOR this resolved bin (a moved item drops it)
@@ -2795,13 +2810,12 @@ function ahPersistPlace(ctx) { if (ctx.separate) ahSavePlaceSep(ctx.actor, ahSep
 /** Tidy (separate): greedily assign every baggable unit to a fitting bin — specific-type bins
  *  first, emptier bins first. Returns a fresh {uid: binId} map (replaces the whole assignment). */
 function ahAutoPackSep(ctx) {
-  const bins = ctx.bins.map(b => ({ binId: b.binId, types: b.types, cap: b.cap, validList: b.validList, validSet: b.validSet, packed: [] }))
+  const bins = ctx.bins.map(b => ({ binId: b.binId, types: b.types, class: b.class, cap: b.cap, validList: b.validList, validSet: b.validSet, packed: [] }))
   const units = ctx.units.filter(u => ahCanBag(ctx, u.uid)).sort((a, b) => ((b.shape ? b.shape.length : 1) - (a.shape ? a.shape.length : 1)) || String(a.uid).localeCompare(String(b.uid)))
   const used = (b) => b.packed.reduce((s, x) => s + (Number(x.spaces) || 1), 0)
   const assign = {}
   for (const u of units) {
-    const tag = ahTagFor(ctx, u.itemId)
-    const cands = bins.filter(b => !b.types || b.types.indexOf(tag) >= 0)
+    const cands = bins.filter(b => ahFitsCont(ctx, u.itemId, b))
       .sort((a, b) => ((a.types ? a.types.length : 99) - (b.types ? b.types.length : 99)) || ((b.cap - used(b)) - (a.cap - used(a))))
     for (const b of cands) { const trial = b.packed.concat([u]); if (ahPackInto(b, trial).size === trial.length) { b.packed.push(u); assign[u.uid] = b.binId; break } }
   }
@@ -2834,8 +2848,7 @@ function ahApplyAutoPackSep(ctx) {
 /** Keyboard stow (separate): assign the unit to the first fitting bin. Returns true on success. */
 function ahStowSep(ctx, uid) {
   const u = ctx.unitById[uid]; if (!u) return false
-  const tag = ahTagFor(ctx, u.itemId)
-  const cands = ctx.bins.filter(b => !b.types || b.types.indexOf(tag) >= 0).sort((a, b) => (a.types ? a.types.length : 99) - (b.types ? b.types.length : 99))
+  const cands = ctx.bins.filter(b => ahFitsCont(ctx, u.itemId, b)).sort((a, b) => (a.types ? a.types.length : 99) - (b.types ? b.types.length : 99))
   for (const bin of cands) { if (ahSepBinAccepts(ctx, bin, uid)) { ahAssignUnit(ctx, uid, bin.binId); return true } }
   return false
 }
@@ -3061,6 +3074,32 @@ function ahBundleInfo(item, cfg) {
 // ── rules engine: derive inventory metadata from a Foundry item ─────────────
 // "Rules, not exceptions" — size/carryType/equipSlots/storage/grants from the
 // item's existing dnd5e data. Pure, never throws, tolerant of v3 + v4 schemas.
+// ── (v0.75) Carry Profile shared helpers — module-level so the bin/fit functions above can call
+//    them at render time (TDZ-safe: only invoked long after module load). ─────────────────────────
+const AH_WORNBAG_CLASSES = new Set(["Pocket", "Pouch", "Pack", "Quiver", "ScrollCase"])   // = a worn bag
+const AH_PACK_CLASSES = new Set(["Pocket", "Pouch", "Pack", "Quiver"])                     // can't take long things
+const AH_SIZE_PACKCOST = { Tiny: 1, Small: 1, Medium: 2, Large: 4, Huge: 6 }
+/** Can a `length`-class item enter a container of storage-class `klass`? Long → no small bags;
+ *  Oversized → only Rack/Vehicle/Ship/Saddle. Compact (and unknown/empty class) → anything. */
+function lengthAllows(length, klass) {
+  if (length === "Oversized") return klass === "Rack" || klass === "Vehicle" || klass === "Ship" || klass === "Saddle"
+  if (length === "Long") return !AH_PACK_CLASSES.has(klass) && klass !== "ScrollCase"
+  return true
+}
+// Starter rule pack — explicit, curated, OVERRIDABLE defaults for common worn accessories. Replaces
+// wornByName substring-guessing as the engine's source of truth (any DM rule/flag beats this). Applied
+// in ahMeta only to non-armour/weapon/container carry types, so it never mis-slots e.g. "ring mail".
+const AH_SEED_RULES = [
+  { re: /\b(helmet|helm|greathelm|barbute|sallet|bascinet|skullcap|cap|hat|circlet|crown|diadem|coronet|tiara|hood|coif)\b/, p: { equipSlots: ["Head"] } },
+  { re: /\b(mask|veil|visor|spectacles|goggles|eyepatch|blindfold)\b/, p: { equipSlots: ["Face"] } },
+  { re: /\b(cloak|cape|mantle)\b/, p: { equipSlots: ["Back"] } },
+  { re: /\b(boots|shoes|sandals|slippers|greaves|sabatons|footwear)\b/, p: { equipSlots: ["Feet"] } },
+  { re: /\b(gloves|gauntlet|gauntlets|bracer|bracers|mittens?|vambrace)\b/, p: { equipSlots: ["Left Hand", "Right Hand"] } },
+  { re: /\b(amulet|necklace|pendant|periapt|talisman|brooch|torc|locket|medallion)\b/, p: { equipSlots: ["Neck"] } },
+  { re: /\b(belt|girdle|sash|baldric)\b/, p: { equipSlots: ["Belt"] } },
+  { re: /\b(ring)\b/, p: { equipSlots: ["Left Ring", "Right Ring"] } },
+]
+function ahSeedSlotsFor(name) { const n = String(name || "").toLowerCase(); for (const r of AH_SEED_RULES) if (r.re.test(n)) return r.p; return null }
 function ahMeta(item) {
   const SLOT = { HEAD: "Head", FACE: "Face", NECK: "Neck", CHEST: "Chest", CLOTHES: "Clothes", BACK: "Back", BELT: "Belt", LHIP: "Left Hip", RHIP: "Right Hip", LHAND: "Left Hand", RHAND: "Right Hand", FEET: "Feet", LRING: "Left Ring", RRING: "Right Ring" }
   const NON_PHYSICAL = new Set(["feat", "spell", "class", "subclass", "background", "race", "feature", "facility", "summons"])
@@ -3070,7 +3109,9 @@ function ahMeta(item) {
   const readWeightLb = (sys) => safe(() => { const w = sys && sys.weight; if (w == null) return null; if (typeof w === "object") return num(w.value); return num(w) }, null)
   const readSubtype = (sys) => safe(() => { const t = sys && sys.type; if (t && typeof t === "object" && t.value != null) return lc(t.value); if (typeof t === "string") return lc(t); if (sys && sys.armor && sys.armor.type != null) return lc(sys.armor.type); return "" }, "")
   const readProps = (sys) => safe(() => { const p = sys && sys.properties; const set = new Set(); if (!p) return set; if (p instanceof Set) { p.forEach((k) => set.add(lc(k))); return set } if (Array.isArray(p)) { for (const k of p) set.add(lc(k)); return set } if (typeof p.has === "function" && typeof p.forEach === "function") { p.forEach((k) => set.add(lc(k))); return set } if (typeof p === "object") { for (const k of Object.keys(p)) if (p[k] === true || p[k] === 1) set.add(lc(k)); return set } return set }, new Set())
-  const sizeFromWeight = (lb) => { if (lb == null || lb <= 0) return null; if (lb < 1) return "Tiny"; if (lb < 5) return "Small"; if (lb < 15) return "Medium"; if (lb < 50) return "Large"; return "Huge" }
+  // (v0.75) Volume Size is now derived from CATEGORY (categorySizeDefault), not weight — weight alone
+  // is a terrible size proxy (coiled rope reads heavy/large; a spear reads small). Weight, Volume
+  // Size and Length Class are three INDEPENDENT properties now.
   const POLEARM_RE = /\b(pike|halberd|glaive|lance|quarterstaff|longspear|long spear|partisan|guisarme|naginata|poleaxe|polearm|pole arm|ranseur|bardiche)\b/
   const TREASURE_RE = /\b(gem|gemstone|jewel|jewelry|jewellery|diamond|ruby|emerald|sapphire|pearl|gold|silver|platinum|coin|coins|ingot|necklace|crown|tiara)\b/
   const LONG_NAME_RE = /\b(pike|halberd|lance|glaive|naginata|spear|trident|polearm|pole arm|quarterstaff|staff|staves|ladder|long\s?spear|partisan|ranseur|guisarme|bardiche|bill)\b/
@@ -3097,21 +3138,10 @@ function ahMeta(item) {
       default: return "Miscellaneous"
     }
   }
-  const wornByName = (name) => {
-    const r = (...kw) => kw.some((k) => name.includes(k))
-    if (r("cloak", "cape", "mantle")) return { slots: [SLOT.BACK], back: true }
-    if (r("backpack", "rucksack", "knapsack", "satchel", "pack")) return { slots: [SLOT.BACK], back: true }
-    if (r("baldric", "bandolier", "belt", "girdle", "sash")) return { slots: [SLOT.BELT], back: false }
-    if (r("boots", "shoes", "sandals", "footwear", "greaves")) return { slots: [SLOT.FEET], back: false }
-    if (r("helmet", "helm", "hat", "hood", "cap", "coif", "circlet", "crown", "diadem")) return { slots: [SLOT.HEAD], back: false }
-    if (r("mask", "visor", "veil", "spectacles", "goggles", "eyepatch")) return { slots: [SLOT.FACE], back: false }
-    if (r("gloves", "gauntlet", "bracer", "mitten")) return { slots: [SLOT.LHAND, SLOT.RHAND], back: false }
-    if (r("ring")) return { slots: [SLOT.LRING, SLOT.RRING], back: false }
-    if (r("amulet", "necklace", "pendant", "talisman", "holy symbol", "periapt", "brooch", "torc")) return { slots: [SLOT.NECK, SLOT.BELT], back: false }
-    if (r("potion", "scroll", "waterskin", "flask", "vial", "oil", "horn", "wand", "rod")) return { slots: [SLOT.BELT], back: false }
-    if (r("ration", "bedroll", "tent", "rope")) return { slots: [], back: false }
-    return null
-  }
+  // (v0.75) wornByName REMOVED — slot-from-name guessing was the weakest link (mis-slotted Circlet /
+  // Coif / Crown / Helm of Telepathy, and "ring mail" → ring). Wearable accessories now seed their
+  // slot from the explicit shipped rule pack AH_SEED_RULES (applied below, gated to non-armour/weapon
+  // carry types so it never fights real derivation), with DM rules/flags overriding it.
   const deriveEquipSlots = (type, sub, name, props, cls) => {
     if (type === "weapon") {
       const two = props.has("two"), fin = props.has("fin"), thr = props.has("thr"), lgt = props.has("lgt"), amm = props.has("amm"), rch = props.has("rch")
@@ -3129,15 +3159,42 @@ function ahMeta(item) {
       if (sub === "light" || sub === "medium" || sub === "heavy" || sub === "natural") return { equipSlots: [SLOT.CHEST], twoHanded: false, needsBackPoint: false }
       if (sub === "ring") return { equipSlots: [SLOT.LRING, SLOT.RRING], twoHanded: false, needsBackPoint: false }
       if (sub === "rod" || sub === "wand") return { equipSlots: [SLOT.BELT], twoHanded: false, needsBackPoint: false }
-      const worn = wornByName(name); if (worn) return { equipSlots: worn.slots, twoHanded: false, needsBackPoint: worn.back }
       if (sub === "clothing") return { equipSlots: [SLOT.CLOTHES], twoHanded: false, needsBackPoint: false }
       return { equipSlots: [], twoHanded: false, needsBackPoint: false }
     }
-    if (type === "consumable" || type === "loot" || type === "tool") { const worn = wornByName(name); if (worn) return { equipSlots: worn.slots, twoHanded: false, needsBackPoint: worn.back }; return { equipSlots: [], twoHanded: false, needsBackPoint: false } }
+    if (type === "consumable" || type === "loot" || type === "tool") return { equipSlots: [], twoHanded: false, needsBackPoint: false }
     return { equipSlots: [], twoHanded: false, needsBackPoint: false }
   }
   const containersForSize = (size) => { switch (size) { case "Tiny": case "Small": return ["Any"]; case "Medium": return ["Backpack", "Chest", "Wagon"]; case "Large": return ["Large Pack", "Chest", "Wagon", "Cart", "Ship Cargo"]; case "Huge": return ["Cargo"]; default: return ["Backpack", "Chest", "Wagon"] } }
   const isLongItem = (type, name, props, twoHanded) => { if (COILABLE_RE.test(name)) return false; if (LONG_NAME_RE.test(name)) return true; if (type === "weapon" && props.has("rch") && (props.has("two") || twoHanded)) return true; return false }
+  // (v0.75) Length Class — INDEPENDENT of weight/size. Gates storage (long things can't enter packs).
+  const deriveLength = (type, name, props, twoHanded, cls) => {
+    if (COILABLE_RE.test(name)) return "Compact"                            // rope/chain/tent coil or fold small
+    if (POLEARM_RE.test(name)) return "Oversized"                           // pike/halberd/glaive — 8ft+
+    if (LONG_NAME_RE.test(name)) return "Long"                              // spear/staff/trident/ladder
+    if (type === "weapon") {
+      if (props.has("rch") && (props.has("two") || twoHanded)) return "Long"  // reach two-hander
+      if (cls === "ranged" && props.has("two")) return "Long"               // longbow / heavy crossbow / shortbow
+    }
+    return "Compact"
+  }
+  // (v0.75) storageTypes — which container CLASSES may hold this item (replaces the single `baggable`
+  // boolean). Long/Oversized items are filtered out of pack-class containers via lengthAllows().
+  const deriveStorageTypes = (carryType, type, sub, size, length) => {
+    if (carryType === "Container") return ["None"]                         // a pack can't be stuffed in another pack
+    let base
+    if (type === "consumable") {
+      if (sub === "ammo" || sub === "ammunition") base = ["Pouch", "Quiver", "Pack", "Chest", "Vehicle"]
+      else if (sub === "scroll") base = ["Pocket", "Pouch", "ScrollCase", "Pack", "Chest", "Vehicle"]
+      else base = ["Pocket", "Pouch", "Pack", "Chest", "Vehicle"]          // potion / vial / food
+    }
+    else if (carryType === "Treasure" || size === "Tiny") base = ["Pocket", "Pouch", "Pack", "Chest", "Vehicle", "Ship"]
+    else if (type === "tool") base = ["Pouch", "Pack", "Chest", "Vehicle", "Ship"]   // small tools fit a pouch/holster
+    else if (carryType === "Weapon") base = ["Pack", "Chest", "Vehicle", "Ship", "Rack"]
+    else if (carryType === "Armor" || carryType === "Clothing" || carryType === "Cargo") base = ["Chest", "Vehicle", "Ship"]   // NOT a worn bag
+    else base = ["Pouch", "Pack", "Chest", "Vehicle", "Ship"]              // general / miscellaneous
+    return base.filter((k) => lengthAllows(length, k))
+  }
   const deriveGrants = (type, sub, name) => safe(() => {
     const merge = (...objs) => { const out = {}; for (const o of objs) for (const k of Object.keys(o || {})) out[k] = (out[k] || 0) + o[k]; return Object.keys(out).length ? out : null }
     if (type === "container" || type === "backpack") {
@@ -3170,43 +3227,57 @@ function ahMeta(item) {
   }, null)
   try {
     const type = lc(item && item.type), name = lc(item && item.name), sys = (item && item.system) || {}
-    if (!type || NON_PHYSICAL.has(type)) return { size: null, carryType: "Miscellaneous", equipSlots: [], allowedContainers: [], longItem: false, twoHanded: false, needsBackPoint: false, grantsSlots: null, covers: null, baggable: false, ignoreSlot: true, nonPhysical: true }
+    if (!type || NON_PHYSICAL.has(type)) return { size: null, weight: null, length: "Compact", carryType: "Miscellaneous", equipSlots: [], storageTypes: [], packedCost: 0, equippedCost: 0, allowedContainers: [], longItem: false, twoHanded: false, needsBackPoint: false, grantsSlots: null, covers: null, coversSlots: null, attachmentTypes: [], integratedEquipment: [], baggable: false, ignoreSlot: true, nonPhysical: true }
     const sub = readSubtype(sys), props = readProps(sys), wLb = readWeightLb(sys)
     const cls = safe(() => { const t = lc((sys && sys.type && sys.type.value) ?? (sys && sys.weaponType) ?? ""); if (t === "simplem" || t === "martialm") return "melee"; if (t === "simpler" || t === "martialr") return "ranged"; if (t === "natural") return "natural"; return "" }, "")
-    let size = sizeFromWeight(wLb); if (size == null) size = categorySizeDefault(type, sub, props, name)
+    let size = categorySizeDefault(type, sub, props, name)   // (v0.75) Volume Size from CATEGORY, not weight
     let carryType = deriveCarryType(sys, type, sub, size, name, wLb)
     const eq = deriveEquipSlots(type, sub, name, props, cls)
-    let longItem = isLongItem(type, name, props, eq.twoHanded)
-    const covers = (type === "equipment" && sub === "heavy") ? ["Head", "Feet"] : null   // plate: integrated helm + sabatons
+    let length = deriveLength(type, name, props, eq.twoHanded, cls)
+    const covers = (type === "equipment" && sub === "heavy") ? ["Head", "Feet"] : null   // plate: integrated helm + sabatons (retabled in Phase B)
     let equipSlots = eq.equipSlots, needsBackPoint = eq.needsBackPoint
-    // world-wide DM rule for this item's name → overrides the derived rules
+    // shipped starter rule pack (LOWEST override tier) — only for wearable accessories, never armour/
+    // weapon/container (those already derive correctly), so it can't mis-slot e.g. "ring mail" → rings.
+    if (carryType !== "Armor" && carryType !== "Weapon" && carryType !== "Container") {
+      const seed = ahSeedSlotsFor(name)
+      if (seed && Array.isArray(seed.equipSlots)) { equipSlots = seed.equipSlots.slice(); needsBackPoint = equipSlots.indexOf("Back") >= 0 && equipSlots.length === 1 }
+    }
+    // world-wide DM rule for this item's name → overrides the seed + derived rules
+    let stOverride = null
     const rule = safe(() => ahRuleFor(item), null)
     if (rule) {
       if (rule.size) size = rule.size
       if (rule.carryType) carryType = rule.carryType
       if (Array.isArray(rule.equipSlots)) { equipSlots = rule.equipSlots.slice(); needsBackPoint = equipSlots.indexOf("Back") >= 0 && equipSlots.length === 1 }
-      if (typeof rule.longItem === "boolean") longItem = rule.longItem
+      if (rule.length) length = rule.length; else if (typeof rule.longItem === "boolean") length = rule.longItem ? "Long" : "Compact"
+      if (Array.isArray(rule.storageTypes)) stOverride = rule.storageTypes.slice()
     }
-    // per-item DM override flag → most specific, wins over the world rule + derived
+    // per-item DM override flag → most specific, wins over the world rule + seed + derived
     const ov = safe(() => { const f = item && item.flags && item.flags[MOD]; return (f && f.meta) || null }, null)
     if (ov) {
       if (ov.size) size = ov.size
       if (ov.carryType) carryType = ov.carryType
       if (Array.isArray(ov.equipSlots)) { equipSlots = ov.equipSlots.slice(); needsBackPoint = equipSlots.indexOf("Back") >= 0 && equipSlots.length === 1 }
-      if (typeof ov.longItem === "boolean") longItem = ov.longItem
+      if (ov.length) length = ov.length; else if (typeof ov.longItem === "boolean") length = ov.longItem ? "Long" : "Compact"
+      if (Array.isArray(ov.storageTypes)) stOverride = ov.storageTypes.slice()
     }
-    // baggable = can this go in the hex bag at all? Worn-only gear (armor / clothing /
-    // a container itself) can't — it must be worn. ignoreSlot = the DM/player says
-    // "fine that this isn't slotted" → it won't count as overflow. Both DM-overridable.
-    let baggable = !(carryType === "Container" || carryType === "Armor" || carryType === "Clothing")
+    const storageTypes = stOverride || deriveStorageTypes(carryType, type, sub, size, length)
+    const longItem = length !== "Compact"
+    // baggable = fits in any WORN bag (pocket/pouch/pack/quiver/scroll case). Armor/clothing/containers
+    // and long/oversized things don't — they're worn or only go in a chest/wagon/ship. DM-overridable.
+    let baggable = storageTypes.some((k) => AH_WORNBAG_CLASSES.has(k))
     let ignoreSlot = false
     if (rule) { if (typeof rule.baggable === "boolean") baggable = rule.baggable; if (typeof rule.ignoreSlot === "boolean") ignoreSlot = rule.ignoreSlot }
     if (ov) { if (typeof ov.baggable === "boolean") baggable = ov.baggable; if (typeof ov.ignoreSlot === "boolean") ignoreSlot = ov.ignoreSlot }
-    return { size, carryType, equipSlots, allowedContainers: containersForSize(size), longItem, twoHanded: eq.twoHanded, needsBackPoint, grantsSlots: deriveGrants(type, sub, name), covers, baggable, ignoreSlot, override: !!ov, nonPhysical: false }
+    return { size, weight: wLb, length, carryType, equipSlots, storageTypes, packedCost: (AH_SIZE_PACKCOST[size] || 1), equippedCost: 0, allowedContainers: containersForSize(size), longItem, twoHanded: eq.twoHanded, needsBackPoint, grantsSlots: deriveGrants(type, sub, name), covers, coversSlots: covers, attachmentTypes: [], integratedEquipment: [], baggable, ignoreSlot, override: !!ov, nonPhysical: false }
   } catch {
-    return { size: "Medium", carryType: "Miscellaneous", equipSlots: [], allowedContainers: ["Backpack", "Chest", "Wagon"], longItem: false, twoHanded: false, needsBackPoint: false, grantsSlots: null, covers: null, baggable: true, ignoreSlot: false, nonPhysical: false }
+    return { size: "Medium", weight: null, length: "Compact", carryType: "Miscellaneous", equipSlots: [], storageTypes: ["Pack", "Chest", "Vehicle"], packedCost: 1, equippedCost: 0, allowedContainers: ["Backpack", "Chest", "Wagon"], longItem: false, twoHanded: false, needsBackPoint: false, grantsSlots: null, covers: null, coversSlots: null, attachmentTypes: [], integratedEquipment: [], baggable: true, ignoreSlot: false, nonPhysical: false }
   }
 }
+
+/** Canonical Carry Profile for an item (point 12 — the one source of truth). Same projection as
+ *  ahMeta; new callers use this clearer name, old callers keep reading ahMeta's aliased fields. */
+function ahProfile(item) { return ahMeta(item) }
 
 // ── body paperdoll (equip layer) ────────────────────────────────────────────
 // Strict model: naked = Hands/Feet/Rings (+ Chest as the garment mount). Clothing
@@ -3276,22 +3347,22 @@ function ahArtThumb(img, color, fallbackIcon) {
 // type enforcement, and mount/world containers come in later phases.
 const AH_GEAR = {
   // — Belt —
-  coinPurse:   { name: "Coin Purse",         slot: "Belt",       storage: 1,  restrict: "Tiny items only", types: ["general"] },
-  pouch:       { name: "Belt Pouch",         slot: "Belt",       storage: 2 },
-  bigPouch:    { name: "Large Belt Pouch",   slot: "Belt",       storage: 4 },
-  scrollCase:  { name: "Scroll Case",        slot: "Belt / Back", storage: 6, restrict: "Scrolls only", types: ["scroll"] },
+  coinPurse:   { name: "Coin Purse",         slot: "Belt",       storage: 1,  class: "Pocket",     restrict: "Tiny items only", types: ["general"] },
+  pouch:       { name: "Belt Pouch",         slot: "Belt",       storage: 2,  class: "Pouch" },
+  bigPouch:    { name: "Large Belt Pouch",   slot: "Belt",       storage: 4,  class: "Pouch" },
+  scrollCase:  { name: "Scroll Case",        slot: "Belt / Back", storage: 6, class: "ScrollCase", restrict: "Scrolls only", types: ["scroll"] },
   waterskin:   { name: "Waterskin",          slot: "Belt" },
-  toolHolster: { name: "Tool Holster",       slot: "Belt",       storage: 2,  restrict: "Small tools only", types: ["tool"] },
+  toolHolster: { name: "Tool Holster",       slot: "Belt",       storage: 2,  class: "Pouch",      restrict: "Small tools only", types: ["tool"] },
   // — Chest —
-  bandolier:   { name: "Bandolier",          slot: "Chest",      storage: 4,  restrict: "Potions, scrolls, ammo, small tools", types: ["potion", "scroll", "ammo", "tool"] },
-  potionBand:  { name: "Potion Bandolier",   slot: "Chest",      storage: 6,  restrict: "Potions only", types: ["potion"] },
+  bandolier:   { name: "Bandolier",          slot: "Chest",      storage: 4,  class: "Pouch",      restrict: "Potions, scrolls, ammo, small tools", types: ["potion", "scroll", "ammo", "tool"] },
+  potionBand:  { name: "Potion Bandolier",   slot: "Chest",      storage: 6,  class: "Pouch",      restrict: "Potions only", types: ["potion"] },
   // — Back —
-  satchel:     { name: "Satchel",            slot: "Back",       storage: 8 },
-  backpack:    { name: "Backpack",           slot: "Back",       storage: 12, grants: { Back: 1 } },
-  bigBackpack: { name: "Large Backpack",     slot: "Back",       storage: 18, grants: { Back: 1 } },
-  huntingPack: { name: "Hunting / Frame Pack", slot: "Back",     storage: 24, grants: { Back: 1 } },
-  quiver:      { name: "Quiver",             slot: "Back",       storage: 4,  restrict: "Bow + arrows/bolts", types: ["ammo"] },
-  boltCase:    { name: "Bolt Case",          slot: "Back",       storage: 4,  restrict: "Bolts only", types: ["ammo"] },
+  satchel:     { name: "Satchel",            slot: "Back",       storage: 8,  class: "Pack" },
+  backpack:    { name: "Backpack",           slot: "Back",       storage: 12, class: "Pack", grants: { Back: 1 } },
+  bigBackpack: { name: "Large Backpack",     slot: "Back",       storage: 18, class: "Pack", grants: { Back: 1 } },
+  huntingPack: { name: "Hunting / Frame Pack", slot: "Back",     storage: 24, class: "Pack", grants: { Back: 1 } },
+  quiver:      { name: "Quiver",             slot: "Back",       storage: 4,  class: "Quiver",     restrict: "Bow + arrows/bolts", types: ["ammo"] },
+  boltCase:    { name: "Bolt Case",          slot: "Back",       storage: 4,  class: "Quiver",     restrict: "Bolts only", types: ["ammo"] },
   // — single-item holders (worn; hold one equipped item, no bag space) —
   sheath:      { name: "Sheath",             slot: "Hip / Belt", holds: "a one-handed weapon", grants: { "Right Hip": 1 } },
   gwSling:     { name: "Great Weapon Sling", slot: "Back",       holds: "a two-handed weapon", grants: { Back: 1 } },
@@ -3299,27 +3370,28 @@ const AH_GEAR = {
   // — legacy keys (kept so existing equipped gear doesn't vanish) —
   belt:        { name: "Belt",               slot: "Belt",       storage: 0,  grants: { Belt: 1 } },
   harness:     { name: "Harness",            slot: "Back",       storage: 0,  grants: { Back: 2, "Left Hip": 1, "Right Hip": 1 } },
-  // — mount-worn (on a beast/vehicle, not the body — no slot, uncapped) —
-  saddlebags:    { name: "Saddlebags",        cat: "mount", storage: 16 },
-  bigSaddlebags: { name: "Large Saddlebags",  cat: "mount", storage: 24 },
-  packFrame:     { name: "Pack Frame",        cat: "mount", storage: 32 },
-  cargoHarness:  { name: "Cargo Harness",     cat: "mount", storage: 48 },
-  // — non-wearable / world (carried or placed — no slot, uncapped) —
-  sack:        { name: "Sack",                cat: "world", storage: 8 },
-  bigSack:     { name: "Large Sack",          cat: "world", storage: 16 },
-  basket:      { name: "Basket",              cat: "world", storage: 12 },
-  bucket:      { name: "Bucket",              cat: "world", storage: 4 },
-  crate:       { name: "Crate",               cat: "world", storage: 24 },
-  bigCrate:    { name: "Large Crate",         cat: "world", storage: 48 },
-  barrel:      { name: "Barrel",              cat: "world", storage: 32 },
-  chest:       { name: "Chest",               cat: "world", storage: 24 },
-  bigChest:    { name: "Large Chest",         cat: "world", storage: 48 },
-  trunk:       { name: "Trunk",               cat: "world", storage: 64 },
-  cart:        { name: "Cart",                cat: "world", storage: 100 },
-  wagon:       { name: "Wagon",               cat: "world", storage: 200 },
-  coveredWagon:{ name: "Covered Wagon",       cat: "world", storage: 250 },
-  canoe:       { name: "Canoe",               cat: "world", storage: 80 },
-  shipHold:    { name: "Ship Cargo Hold",     cat: "world", storage: 500 },   // "unlimited" → a practical cap
+  // — mount-worn (on a beast/vehicle, not the body — no slot, uncapped) — class "Vehicle" = bulk cargo
+  saddlebags:    { name: "Saddlebags",        cat: "mount", storage: 16, class: "Vehicle" },
+  bigSaddlebags: { name: "Large Saddlebags",  cat: "mount", storage: 24, class: "Vehicle" },
+  packFrame:     { name: "Pack Frame",        cat: "mount", storage: 32, class: "Vehicle" },
+  cargoHarness:  { name: "Cargo Harness",     cat: "mount", storage: 48, class: "Vehicle" },
+  // — non-wearable / world (carried or placed — no slot, uncapped). Classed so they admit armour,
+  //   long cargo, etc. per the item's storageTypes (a chest/wagon/ship is the home for bulky gear) —
+  sack:        { name: "Sack",                cat: "world", storage: 8,   class: "Chest" },
+  bigSack:     { name: "Large Sack",          cat: "world", storage: 16,  class: "Chest" },
+  basket:      { name: "Basket",              cat: "world", storage: 12,  class: "Chest" },
+  bucket:      { name: "Bucket",              cat: "world", storage: 4,   class: "Chest" },
+  crate:       { name: "Crate",               cat: "world", storage: 24,  class: "Chest" },
+  bigCrate:    { name: "Large Crate",         cat: "world", storage: 48,  class: "Chest" },
+  barrel:      { name: "Barrel",              cat: "world", storage: 32,  class: "Chest" },
+  chest:       { name: "Chest",               cat: "world", storage: 24,  class: "Chest" },
+  bigChest:    { name: "Large Chest",         cat: "world", storage: 48,  class: "Chest" },
+  trunk:       { name: "Trunk",               cat: "world", storage: 64,  class: "Chest" },
+  cart:        { name: "Cart",                cat: "world", storage: 100, class: "Vehicle" },
+  wagon:       { name: "Wagon",               cat: "world", storage: 200, class: "Vehicle" },
+  coveredWagon:{ name: "Covered Wagon",       cat: "world", storage: 250, class: "Vehicle" },
+  canoe:       { name: "Canoe",               cat: "world", storage: 80,  class: "Ship" },
+  shipHold:    { name: "Ship Cargo Hold",     cat: "world", storage: 500, class: "Ship" },   // "unlimited" → a practical cap
 }
 const AH_GEAR_ORDER = ["coinPurse", "pouch", "bigPouch", "scrollCase", "waterskin", "toolHolster", "bandolier", "potionBand", "satchel", "backpack", "bigBackpack", "huntingPack", "quiver", "boltCase", "sheath", "gwSling", "shieldSling", "belt", "harness",
   "saddlebags", "bigSaddlebags", "packFrame", "cargoHarness",
