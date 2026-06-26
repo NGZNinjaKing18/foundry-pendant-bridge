@@ -1946,7 +1946,7 @@ async function handleCommand(msg) {
       if (!ahFreeBody(ctx, m).has(slot)) throw new Error("That slot isn't available for this item")
       if (slot === "Back") { if (ctx.back.indexOf(msg.itemId) < 0) ctx.back.push(msg.itemId) } else ctx.worn[msg.itemId] = slot
       await ahSaveEquipObj(a, ctx.worn, ctx.back)
-      try { const pl = a.getFlag(MOD, "ahPlace") || {}; let ch = false; for (const k of Object.keys(pl)) { if (k === msg.itemId || k.startsWith(msg.itemId + "#")) { delete pl[k]; ch = true } } if (ch) await a.setFlag(MOD, "ahPlace", pl) } catch {}   // clear the item's placement + every bundle uid
+      try { const pl = a.getFlag(MOD, "ahPlace") || {}; for (const k of Object.keys(pl)) { if (k === msg.itemId || k.startsWith(msg.itemId + "#")) delete pl[k] } ahSaveFlagObj(a, "ahPlace", pl) } catch {}   // clear placement + bundle uids via -=key deletion (raw setFlag MERGES, never deletes — v0.74)
       try { if (it.system && ("equipped" in it.system)) await it.update({ "system.equipped": true }) } catch {}
       await ahRecomputeActor(a)
       return bridge.reply(msg.reqId, { type: "antihammer.actor", actor: AH.actorSummary(a, AH.cfg()) })
@@ -3280,7 +3280,7 @@ const AH_GEAR = {
   pouch:       { name: "Belt Pouch",         slot: "Belt",       storage: 2 },
   bigPouch:    { name: "Large Belt Pouch",   slot: "Belt",       storage: 4 },
   scrollCase:  { name: "Scroll Case",        slot: "Belt / Back", storage: 6, restrict: "Scrolls only", types: ["scroll"] },
-  waterskin:   { name: "Waterskin",          slot: "Belt",       storage: 1,  restrict: "Water only", types: ["water"] },
+  waterskin:   { name: "Waterskin",          slot: "Belt" },
   toolHolster: { name: "Tool Holster",       slot: "Belt",       storage: 2,  restrict: "Small tools only", types: ["tool"] },
   // — Chest —
   bandolier:   { name: "Bandolier",          slot: "Chest",      storage: 4,  restrict: "Potions, scrolls, ammo, small tools", types: ["potion", "scroll", "ammo", "tool"] },
