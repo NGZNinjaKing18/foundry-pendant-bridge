@@ -4559,7 +4559,7 @@ function ahInjectPanel(app, html) {
   if (!host) return
   let panel
   try { panel = ahBuildPanel(actor) } catch (e) { console.warn("[pendant-bridge] AH panel build failed", e); return }
-  host.insertBefore(panel, host.firstChild)
+  host.appendChild(panel)   // (v0.80) at the BOTTOM of the Inventory tab, below the native dnd5e item list (was prepended on top)
 }
 /** Find the actor sheet's INVENTORY tab content container (not the clickable nav tab). */
 function ahInventoryHost(root) {
