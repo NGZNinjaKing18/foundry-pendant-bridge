@@ -2362,7 +2362,7 @@ function ahBoardSVG(ctx) {
 /** Colour legend under the bag: each packed item = swatch + full name + space cost. */
 function ahLegendHTML(ctx) {
   const rows = []
-  ctx.placed.forEach((p, id) => { const it = ctx.unitById[id]; if (it && !(p && p.of)) rows.push({ it, bin: p && p.bin }) })
+  ctx.placed.forEach((p, id) => { const it = ctx.unitById[id]; if (!it || (p && p.of)) return; const b = p && ctx.binById && ctx.binById[p.bin]; if (b && b.zone === "storage") return; rows.push({ it, bin: p && p.bin }) })   // (v0.79) bag legend only — stored items are managed in their own container grids
   if (!rows.length) return ""
   rows.sort((a, b) => (ctx.separate ? String(a.bin || "").localeCompare(String(b.bin || "")) : 0) || (a.it.name || "").localeCompare(b.it.name || ""))
   return rows.map(({ it, bin }) => {
@@ -2584,13 +2584,33 @@ function ahSepBins(ctx) {
   const capEach = Number(ctx.capEach) || 0
   if (capEach > 0) for (const id of ahEquippedIds(ctx)) {
     const m = ctx.metaById[id]
-    if (m && m.carryType === "Container") { const it = ctx.byId[id]; bins.push({ binId: "it:" + id, label: it ? it.name : "Container", kind: "container", cap: capEach, types: null, class: "Pack", color: it ? it.color : "#7f8395" }) }
+    if (m && m.carryType === "Container") { const it = ctx.byId[id]; bins.push({ binId: "it:" + id, label: it ? it.name : "Container", kind: "container", cap: capEach, types: null, class: "Pack", zone: "bag", color: it ? it.color : "#7f8395" }) }
   }
   for (const g of ahGearList(ctx.actor)) {
     const c = cat[g.kind]; const cap = Number(c && c.storage) || 0
-    if (cap > 0) bins.push({ binId: "gr:" + g.id, label: c.name, kind: "gear", cap, types: (c && c.types) || null, class: (c && c.class) || null, color: ahColorFor("gear:" + g.id) })
+    if (cap > 0) bins.push({ binId: "gr:" + g.id, label: c.name, kind: "gear", cap, types: (c && c.types) || null, class: (c && c.class) || null, zone: "bag", color: ahColorFor("gear:" + g.id) })
   }
-  if (bins.length) { const sb = ahStrBonus(ctx.actor, ctx.cfg || AH.cfg()); if (sb > 0) bins.push({ binId: "str", label: "Raw strength", kind: "str", cap: sb, types: null, class: "Pack", color: "#8a6db0" }) }
+  if (bins.length) { const sb = ahStrBonus(ctx.actor, ctx.cfg || AH.cfg()); if (sb > 0) bins.push({ binId: "str", label: "Raw strength", kind: "str", cap: sb, types: null, class: "Pack", zone: "bag", color: "#8a6db0" }) }
+  for (const b of bins) { b.geom = ahGeom(b.cap); const vc = ahValidCells(b.cap); b.validList = vc.list; b.validSet = vc.set }
+  return bins
+}
+/** (v0.79) Off-body STORAGE bins — world containers the actor tracks (ahStash). Same bin machinery as the
+ *  bag (drag/drop/pack via ctx.bins + ahPlaceSep, binId "world:<id>"), but zone:"storage" so they render in
+ *  their OWN section and stay OUT of the bag capacity meter. Built ALWAYS (a chest needs no worn bag). */
+function ahStorageBins(ctx) {
+  const bins = [], wcat = ahWorldCatalog()
+  for (const s of ahStash(ctx.actor)) {
+    if (s.kind === "world") {
+      const c = wcat[s.type]; if (!c) continue
+      bins.push({ binId: "world:" + s.id, label: s.name || c.name, kind: "world", cap: c.cap, types: null, class: c.class, zone: "storage", location: s.location || "", color: ahColorFor("world:" + s.id) })
+    } else if (s.kind === "mount") {
+      const m = AH_MOUNT_CATALOG[s.type]; if (!m) continue
+      for (const pt of m.points) {   // each CARGO attachment point is its own bin, grouped under the mount
+        const pd = AH_MOUNT_POINTS[pt]; if (!pd || pd.kind !== "bin") continue
+        bins.push({ binId: "mount:" + s.id + ":" + pt, label: pd.label, kind: "mount", cap: pd.cap, types: null, class: pd.class, zone: "storage", group: "mount:" + s.id, color: ahColorFor("mount:" + s.id + ":" + pt) })
+      }
+    }
+  }
   for (const b of bins) { b.geom = ahGeom(b.cap); const vc = ahValidCells(b.cap); b.validList = vc.list; b.validSet = vc.set }
   return bins
 }
@@ -2670,7 +2690,7 @@ function ahPackBinPlaced(bin, units, explicit) {
  *  back to the first free spot when the cursor is on a packed area, so preview === where it lands. */
 function ahSepDropTarget(ctx, bin, uid, rot, cell) {
   const u = ctx.unitById[uid]; if (!u) return null
-  if (!ahCanBag(ctx, uid)) return null
+  if (bin.zone !== "storage" && !ahCanBag(ctx, uid)) return null   // (v0.79) a world chest may hold armour/shields; ahFitsCont gates it by class
   if (!ahFitsCont(ctx, u.itemId, bin)) return null
   const occ = ahBinOcc(ctx, bin.binId, uid)
   // HONOUR the chosen rotation: snap within 2 of the cursor at THIS rotation (so R visibly rotates
@@ -2689,7 +2709,7 @@ function ahSepUnitsIn(ctx, binId, exceptUid) {
  *  unit must all still pack within the bin (geometry + capacity checked together via ahPackInto). */
 function ahSepBinAccepts(ctx, bin, uid) {
   const u = ctx.unitById[uid]; if (!u) return false
-  if (!ahCanBag(ctx, uid)) return false
+  if (bin.zone !== "storage" && !ahCanBag(ctx, uid)) return false   // (v0.79) world chest may hold armour/shields; ahFitsCont gates by class
   if (!ahFitsCont(ctx, u.itemId, bin)) return false
   const trial = ahSepUnitsIn(ctx, bin.binId, uid); trial.push(u)
   return ahPackInto(bin, trial).size === trial.length
@@ -2725,8 +2745,9 @@ function ahBuildSepPlaced(ctx) {
   const bind = ahBinding(ctx), byBin = new Map(), cellByBin = new Map(), reqCell = new Map(), valid = []
   for (const u of ctx.units) {
     const uid = u.uid
-    if (!ahCanBag(ctx, uid)) continue                                        // worn-only can't be bagged
     const a = assign[uid], aBin = ahSepBinOf(a), aCell = ahSepCellOf(a)       // entry is a bin-id string OR {bin,col,row,rot}
+    const storedBin = aBin && ctx.binById[aBin]                              // (v0.79) a chest/mount may hold armour — only the BAG enforces worn-only
+    if (!(storedBin && storedBin.zone === "storage") && !ahCanBag(ctx, uid)) continue
     let binId = null
     if (bind) {
       const cid = ahItemContainer(ctx, u.itemId)                             // real container = authoritative for it: bins
@@ -2810,8 +2831,9 @@ function ahPersistPlace(ctx) { if (ctx.separate) ahSavePlaceSep(ctx.actor, ahSep
 /** Tidy (separate): greedily assign every baggable unit to a fitting bin — specific-type bins
  *  first, emptier bins first. Returns a fresh {uid: binId} map (replaces the whole assignment). */
 function ahAutoPackSep(ctx) {
-  const bins = ctx.bins.map(b => ({ binId: b.binId, types: b.types, class: b.class, cap: b.cap, validList: b.validList, validSet: b.validSet, packed: [] }))
-  const units = ctx.units.filter(u => ahCanBag(ctx, u.uid)).sort((a, b) => ((b.shape ? b.shape.length : 1) - (a.shape ? a.shape.length : 1)) || String(a.uid).localeCompare(String(b.uid)))
+  const inStorage = (uid) => { const p = ctx.placed.get(uid), b = p && ctx.binById && ctx.binById[p.bin]; return !!(b && b.zone === "storage") }   // (v0.79) Tidy packs the BAG only — never chests/mounts
+  const bins = ctx.bins.filter(b => b.zone !== "storage").map(b => ({ binId: b.binId, types: b.types, class: b.class, cap: b.cap, validList: b.validList, validSet: b.validSet, packed: [] }))
+  const units = ctx.units.filter(u => ahCanBag(ctx, u.uid) && !inStorage(u.uid)).sort((a, b) => ((b.shape ? b.shape.length : 1) - (a.shape ? a.shape.length : 1)) || String(a.uid).localeCompare(String(b.uid)))
   const used = (b) => b.packed.reduce((s, x) => s + (Number(x.spaces) || 1), 0)
   const assign = {}
   for (const u of units) {
@@ -2825,7 +2847,9 @@ function ahAutoPackSep(ctx) {
  *  dnd5e system.container in ONE batched update. Items not assigned to a real container are cleared. */
 function ahApplyAutoPackSep(ctx) {
   const assign = ahAutoPackSep(ctx), bind = ahBinding(ctx)
-  const flag = {}
+  // (v0.79) preserve off-body STORAGE placements (Tidy re-packs only the bag, never chests/mounts)
+  const flag = {}; let saved = {}; try { saved = ctx.actor.getFlag(MOD, "ahPlaceSep") || {} } catch {}
+  for (const k of Object.keys(saved)) { const bid = ahSepBinOf(saved[k]); if (bid && (bid.slice(0, 6) === "world:" || bid.slice(0, 6) === "mount:")) flag[k] = saved[k] }
   for (const uid in assign) { const b = assign[uid]; if (!bind || b.slice(0, 3) !== "it:") flag[uid] = b }
   if (!bind) { ahSavePlaceSep(ctx.actor, flag); return }
   // per ITEM resolve ONE target container (a dnd5e item can't be split across containers): ANY it:
@@ -2848,7 +2872,7 @@ function ahApplyAutoPackSep(ctx) {
 /** Keyboard stow (separate): assign the unit to the first fitting bin. Returns true on success. */
 function ahStowSep(ctx, uid) {
   const u = ctx.unitById[uid]; if (!u) return false
-  const cands = ctx.bins.filter(b => ahFitsCont(ctx, u.itemId, b)).sort((a, b) => (a.types ? a.types.length : 99) - (b.types ? b.types.length : 99))
+  const cands = ctx.bins.filter(b => b.zone !== "storage" && ahFitsCont(ctx, u.itemId, b)).sort((a, b) => (a.types ? a.types.length : 99) - (b.types ? b.types.length : 99))   // (v0.79) keyboard-stow packs the BAG only (chests/mounts via drag)
   for (const bin of cands) { if (ahSepBinAccepts(ctx, bin, uid)) { ahAssignUnit(ctx, uid, bin.binId); return true } }
   return false
 }
@@ -3416,6 +3440,35 @@ const AH_GEAR_ORDER = ["coinPurse", "pouch", "bigPouch", "scrollCase", "waterski
   "saddlebags", "bigSaddlebags", "packFrame", "cargoHarness",
   "sack", "bigSack", "basket", "bucket", "crate", "bigCrate", "barrel", "chest", "bigChest", "trunk", "cart", "wagon", "coveredWagon", "canoe", "shipHold"]
 const AH_GEAR_CAT_LABEL = { worn: "Worn", mount: "Mount-worn", world: "Carried / placed" }
+// (v0.80) MOUNTS — attachment points (a mini-paperdoll). Each cargo point IS a storage bin (binId
+// "mount:<id>:<pt>"); rider points (saddle/howdah/draft harness) carry no cargo. Caps approximate the
+// per-mount cargo totals; the user can tune later. `class` gates what fits: Pack=saddlebag gear,
+// Vehicle=bulk cargo (incl. armour), Rack=long items (spear/shovel) on the side harness.
+const AH_MOUNT_POINTS = {
+  saddle:   { label: "Saddle",          kind: "rider" },
+  howdah:   { label: "Howdah",          kind: "rider" },
+  harness:  { label: "Harness",         kind: "rider" },
+  bagL:     { label: "Left Saddlebag",  kind: "bin", class: "Pack",    cap: 8 },
+  bagR:     { label: "Right Saddlebag", kind: "bin", class: "Pack",    cap: 8 },
+  packframe:{ label: "Pack Frame",      kind: "bin", class: "Vehicle", cap: 16 },
+  cargoL:   { label: "Left Cargo",      kind: "bin", class: "Vehicle", cap: 10 },
+  cargoR:   { label: "Right Cargo",     kind: "bin", class: "Vehicle", cap: 10 },
+  rear:     { label: "Rear Cargo",      kind: "bin", class: "Vehicle", cap: 6 },
+  harnessL: { label: "Side Harness (L)", kind: "bin", class: "Rack",   cap: 2 },
+  harnessR: { label: "Side Harness (R)", kind: "bin", class: "Rack",   cap: 2 },
+}
+const AH_MOUNT_CATALOG = {
+  pony:        { name: "Pony",          cat: "Riding mounts",     cargo: 20,  points: ["saddle", "bagL", "bagR", "rear"] },
+  ridingHorse: { name: "Riding Horse",  cat: "Riding mounts",     cargo: 30,  points: ["saddle", "bagL", "bagR", "rear", "harnessL", "harnessR"] },
+  warhorse:    { name: "Warhorse",      cat: "Riding mounts",     cargo: 25,  points: ["saddle", "bagL", "bagR", "rear", "harnessL", "harnessR"] },
+  camel:       { name: "Camel",         cat: "Riding mounts",     cargo: 40,  points: ["saddle", "bagL", "bagR", "rear", "harnessL", "harnessR"] },
+  ridingOx:    { name: "Riding Ox",     cat: "Riding mounts",     cargo: 40,  points: ["saddle", "bagL", "bagR", "rear"] },
+  mule:        { name: "Mule",          cat: "Pack animals",      cargo: 40,  points: ["packframe", "cargoL", "cargoR", "rear", "harnessL", "harnessR"] },
+  donkey:      { name: "Donkey",        cat: "Pack animals",      cargo: 30,  points: ["packframe", "cargoL", "cargoR", "rear"] },
+  draftHorse:  { name: "Draft Horse",   cat: "Pack animals",      cargo: 50,  points: ["harness", "packframe", "cargoL", "cargoR", "rear", "harnessL", "harnessR"] },
+  elephant:    { name: "Elephant",      cat: "Large pack animals", cargo: 150, points: ["howdah", "packframe", "cargoL", "cargoR", "rear", "harnessL", "harnessR"] },
+  fantasyMount:{ name: "Giant Lizard / Fantasy Mount", cat: "Large pack animals", cargo: 60, points: ["saddle", "packframe", "cargoL", "cargoR", "rear", "harnessL", "harnessR"] },
+}
 /** Display chips for a container: body slot · +storage · what it holds · granted slots. */
 function ahGearBits(cat) {
   const bits = []
@@ -3450,6 +3503,24 @@ function ahGearDefs() { try { const d = game.settings.get(MOD, "ahGearDefs"); re
 function ahGearCatalog() { return Object.assign({}, AH_GEAR, ahGearDefs()) }
 function ahGearOrder() { const custom = Object.keys(ahGearDefs()).filter(k => !AH_GEAR[k]); return AH_GEAR_ORDER.concat(custom) }
 function ahGearList(actor) { try { const cat = ahGearCatalog(), g = actor.getFlag(MOD, "ahGear"); return Array.isArray(g) ? g.filter(x => x && cat[x.kind]) : [] } catch { return [] } }
+// (v0.79) Off-body STORAGE: world containers (chests/wagons/ships) the actor tracks — and later mounts.
+// Per-actor for now (party-shared comes later). Each entry: {id, kind:"world"|"mount", type, name, location}.
+// Stored as an ARRAY flag (arrays REPLACE on setFlag, so no -=key dance needed). Contents are placed via
+// the normal ahPlaceSep system into bins whose binId is "world:<id>" (kept OUT of the bag capacity meter).
+function ahStash(actor) { try { const g = actor.getFlag(MOD, "ahStash"); return Array.isArray(g) ? g.filter(x => x && x.id && x.type) : [] } catch { return [] } }
+function ahStashSave(actor, arr) { try { Promise.resolve(actor.setFlag(MOD, "ahStash", Array.isArray(arr) ? arr : [])).catch(e => console.warn("[pendant-bridge] AH stash save failed", e)) } catch (e) { console.warn("[pendant-bridge] AH stash save failed", e) } }
+function ahStashEdit(actor, id, patch) { ahStashSave(actor, ahStash(actor).map(s => s.id === id ? Object.assign({}, s, patch) : s)) }
+/** Remove a stash container AND return its contents to loose (prune any ahPlaceSep entries that point
+ *  at its "world:<id>" bin, via the -=key deletion helper, so nothing is left orphaned). */
+function ahStashRemove(actor, id) {
+  ahStashSave(actor, ahStash(actor).filter(s => s.id !== id))
+  try { const pl = actor.getFlag(MOD, "ahPlaceSep") || {}, wid = "world:" + id, mpfx = "mount:" + id + ":", np = {}; let ch = false
+    for (const k of Object.keys(pl)) { const bid = ahSepBinOf(pl[k]); if (bid === wid || (bid && bid.indexOf(mpfx) === 0)) { ch = true; continue } np[k] = pl[k] }
+    if (ch) ahSaveFlagObj(actor, "ahPlaceSep", np) } catch (e) { console.warn("[pendant-bridge] AH stash remove prune failed", e) }
+}
+/** The world-container types a player can place (derived from the AH_GEAR cat:"world" entries — they
+ *  already carry a storage class + capacity). {key: {name, class, cap}}. */
+function ahWorldCatalog() { const out = {}, cat = ahGearCatalog(); for (const k of Object.keys(cat)) { const c = cat[k]; if (c && c.cat === "world") out[k] = { name: c.name, class: c.class || "Chest", cap: Number(c.storage) || 0 } } return out }
 function ahGearGrants(actor) {
   const out = {}, cat = ahGearCatalog()
   for (const g of ahGearList(actor)) { const c = cat[g.kind]; if (c && c.grants) for (const k of Object.keys(c.grants)) { const key = AH_SLOT_KEY[k] || k; out[key] = (out[key] || 0) + (Number(c.grants[k]) || 0) } }
@@ -3898,6 +3969,32 @@ function ahWireMenu(menu, trigger, close) {
 }
 
 /** "+ Add" storage gear → a menu of belts/packs/pouches; click adds one to the actor. */
+/** (v0.79/0.80) Picker for the Storage section's "+ Add" — place a world container (chest/wagon/ship…)
+ *  OR a mount (pony/horse/mule/elephant…). Mounts add a grouped set of attachment-point bins. */
+function ahOpenWorldMenu(actor, anchorEl, triggerEl) {
+  anchorEl.querySelectorAll(".ah-gear-menu").forEach(n => n.remove())
+  const menu = document.createElement("div"); menu.className = "ah-gear-menu"
+  const head = document.createElement("div"); head.className = "ah-gear-mhead"; head.textContent = "Place a container or mount"; menu.appendChild(head)
+  const close = () => { menu.remove(); document.removeEventListener("mousedown", onDoc) }
+  const add = (entry) => { const list = ahStash(actor).slice(); list.push(entry); ahStashSave(actor, list) }
+  const cat = (label) => { const c = document.createElement("div"); c.className = "ah-gear-mcat"; c.textContent = label; menu.appendChild(c) }
+  const item = (name, meta, onClick) => { const b = document.createElement("button"); b.className = "ah-gear-mi"; b.innerHTML = '<span class="ah-gear-mi-n">' + ahEscX(name) + '</span><span class="ah-gear-mi-m">' + ahEscX(meta) + "</span>"; b.addEventListener("click", (e) => { e.stopPropagation(); close(); onClick() }); menu.appendChild(b) }
+  cat("Carried / placed")
+  const wcat = ahWorldCatalog(), wkeys = Object.keys(wcat).sort((a, b) => (wcat[a].cap - wcat[b].cap) || wcat[a].name.localeCompare(wcat[b].name))
+  for (const key of wkeys) { const c = wcat[key]; item(c.name, c.class + " · " + c.cap + " slots", () => add({ id: "w" + Math.random().toString(36).slice(2, 8), kind: "world", type: key, name: c.name, location: "" })) }
+  let curCat = null
+  for (const key of Object.keys(AH_MOUNT_CATALOG)) {
+    const m = AH_MOUNT_CATALOG[key]
+    if (m.cat !== curCat) { curCat = m.cat; cat(curCat) }
+    item(m.name, m.points.length + " points · ~" + m.cargo + " cargo", () => add({ id: "m" + Math.random().toString(36).slice(2, 8), kind: "mount", type: key, name: m.name, location: "" }))
+  }
+  menu.setAttribute("aria-label", "Place a container or mount")
+  const trigger = triggerEl || ((typeof document !== "undefined") ? document.activeElement : null)
+  anchorEl.appendChild(menu)
+  const onDoc = (e) => { if (!menu.contains(e.target)) close() }
+  ahWireMenu(menu, trigger, close)
+  setTimeout(() => { document.addEventListener("mousedown", onDoc) }, 0)
+}
 function ahOpenGearMenu(actor, anchorEl, triggerEl) {
   anchorEl.querySelectorAll(".ah-gear-menu").forEach(n => n.remove())
   const menu = document.createElement("div"); menu.className = "ah-gear-menu"
@@ -3985,13 +4082,13 @@ function ahDragItem(ctx, id, from, ev) {
   let raf = 0, lastE = ev, moved = false   // seed lastE so R-rotate repaints even before the first move
   const draw = () => {
     raf = 0; if (!ctx.held || !lastE) return
-    const host = ctx.separate ? ctx.binsEl : ctx.holder
+    const host = ctx.separate ? (ctx.binsEl || ctx.storageEl) : ctx.holder
     if (host && !host.isConnected) { finish(true); return }
     ahMoveGhost(ctx, lastE)
     if (ctx.separate) {   // multi-grid: detect WHICH bin the cursor is over (the ghost is pointer-events:none)
       const el = document.elementFromPoint(lastE.clientX, lastE.clientY)
       const be = el && el.closest && el.closest("[data-bin]")
-      const hb = (be && ctx.binsEl && ctx.binsEl.contains(be)) ? be.getAttribute("data-bin") : null   // only THIS actor's bins
+      const hb = (be && ((ctx.binsEl && ctx.binsEl.contains(be)) || (ctx.storageEl && ctx.storageEl.contains(be)))) ? be.getAttribute("data-bin") : null   // only THIS actor's bins (bag + storage)
       // the cursor's exact hex IN that bin's own grid (per-bin geom + screen matrix → tracks the cursor)
       let hc = null
       if (hb) { const holder = ctx.binHolders && ctx.binHolders[hb]; const svg = holder && holder.querySelector(".ah-svg"); const bin = ctx.binById[hb]; hc = ahPixelCellGeom(svg, bin && bin.geom, lastE) }
@@ -4003,7 +4100,7 @@ function ahDragItem(ctx, id, from, ev) {
     ctx.hover = ahPixelCell(ctx, lastE); ahRenderBoard(ctx)
   }
   const schedule = () => { if (!raf) raf = requestAnimationFrame(draw) }
-  const move = (e) => { if (!ctx.held) return; const host = ctx.separate ? ctx.binsEl : ctx.holder; if (host && !host.isConnected) { finish(true); return } if (!moved && (Math.abs(e.clientX - sx) > 5 || Math.abs(e.clientY - sy) > 5)) moved = true; lastE = e; schedule() }
+  const move = (e) => { if (!ctx.held) return; const host = ctx.separate ? (ctx.binsEl || ctx.storageEl) : ctx.holder; if (host && !host.isConnected) { finish(true); return } if (!moved && (Math.abs(e.clientX - sx) > 5 || Math.abs(e.clientY - sy) > 5)) moved = true; lastE = e; schedule() }
   // R rotates, Esc cancels. CAPTURE on window + preventDefault/stopPropagation so the key reaches us
   // BEFORE any Foundry/system/module keybind can swallow "R" (which was making rotate look dead).
   const key = (e) => { if (!ctx.held) return; if (e.key === "r" || e.key === "R") { e.preventDefault(); e.stopPropagation(); ctx.held.rot = (ctx.held.rot + 1) % 6; schedule() } else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); finish(true) } }
@@ -4031,7 +4128,7 @@ function ahDragItem(ctx, id, from, ev) {
       }
       else if (ctx.separate) {   // multi-grid: assign to whichever bin the cursor was released over, at the exact hex
         const binEl = tgt && tgt.closest && tgt.closest("[data-bin]")
-        const bin = binEl && ctx.binsEl && ctx.binsEl.contains(binEl) && ctx.binById[binEl.getAttribute("data-bin")]   // only THIS actor's bins
+        const bin = binEl && ((ctx.binsEl && ctx.binsEl.contains(binEl)) || (ctx.storageEl && ctx.storageEl.contains(binEl))) && ctx.binById[binEl.getAttribute("data-bin")]   // only THIS actor's bins (bag + storage)
         if (bin) {
           const holder = ctx.binHolders && ctx.binHolders[bin.binId]; const svg = holder && holder.querySelector(".ah-svg")
           const cell = ahPixelCellGeom(svg, bin.geom, e)                       // recompute from the mouseup event (rAF could have staled the hover)
@@ -4113,17 +4210,17 @@ function ahBuildPanel(actor) {
   // SEPARATE is the only mode now (one mini hex-grid per container) — the Merged single-pool bag
   // was removed at the user's request. Merged code below stays reachable only as a safety fallback
   // if an actor has a bag but somehow yields no bins (shouldn't happen: a bag needs a container).
-  if (bagCapacity > 0) {
-    ctx.bins = ahSepBins(ctx); ctx.binById = {}; for (const b of ctx.bins) ctx.binById[b.binId] = b
-    if (ctx.bins.length) { ctx.separate = true; ctx.binHolders = {}; ctx.binCards = {}; ctx.binCapEls = {} }
-  }
+  ctx.bins = bagCapacity > 0 ? ahSepBins(ctx) : []
+  { const sb = ahStorageBins(ctx); if (sb.length) ctx.bins = ctx.bins.concat(sb) }   // (v0.79) off-body world containers — present even with no worn bag
+  ctx.binById = {}; for (const b of ctx.bins) ctx.binById[b.binId] = b
+  if (ctx.bins.length) { ctx.separate = true; ctx.binHolders = {}; ctx.binCards = {}; ctx.binCapEls = {} }
   // WORN-ONLY (binding): hide items dnd5e has inside a container we're NOT wearing (no it: bin).
   // They stay safe in that container and are managed on the normal sheet; AH never shows or touches
   // them, so it can't accidentally pull them out. Runs after bins exist (binById needed).
   if (ctx.separate && ahBinding(ctx)) ctx.units = ctx.units.filter(u => { if (!ahInUnmanagedContainer(ctx, u.itemId)) return true; delete ctx.unitById[u.uid]; return false })
   let savedPlace = {}; try { savedPlace = actor.getFlag(MOD, ctx.separate ? "ahPlaceSep" : "ahPlace") || {} } catch {}
   ctx.placed = ctx.separate ? ahBuildSepPlaced(ctx) : ahBuildPlaced(actor, ctx.unitById, vc.set)   // worn items have no unit → never packed
-  { const drop = []; ctx.placed.forEach((p, id) => { if (!ahCanBag(ctx, id)) drop.push(id) }); for (const id of drop) ctx.placed.delete(id) }   // worn-only gear can't stay packed
+  { const drop = []; ctx.placed.forEach((p, id) => { const b = p && ctx.binById && ctx.binById[p.bin]; if (!(b && b.zone === "storage") && !ahCanBag(ctx, id)) drop.push(id) }); for (const id of drop) ctx.placed.delete(id) }   // worn-only gear can't stay packed (but a chest may hold armour — keep storage placements)
   // self-heal: if the live placements differ from the stored flag (worn-only gear removed, a bin
   // disappeared, or orphaned bundle uids after a quantity drop / item delete), persist the pruned
   // set so stale keys can't accumulate or silently revive when a uid reappears. Owner only.
@@ -4140,7 +4237,7 @@ function ahBuildPanel(actor) {
   const looseN = ctx.units.filter(u => { const p = ctx.placed.get(u.uid); return !p || p.of }).length
   // bag load = bag units that actually belong in the bag (baggable + not exempt).
   let nonWornSpaces = 0
-  for (const u of ctx.units) { const m = metaById[u.itemId] || {}; if (m.ignoreSlot || m.baggable === false) continue; nonWornSpaces += (Number(u.spaces) || 0) }
+  for (const u of ctx.units) { const m = metaById[u.itemId] || {}; if (m.ignoreSlot || m.baggable === false) continue; const p = ctx.placed.get(u.uid); const pb = p && ctx.binById && ctx.binById[p.bin]; if (pb && pb.zone === "storage") continue; nonWornSpaces += (Number(u.spaces) || 0) }   // (v0.79) stowed off-body (chest/mount) → not bag load
   nonWornSpaces = Math.round(nonWornSpaces * 100) / 100
   const overflowPts = bagCapacity > 0 ? Math.max(0, Math.round((nonWornSpaces - bagCapacity) * 100) / 100) : 0
   const over = overflowPts > 0
@@ -4218,6 +4315,8 @@ function ahBuildPanel(actor) {
       // one labelled mini hex-grid per bin; drop an item onto a card to assign it there
       const bins = document.createElement("div"); bins.className = "ah-bins"; ctx.binsEl = bins
       for (const bin of ctx.bins) {
+        if (bin.zone === "storage") continue   // (v0.79) world containers render in their own Storage section below
+
         const card = document.createElement("div"); card.className = "ah-bin" + (bin.kind === "str" ? " str" : ""); card.setAttribute("data-bin", bin.binId); ctx.binCards[bin.binId] = card
         const bh = document.createElement("div"); bh.className = "ah-bin-head"
         const tlabel = bin.types ? (bin.types.length > 1 ? bin.types[0] + " +" + (bin.types.length - 1) : bin.types[0]) : ""
@@ -4296,6 +4395,73 @@ function ahBuildPanel(actor) {
   const looseSec = mkSec("stack", "ah-sec-loose", "Loose", looseMeta)
   looseZone.appendChild(looseSec.sec)
   const trayEl = document.createElement("div"); trayEl.className = "ah-tray-chips"; ctx.trayEl = trayEl; looseZone.appendChild(trayEl)
+
+  // STORAGE — off-body world containers + mounts. Own banded section; bins live in ctx.bins (zone:"storage")
+  // so they reuse the bag's drag/pack/board-render, but stay OUT of the bag meter. World = one container
+  // card; a mount = a card grouping its attachment-point bins (each cargo point is its own bin).
+  const stashEntries = ahStash(actor)
+  if (ctx.canArrange || stashEntries.length) {
+    const stZone = document.createElement("div"); stZone.className = "ah-zone ah-zone-storage"; fitInner.appendChild(stZone)
+    const stSec = mkSec("box", "ah-sec-storage", "Storage", stashEntries.length ? ("· " + stashEntries.length) : "")
+    if (ctx.canArrange) {
+      const add = document.createElement("button"); add.type = "button"; add.className = "ah-ghostbtn"; add.innerHTML = ahIcon("plus") + " Add"; add.title = "Place a chest, wagon, ship or mount…"
+      add.addEventListener("click", (e) => { e.stopPropagation(); ahOpenWorldMenu(actor, stSec.ctl, add) })
+      stSec.ctl.appendChild(add)
+    }
+    stZone.appendChild(stSec.sec)
+    const stCol = document.createElement("div"); stCol.className = "ah-bagcol"
+    if (stashEntries.length) {
+      const sbins = document.createElement("div"); sbins.className = "ah-bins"; ctx.storageEl = sbins   // (v0.79) so the drag recognizes storage cards as drop targets (separate subtree from the bag)
+      const nameLoc = (s, host, defName) => {
+        const nm = document.createElement("input"); nm.type = "text"; nm.className = "ah-bin-name"; nm.value = s.name || defName || ""; nm.title = "Name"; nm.setAttribute("aria-label", "Name")
+        nm.addEventListener("mousedown", (e) => e.stopPropagation()); nm.addEventListener("change", () => { const v = nm.value.trim(); if (v !== (s.name || "")) ahStashEdit(actor, s.id, { name: v }) })
+        const loc = document.createElement("input"); loc.type = "text"; loc.className = "ah-bin-loc"; loc.value = s.location || ""; loc.placeholder = "where / whose?"; loc.title = "Where it is, or its name (a steed)"; loc.setAttribute("aria-label", "Location")
+        loc.addEventListener("mousedown", (e) => e.stopPropagation()); loc.addEventListener("change", () => { const v = loc.value.trim(); if (v !== (s.location || "")) ahStashEdit(actor, s.id, { location: v }) })
+        host.appendChild(nm); host.appendChild(loc)
+      }
+      const removeBtn = (s) => { const bx = document.createElement("button"); bx.type = "button"; bx.className = "ah-bin-x"; bx.textContent = "×"; bx.title = "Remove — contents go loose"; bx.setAttribute("aria-label", "Remove " + (s.name || s.type)); bx.addEventListener("click", (e) => { e.stopPropagation(); ahStashRemove(actor, s.id) }); return bx }
+      const ptBin = (binId, label, host) => {   // one attachment-point / container sub-grid (registered for board render + drag)
+        const bin = ctx.binById[binId]; if (!bin) return
+        const card = document.createElement("div"); card.className = "ah-bin pt"; card.setAttribute("data-bin", binId); ctx.binCards[binId] = card
+        const ph = document.createElement("div"); ph.className = "ah-bin-head"; const cs = document.createElement("span"); cs.className = "ah-bin-cap"; ctx.binCapEls[binId] = cs
+        ph.innerHTML = '<span class="ah-bin-nm">' + ahEscX(label) + "</span>"; ph.appendChild(cs); card.appendChild(ph)
+        const g = document.createElement("div"); g.className = "ah-bin-grid"; ctx.binHolders[binId] = g; card.appendChild(g)
+        host.appendChild(card)
+      }
+      for (const s of stashEntries) {
+        if (s.kind === "world") {
+          const bin = ctx.binById["world:" + s.id]; if (!bin) continue
+          const card = document.createElement("div"); card.className = "ah-bin world"; card.setAttribute("data-bin", bin.binId); ctx.binCards[bin.binId] = card
+          const bh = document.createElement("div"); bh.className = "ah-bin-head"; bh.innerHTML = '<i class="ah-bin-sw" style="background:' + bin.color + '"></i>'
+          if (ctx.canArrange) nameLoc(s, bh, bin.label); else bh.innerHTML += '<span class="ah-bin-nm">' + ahEscX(bin.label) + "</span>" + (s.location ? '<span class="ah-bin-loc-ro">' + ahEscX(s.location) + "</span>" : "")
+          const cs = document.createElement("span"); cs.className = "ah-bin-cap"; ctx.binCapEls[bin.binId] = cs; bh.appendChild(cs)
+          if (ctx.canArrange) bh.appendChild(removeBtn(s))
+          card.appendChild(bh)
+          const g = document.createElement("div"); g.className = "ah-bin-grid"; ctx.binHolders[bin.binId] = g; card.appendChild(g)
+          sbins.appendChild(card)
+        } else if (s.kind === "mount") {
+          const m = AH_MOUNT_CATALOG[s.type]; if (!m) continue
+          const card = document.createElement("div"); card.className = "ah-mount"
+          const bh = document.createElement("div"); bh.className = "ah-bin-head"; bh.innerHTML = '<i class="ah-bin-sw" style="background:' + ahColorFor("mount:" + s.id) + '"></i>'
+          if (ctx.canArrange) nameLoc(s, bh, m.name); else bh.innerHTML += '<span class="ah-bin-nm">' + ahEscX(s.name || m.name) + "</span>" + (s.location ? '<span class="ah-bin-loc-ro">' + ahEscX(s.location) + "</span>" : "")
+          bh.innerHTML += '<span class="ah-mount-type">' + ahEscX(m.name) + "</span>"
+          if (ctx.canArrange) bh.appendChild(removeBtn(s))
+          card.appendChild(bh)
+          const body = document.createElement("div"); body.className = "ah-mount-pts"
+          const riders = m.points.filter(pt => (AH_MOUNT_POINTS[pt] || {}).kind !== "bin")
+          if (riders.length) { const r = document.createElement("div"); r.className = "ah-mount-rider"; r.textContent = riders.map(pt => AH_MOUNT_POINTS[pt].label).join(" · ") + " · rider"; body.appendChild(r) }
+          for (const pt of m.points) { const pd = AH_MOUNT_POINTS[pt]; if (pd && pd.kind === "bin") ptBin("mount:" + s.id + ":" + pt, pd.label, body) }
+          card.appendChild(body)
+          sbins.appendChild(card)
+        }
+      }
+      stCol.appendChild(sbins)
+      if (ctx.canArrange) sbins.addEventListener("mousedown", (e) => { const t = e.target.closest("[data-item]"); if (t) ahDragItem(ctx, t.getAttribute("data-item"), "bag", e) })
+    } else {
+      const hint = document.createElement("div"); hint.className = "ah-bag-empty"; hint.textContent = "Nothing yet — use + Add to place a chest, wagon, ship or mount."; stCol.appendChild(hint)
+    }
+    stZone.appendChild(stCol)
+  }
 
   // floating drag label
   const ghost = document.createElement("div"); ghost.className = "ah-ghost"; ghost.style.display = "none"; ctx.ghostEl = ghost; wrap.appendChild(ghost)

@@ -282,6 +282,17 @@
 .ah-panel .ah-bin-native { font-size: 9px; color: var(--ah-faint); border: 1px solid var(--ah-line); border-radius: var(--ah-tile); padding: 0 5px; flex: 0 0 auto; white-space: nowrap; }
 .ah-panel .ah-bin-cap { margin-left: auto; color: var(--ah-mute); font-variant-numeric: tabular-nums; flex: 0 0 auto; padding-left: 6px; }
 .ah-panel .ah-bin-grid { overflow-x: auto; overflow-y: hidden; }
+/* (v0.79) Storage section — world containers get an editable name + a where/whose field in the bin head */
+.ah-panel .ah-bin-name { min-width: 0; flex: 0 1 9ch; background: transparent; border: none; border-bottom: 1px solid var(--ah-line); color: var(--ah-ink); font: inherit; font-weight: 600; padding: 1px 2px; }
+.ah-panel .ah-bin-loc { min-width: 0; flex: 0 1 11ch; background: transparent; border: none; border-bottom: 1px dashed var(--ah-line); color: var(--ah-dim); font: inherit; font-size: 10px; padding: 1px 2px; }
+.ah-panel .ah-bin-name:focus, .ah-panel .ah-bin-loc:focus { outline: none; border-bottom-color: var(--ah-action); }
+.ah-panel .ah-bin-loc-ro { color: var(--ah-faint); font-size: 10px; }
+/* (v0.80) a MOUNT groups its attachment-point bins under one card (name/location + a row of point bins) */
+.ah-panel .ah-mount { border: 1px solid var(--ah-line); border-radius: var(--ah-r-sm); padding: 6px 7px; background: var(--ah-raise); }
+.ah-panel .ah-mount-type { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ah-faint); margin-left: 6px; flex: 0 0 auto; }
+.ah-panel .ah-mount-rider { font-size: 10px; color: var(--ah-faint); padding: 0 2px 5px; }
+.ah-panel .ah-mount-pts { display: flex; flex-wrap: wrap; gap: 8px; }
+.ah-panel .ah-mount .ah-bin.pt { flex: 0 0 auto; background: var(--ah-sink); }
 .ah-panel .ah-bin-grid .ah-svg { display: block; user-select: none; -webkit-user-select: none; }
 .ah-panel .ah-bin.drop-ok { border-color: var(--ah-good); box-shadow: 0 0 0 1px var(--ah-good), 0 0 11px -3px var(--ah-good); }
 .ah-panel .ah-bin.drop-no { border-color: var(--ah-bad); box-shadow: 0 0 0 1px var(--ah-bad); }
