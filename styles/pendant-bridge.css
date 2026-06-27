@@ -326,6 +326,8 @@
 .ah-panel .ah-pick-worn:hover .ah-pw-x, .ah-panel .ah-pw-x:focus-visible { opacity: 1; }
 .ah-panel .ah-pw-x:hover { background: var(--ah-bad); color: var(--ah-ink-inverse); }
 .ah-panel .ah-bag-empty { font-size: 11px; font-style: italic; color: var(--ah-faint); padding: 18px 6px; }
+/* (v0.84) the empty Storage section gets real height + a dashed drop-zone look so it reads as a place to add things */
+.ah-panel .ah-zone-storage .ah-bag-empty { min-height: 92px; display: flex; align-items: center; justify-content: center; text-align: center; padding: 12px; border: 1px dashed var(--ah-line); border-radius: var(--ah-r-sm); }
 /* add-on storage gear */
 .ah-panel .ah-gear-lbl { display: block; margin-bottom: 6px; font-size: 11px; font-weight: 500; color: var(--ah-dim); }
 .ah-panel .ah-gear-n { font-size: 9px; color: var(--ah-mute); }
