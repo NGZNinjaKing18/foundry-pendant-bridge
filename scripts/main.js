@@ -3778,7 +3778,7 @@ async function ahDeleteOutfit(ctx, oid) { try { await ctx.actor.setFlag(MOD, "ah
 function ahRenderDoll(ctx) {
   if (!ctx.dollEl) return
   const occ = ahOccupancy(ctx), caps = ahCaps(ctx), gsrc = ahGrantSources(ctx)
-  const covered = []; let anyLocked = false
+  let anyLocked = false
   const colHTML = (keys) => {
     const out = []
     for (const key of keys) {
@@ -3789,9 +3789,13 @@ function ahRenderDoll(ctx) {
       }
       const cap = AH_GRANTABLE.indexOf(key) >= 0 ? (caps[key] || 0) : 1
       const id = occ[key]
-      // covered (plate over Feet/Head): not its own box, acknowledged in a faint footnote
+      // (v0.83) covered (e.g. plate over Head/Feet): SHOW the covering armour sitting in this slot — its
+      // icon, locked — instead of hiding it, so it's clear WHY the slot is taken. Not a drop/pick/remove
+      // target (free it by removing the armour from its own slot); never for a 2-handed weapon's off hand.
       if (id && ctx.worn[id] && ctx.worn[id] !== key && !(ctx.metaById[id] && ctx.metaById[id].twoHanded && (key === "LHand" || key === "RHand"))) {
-        covered.push({ key, by: ctx.byId[id] ? ctx.byId[id].name : "" }); continue
+        const cit = ctx.byId[id], clabel = AH_SLOT_LABEL[key] || key
+        out.push('<div class="ah-slot ah-gb covered" style="border-top-color:' + (cit ? cit.color : "var(--ah-dim)") + '" title="' + ahEscX(clabel + " — covered by " + (cit ? cit.name : "armour")) + '" aria-label="' + ahEscX(clabel + ", covered by " + (cit ? cit.name : "armour")) + '">' + ahArtThumb(cit ? cit.img : null, cit ? cit.color : "", AH_SLOT_ICON[key]) + '<span class="ah-gb-tx"><span class="ah-gb-nm muted">' + ahEscX(cit ? cit.name : "") + '</span><span class="ah-gb-sl">' + ahEscX(clabel) + ' · covered</span></span><span class="ah-gb-cov" aria-hidden="true">' + ahIcon("lock") + "</span></div>")
+        continue
       }
       if (!id && cap <= 0 && !AH_BASE_MOUNTS.has(key)) { anyLocked = true; continue }   // ungranted empty → hidden
       out.push(ahSlotCard(ctx, key, occ, caps, gsrc))

@@ -213,6 +213,9 @@
 .ah-panel .ah-gb.valid .ah-art { border-color: var(--ah-good); }
 .ah-panel .ah-gb.swap { border-color: var(--ah-action); box-shadow: 0 0 0 3px var(--ah-action-bg); }
 .ah-panel .ah-gb-swap { position: absolute; top: 2px; right: 5px; font-size: 10px; color: var(--ah-action-ink); }
+/* (v0.83) a COVERED slot shows the covering armour sitting in it, locked + slightly muted (not interactive) */
+.ah-panel .ah-gb.covered { cursor: default; opacity: 0.82; }
+.ah-panel .ah-gb-cov { position: absolute; top: 2px; right: 3px; font-size: 11px; color: var(--ah-faint); }
 /* (v0.77) Hands read as STATE, not inventory slots — a state-tinted left rail + an uppercase state word
    (square, no pills, per the v0.57 look). The rail colour shows Holding / Two-handed / Occupied at a glance. */
 .ah-panel .ah-gb.hand { border-left: 3px solid var(--ah-line); }
