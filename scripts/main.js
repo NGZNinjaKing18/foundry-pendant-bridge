@@ -2913,6 +2913,7 @@ function ahBinBoardSVG(ctx, bin) {
 // self-heal setFlag), we skip the rebuild so the drag isn't orphaned onto a detached grid, then
 // catch up once the drag ends.
 const _ahDrag = { active: false, missed: false, actorId: null, cancel: null }
+let _ahScrollTop = 0, _ahScrollActor = null   // (v0.82) keep the sheet's scroll place across the re-render every AH action triggers
 // Safety net so a drag can NEVER permanently freeze the panel. If our document mouseup doesn't fire
 // (e.g. the button was released OUTSIDE the Foundry window), the per-drag finish() never runs, so
 // _ahDrag.active would stay true and ahInjectPanel would block every future rebuild → frozen panel.
@@ -4560,6 +4561,26 @@ function ahInjectPanel(app, html) {
   let panel
   try { panel = ahBuildPanel(actor) } catch (e) { console.warn("[pendant-bridge] AH panel build failed", e); return }
   host.insertBefore(panel, host.firstChild)   // at the TOP of the Inventory tab, above the native dnd5e item list
+  // (v0.82) keep the player's scroll place: every AH action setFlag→re-renders the sheet, which otherwise
+  // snaps to the top (jarring on a long inventory). Track the scroll container's position (never saving 0,
+  // so the re-render's reset can't clobber it) and restore it after a RE-render (not the first open).
+  try {
+    const sp = ahScrollParent(host)
+    if (sp) {
+      if (!sp._ahScrollHook) { sp._ahScrollHook = true; sp.addEventListener("scroll", () => { if (sp.scrollTop > 0) { _ahScrollTop = sp.scrollTop; _ahScrollActor = actor.id } }, { passive: true }) }
+      else if (_ahScrollActor === actor.id && _ahScrollTop > 0) { const t = _ahScrollTop; requestAnimationFrame(() => { try { if (Math.abs(sp.scrollTop - t) > 2) sp.scrollTop = t } catch {} }) }
+    }
+  } catch {}
+}
+/** Nearest scrollable ancestor of `el` (the sheet's scrolling content area), or null. */
+function ahScrollParent(el) {
+  let n = el
+  while (n && n !== document.body && n !== document.documentElement) {
+    let s = null; try { s = getComputedStyle(n) } catch {}
+    if (s && /(auto|scroll)/.test(s.overflowY) && n.scrollHeight > n.clientHeight + 4) return n
+    n = n.parentElement
+  }
+  return null
 }
 /** Find the actor sheet's INVENTORY tab content container (not the clickable nav tab). */
 function ahInventoryHost(root) {
