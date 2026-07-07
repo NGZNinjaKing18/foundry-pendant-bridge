@@ -682,6 +682,48 @@ function buildDrawingData(d) {
   return out
 }
 
+// ── Glyph-shaped markers (settlements etc.) ──────────────────────────────
+// Foundry Drawings only have rectangle/ellipse/polygon primitives — no star
+// or diamond — so app-tier glyphs (★ capital, ◆ city) are built as polygons
+// from generated points. Circle tiers (● town / ○ village) just use the
+// existing ellipse path (filled vs. unfilled). Absolute points → a polygon
+// Drawing whose x/y/width/height/points are computed the same way as a road
+// (bounding box + points relative to it).
+function starPoints(cx, cy, outerR, innerR, spikes) {
+  const n = spikes || 5, pts = []
+  for (let i = 0; i < n * 2; i++) {
+    const r = i % 2 === 0 ? outerR : innerR
+    const angle = -Math.PI / 2 + i * (Math.PI / n)
+    pts.push([cx + r * Math.cos(angle), cy + r * Math.sin(angle)])
+  }
+  return pts
+}
+function diamondPoints(cx, cy, r) {
+  return [[cx, cy - r], [cx + r, cy], [cx, cy + r], [cx - r, cy]]
+}
+function polygonMarkerData(absPoints, color, filled) {
+  const xs = absPoints.map(p => p[0]), ys = absPoints.map(p => p[1])
+  const x0 = Math.min(...xs), y0 = Math.min(...ys)
+  const w = Math.max(1, Math.max(...xs) - x0), h = Math.max(1, Math.max(...ys) - y0)
+  const rel = absPoints.map(p => [p[0] - x0, p[1] - y0])
+  return buildDrawingData({
+    shape: "polygon", x: x0, y: y0, width: w, height: h, points: rel,
+    strokeColor: color, strokeWidth: 2, strokeAlpha: 1,
+    fillColor: filled ? color : undefined, fillAlpha: filled ? 0.85 : 0
+  })
+}
+// shape: 'star' | 'diamond' | 'circle'. filled: circle only (star/diamond
+// glyphs are always solid, matching the app's ★/◆ symbols).
+function tierMarkerData(shape, x, y, r, color, filled) {
+  if (shape === "star") return polygonMarkerData(starPoints(x, y, r, r * 0.42, 5), color, true)
+  if (shape === "diamond") return polygonMarkerData(diamondPoints(x, y, r), color, true)
+  return buildDrawingData({
+    shape: "ellipse", x: x - r, y: y - r, width: r * 2, height: r * 2,
+    strokeColor: color, strokeWidth: 2, strokeAlpha: 1,
+    fillColor: filled ? color : undefined, fillAlpha: filled ? 0.85 : 0
+  })
+}
+
 function snapshotState() {
   // Per-item try/catch so a single actor's data quirks don't kill the
   // whole snapshot (e.g. modules attaching weird non-serializable junk).
@@ -1670,10 +1712,12 @@ async function handleCommand(msg) {
         ids.push(...notes.map(doc => doc.id))
       } else {
         markerHalf = markerHalfEllipse
-        const markerData = buildDrawingData({
-          shape: "ellipse", x: x - markerHalf, y: y - markerHalf, width: markerHalf * 2, height: markerHalf * 2,
-          strokeColor: color, strokeWidth: 2, strokeAlpha: 1, fillColor: color, fillAlpha: 0.85
-        })
+        // Which glyph to draw — chosen by the app (matches its own tier
+        // glyphs: ★ capital / ◆ city / ● town / ○ village) so this stays a
+        // dumb executor, not a place that hardcodes tier→shape knowledge.
+        const markerShape = msg.markerShape || "circle"
+        const markerFilled = msg.markerFilled !== false
+        const markerData = tierMarkerData(markerShape, x, y, markerHalf, color, markerFilled)
         if (settlementId) markerData.flags = { [MOD]: { settlementId } }
         const marker = await scene.createEmbeddedDocuments("Drawing", [markerData])
         ids.push(...marker.map(doc => doc.id))
