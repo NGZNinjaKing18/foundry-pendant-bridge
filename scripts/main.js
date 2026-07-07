@@ -1677,7 +1677,7 @@ async function handleCommand(msg) {
       const estTextW = (s) => String(s || "").length * fontSize * 0.58
       const lblW = Math.max(20, Math.ceil(Math.max(estTextW(name), estTextW(subLine)))) + 6
       const lblH = subLine ? 24 : 13
-      const gap = 3
+      const gap = 1
       const baseX = x + markerHalf + gap, baseY = y - lblH / 2
       const existingLabels = scene.drawings
         .filter(d => d.getFlag(MOD, "settlementLabel") === true)
