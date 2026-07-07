@@ -1634,6 +1634,20 @@ async function handleCommand(msg) {
       const hoverText = [name, subLine].filter(Boolean).join("\n")
       const settlementId = msg.settlementId != null ? String(msg.settlementId) : null
 
+      // Every VISUAL tunable (sizes/gaps/font/color) comes from the app via
+      // msg.style, so future style tweaks are an app-side change + rebuild —
+      // NOT a bridge release. Defaults here only cover callers that omit it
+      // (older app builds, or another script sending this command directly).
+      const style = msg.style || {}
+      const fontSize = Number(style.fontSize) || 10
+      const gap = style.gap != null ? Number(style.gap) : 1
+      const charW = style.charWidthFactor != null ? Number(style.charWidthFactor) : 0.58
+      const padW = style.labelPadding != null ? Number(style.labelPadding) : 6
+      const lineH = style.lineHeight != null ? Number(style.lineHeight) : 12
+      const textColor = style.textColor || "#ffffff"
+      const markerHalfIcon = style.markerHalfIcon != null ? Number(style.markerHalfIcon) : 20
+      const markerHalfEllipse = style.markerHalfEllipse != null ? Number(style.markerHalfEllipse) : 16
+
       // Re-pushing the SAME settlement must REPLACE its previous marker+label,
       // not stack a new copy on top of the old one (that's what was causing
       // the marker/label to appear overlapping — old + new pushes piling up).
@@ -1645,9 +1659,9 @@ async function handleCommand(msg) {
       }
 
       const ids = []
-      let markerHalf = 16
+      let markerHalf = markerHalfEllipse
       if (msg.iconSrc) {
-        markerHalf = 20
+        markerHalf = markerHalfIcon
         const notes = await scene.createEmbeddedDocuments("Note", [{
           x, y, text: hoverText, fontSize: 32, textAnchor: 1,
           texture: { src: String(msg.iconSrc), tint: color }, iconSize: markerHalf * 2,
@@ -1655,7 +1669,7 @@ async function handleCommand(msg) {
         }])
         ids.push(...notes.map(doc => doc.id))
       } else {
-        markerHalf = 16
+        markerHalf = markerHalfEllipse
         const markerData = buildDrawingData({
           shape: "ellipse", x: x - markerHalf, y: y - markerHalf, width: markerHalf * 2, height: markerHalf * 2,
           strokeColor: color, strokeWidth: 2, strokeAlpha: 1, fillColor: color, fillAlpha: 0.85
@@ -1668,16 +1682,13 @@ async function handleCommand(msg) {
       // settlement label it would otherwise overlap (own labels are flagged so
       // we can find them again; pre-existing labels from before this fix have
       // no flag and aren't checked against).
-      // Foundry CENTERS a Drawing's text within its shape box — a box wider
-      // than the text (the old fixed 150px) left visible dead space between
-      // the marker and the actual glyphs. Shrink-wrap the box to an estimated
-      // text width instead (avg char width ≈ 0.58×fontSize for Signika) so
-      // there's ~nothing left for the centering to visibly gap out.
-      const fontSize = 10
-      const estTextW = (s) => String(s || "").length * fontSize * 0.58
-      const lblW = Math.max(20, Math.ceil(Math.max(estTextW(name), estTextW(subLine)))) + 6
-      const lblH = subLine ? 24 : 13
-      const gap = 1
+      // Foundry CENTERS a Drawing's text within its shape box, so the box is
+      // shrink-wrapped to an ESTIMATED text width (avg char width ≈ charW ×
+      // fontSize) rather than a fixed width — leaves ~nothing for centering
+      // to visibly gap out.
+      const estTextW = (s) => String(s || "").length * fontSize * charW
+      const lblW = Math.max(20, Math.ceil(Math.max(estTextW(name), estTextW(subLine)))) + padW
+      const lblH = subLine ? lineH * 2 : lineH + 1
       const baseX = x + markerHalf + gap, baseY = y - lblH / 2
       const existingLabels = scene.drawings
         .filter(d => d.getFlag(MOD, "settlementLabel") === true)
@@ -1692,7 +1703,7 @@ async function handleCommand(msg) {
       }
       const labelData = buildDrawingData({
         shape: "text", x: lx, y: ly, width: lblW, height: lblH,
-        text: hoverText, fontSize, textColor: "#ffffff"
+        text: hoverText, fontSize, textColor
       })
       labelData.flags = { [MOD]: { settlementLabel: true, ...(settlementId ? { settlementId } : {}) } }
       const label = await scene.createEmbeddedDocuments("Drawing", [labelData])
