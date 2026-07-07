@@ -1630,26 +1630,50 @@ async function handleCommand(msg) {
       const tier = String(msg.tier || "")
       const population = String(msg.population || "")
       const color = msg.color || "#f5e6c8"
-      const hoverText = [name, [tier, population].filter(Boolean).join(" · ")].filter(Boolean).join("\n")
+      const subLine = [tier, population].filter(Boolean).join(" · ")
+      const hoverText = [name, subLine].filter(Boolean).join("\n")
       const ids = []
+      let markerHalf = 16
       if (msg.iconSrc) {
+        markerHalf = 20
         const notes = await scene.createEmbeddedDocuments("Note", [{
           x, y, text: hoverText, fontSize: 32, textAnchor: 1,
-          texture: { src: String(msg.iconSrc), tint: color }, iconSize: 40
+          texture: { src: String(msg.iconSrc), tint: color }, iconSize: markerHalf * 2
         }])
         ids.push(...notes.map(doc => doc.id))
       } else {
-        const r = 16
+        markerHalf = 16
         const marker = await scene.createEmbeddedDocuments("Drawing", [buildDrawingData({
-          shape: "ellipse", x: x - r, y: y - r, width: r * 2, height: r * 2,
+          shape: "ellipse", x: x - markerHalf, y: y - markerHalf, width: markerHalf * 2, height: markerHalf * 2,
           strokeColor: color, strokeWidth: 2, strokeAlpha: 1, fillColor: color, fillAlpha: 0.85
         })])
         ids.push(...marker.map(doc => doc.id))
       }
-      const label = await scene.createEmbeddedDocuments("Drawing", [buildDrawingData({
-        shape: "text", x: x + 22, y: y - 14, width: 220, height: 48,
-        text: hoverText, fontSize: 22, textColor: "#ffffff"
-      })])
+      // Small, tight against the marker, and stacked below any already-pushed
+      // settlement label it would otherwise overlap (own labels are flagged so
+      // we can find them again; pre-existing labels from before this fix have
+      // no flag and aren't checked against).
+      const fontSize = 10
+      const lblW = 150, lblH = subLine ? 24 : 13
+      const gap = 3
+      const baseX = x + markerHalf + gap, baseY = y - lblH / 2
+      const existingLabels = scene.drawings
+        .filter(d => d.getFlag(MOD, "settlementLabel") === true)
+        .map(d => ({ x: d.x, y: d.y, width: (d.shape && d.shape.width) || 0, height: (d.shape && d.shape.height) || 0 }))
+      const overlaps = (a, b) => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
+      let lx = baseX, ly = baseY
+      const step = lblH + 4
+      for (let i = 0; i < 20; i++) {
+        const cand = { x: baseX, y: baseY + i * step, width: lblW, height: lblH }
+        if (!existingLabels.some(e => overlaps(cand, e))) { ly = cand.y; break }
+        ly = baseY + i * step   // last-tried position if every slot collides
+      }
+      const labelData = buildDrawingData({
+        shape: "text", x: lx, y: ly, width: lblW, height: lblH,
+        text: hoverText, fontSize, textColor: "#ffffff"
+      })
+      labelData.flags = { [MOD]: { settlementLabel: true } }
+      const label = await scene.createEmbeddedDocuments("Drawing", [labelData])
       ids.push(...label.map(doc => doc.id))
       return bridge.reply(msg.reqId, { type: "settlement.pushed", sceneId: scene.id, ids })
     }
