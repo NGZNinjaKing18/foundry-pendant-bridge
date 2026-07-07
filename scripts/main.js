@@ -1632,21 +1632,36 @@ async function handleCommand(msg) {
       const color = msg.color || "#f5e6c8"
       const subLine = [tier, population].filter(Boolean).join(" · ")
       const hoverText = [name, subLine].filter(Boolean).join("\n")
+      const settlementId = msg.settlementId != null ? String(msg.settlementId) : null
+
+      // Re-pushing the SAME settlement must REPLACE its previous marker+label,
+      // not stack a new copy on top of the old one (that's what was causing
+      // the marker/label to appear overlapping — old + new pushes piling up).
+      if (settlementId) {
+        const staleNotes = scene.notes.filter(n => n.getFlag(MOD, "settlementId") === settlementId).map(n => n.id)
+        const staleDrawings = scene.drawings.filter(d => d.getFlag(MOD, "settlementId") === settlementId).map(d => d.id)
+        if (staleNotes.length) await scene.deleteEmbeddedDocuments("Note", staleNotes)
+        if (staleDrawings.length) await scene.deleteEmbeddedDocuments("Drawing", staleDrawings)
+      }
+
       const ids = []
       let markerHalf = 16
       if (msg.iconSrc) {
         markerHalf = 20
         const notes = await scene.createEmbeddedDocuments("Note", [{
           x, y, text: hoverText, fontSize: 32, textAnchor: 1,
-          texture: { src: String(msg.iconSrc), tint: color }, iconSize: markerHalf * 2
+          texture: { src: String(msg.iconSrc), tint: color }, iconSize: markerHalf * 2,
+          flags: settlementId ? { [MOD]: { settlementId } } : undefined
         }])
         ids.push(...notes.map(doc => doc.id))
       } else {
         markerHalf = 16
-        const marker = await scene.createEmbeddedDocuments("Drawing", [buildDrawingData({
+        const markerData = buildDrawingData({
           shape: "ellipse", x: x - markerHalf, y: y - markerHalf, width: markerHalf * 2, height: markerHalf * 2,
           strokeColor: color, strokeWidth: 2, strokeAlpha: 1, fillColor: color, fillAlpha: 0.85
-        })])
+        })
+        if (settlementId) markerData.flags = { [MOD]: { settlementId } }
+        const marker = await scene.createEmbeddedDocuments("Drawing", [markerData])
         ids.push(...marker.map(doc => doc.id))
       }
       // Small, tight against the marker, and stacked below any already-pushed
@@ -1672,7 +1687,7 @@ async function handleCommand(msg) {
         shape: "text", x: lx, y: ly, width: lblW, height: lblH,
         text: hoverText, fontSize, textColor: "#ffffff"
       })
-      labelData.flags = { [MOD]: { settlementLabel: true } }
+      labelData.flags = { [MOD]: { settlementLabel: true, ...(settlementId ? { settlementId } : {}) } }
       const label = await scene.createEmbeddedDocuments("Drawing", [labelData])
       ids.push(...label.map(doc => doc.id))
       return bridge.reply(msg.reqId, { type: "settlement.pushed", sceneId: scene.id, ids })
