@@ -634,9 +634,11 @@ function buildWallData(w) {
 
 function buildDrawingData(d) {
   const t = String(d.shape || "rectangle")
-  // "freehand" = an OPEN path (route/road) — unlike "polygon" it does not imply
-  // a closed loop back to the first point.
-  const shapeType = t === "ellipse" ? "e" : t === "polygon" ? "p" : t === "freehand" ? "f" : "r"
+  // "freehand" = an OPEN path (route/road) drawn as a polygon-type shape with
+  // bezierFactor — Foundry's DrawingData shape.type choices are only r/e/p/t
+  // ("f" is NOT a valid choice and fails schema validation), so freehand maps
+  // to "p" like polygon; bezierFactor (below) is what distinguishes it.
+  const shapeType = t === "ellipse" ? "e" : (t === "polygon" || t === "freehand") ? "p" : "r"
   const isText = t === "text"
   const out = {
     author: game.user?.id,
@@ -656,8 +658,18 @@ function buildDrawingData(d) {
     fillAlpha:   d.fillAlpha != null ? Number(d.fillAlpha) : 0.5,
     hidden:      !!d.hidden
   }
-  if (shapeType === "f") out.bezierFactor = d.bezierFactor != null ? Number(d.bezierFactor) : 0
-  if (Array.isArray(d.points) && d.points.length) out.shape.points = d.points
+  if (t === "freehand") out.bezierFactor = d.bezierFactor != null ? Number(d.bezierFactor) : 0
+  // shape.points is a FLAT ArrayField of numbers [x0,y0,x1,y1,...] — NOT an
+  // array of [x,y] pairs (a nested-array element fails "must be a number").
+  // Accept either shape from the caller and flatten defensively.
+  if (Array.isArray(d.points) && d.points.length) {
+    const flat = []
+    for (const p of d.points) {
+      if (Array.isArray(p)) flat.push(Number(p[0]) || 0, Number(p[1]) || 0)
+      else flat.push(Number(p) || 0)
+    }
+    out.shape.points = flat
+  }
   if (isText || d.text) {
     out.text       = String(d.text || "")
     out.fontSize   = Number(d.fontSize) || 28
