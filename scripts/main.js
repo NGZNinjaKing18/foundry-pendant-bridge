@@ -725,6 +725,25 @@ function tierMarkerData(shape, x, y, r, color, filled) {
   })
 }
 
+// ACTUAL rendered text width via the browser's Canvas 2D text metrics — this
+// runs inside Foundry's own page, so it's the SAME text-layout engine (and,
+// once the world's loaded, the same Signika font) PIXI's own text rendering
+// ultimately relies on. Replaces the earlier per-character guess, which kept
+// either wrapping (too narrow) or leaving a visible gap (too wide) since it
+// couldn't account for real glyph widths. Falls back to a rough estimate only
+// if Canvas2D is somehow unavailable.
+let _measureCtx = null
+function measureTextWidth(text, fontSize, fontFamily, fallbackFactor) {
+  const s = String(text || "")
+  try {
+    if (!_measureCtx) _measureCtx = document.createElement("canvas").getContext("2d")
+    _measureCtx.font = `${Number(fontSize) || 10}px ${fontFamily || "Signika"}`
+    return _measureCtx.measureText(s).width
+  } catch (e) {
+    return s.length * (Number(fontSize) || 10) * (fallbackFactor != null ? fallbackFactor : 0.65)
+  }
+}
+
 function snapshotState() {
   // Per-item try/catch so a single actor's data quirks don't kill the
   // whole snapshot (e.g. modules attaching weird non-serializable junk).
@@ -1745,8 +1764,7 @@ async function handleCommand(msg) {
       // labels are flagged so we can find them again; older labels predating
       // a flag format aren't checked against).
       const oneLine = subLine ? (name + '  ·  ' + subLine) : name
-      const estTextW = (s) => String(s || "").length * fontSize * charW
-      const lblW = Math.max(20, Math.ceil(estTextW(oneLine))) + padW
+      const lblW = Math.max(20, Math.ceil(measureTextWidth(oneLine, fontSize, "Signika", charW))) + padW
       const lblH = lineH + 1
       const baseX = x + markerHalf + gap, baseY = y - lblH / 2
       const existingLabels = scene.drawings
