@@ -634,7 +634,9 @@ function buildWallData(w) {
 
 function buildDrawingData(d) {
   const t = String(d.shape || "rectangle")
-  const shapeType = t === "ellipse" ? "e" : t === "polygon" ? "p" : "r"
+  // "freehand" = an OPEN path (route/road) — unlike "polygon" it does not imply
+  // a closed loop back to the first point.
+  const shapeType = t === "ellipse" ? "e" : t === "polygon" ? "p" : t === "freehand" ? "f" : "r"
   const isText = t === "text"
   const out = {
     author: game.user?.id,
@@ -654,6 +656,7 @@ function buildDrawingData(d) {
     fillAlpha:   d.fillAlpha != null ? Number(d.fillAlpha) : 0.5,
     hidden:      !!d.hidden
   }
+  if (shapeType === "f") out.bezierFactor = d.bezierFactor != null ? Number(d.bezierFactor) : 0
   if (Array.isArray(d.points) && d.points.length) out.shape.points = d.points
   if (isText || d.text) {
     out.text       = String(d.text || "")
@@ -1368,6 +1371,35 @@ async function handleCommand(msg) {
       })
     }
 
+    // ── Push ONE World Map road onto a scene as an open FREEHAND path
+    // ────────────────────────────────────────────────────────────────────
+    // { sceneId, points:[[nx,ny],...] (0..1 image-normalized), name, color,
+    //   width, opacity }. Converts to padded scene-space pixels, then to a
+    // Drawing-relative point set (Foundry's shape.points are relative to the
+    // Drawing's own x/y top-left). No fill — a road is a line, not an area.
+    case "road.push": {
+      const scene = msg.sceneId ? game.scenes.get(msg.sceneId) : game.scenes.active
+      if (!scene) throw new Error("Scene not found: " + (msg.sceneId || "(no active scene)"))
+      const pts = Array.isArray(msg.points) ? msg.points : []
+      if (pts.length < 2) throw new Error("A road needs at least 2 points")
+      const dims = sceneDimensions(scene)
+      const scenePts = pts.map(p => [
+        dims.sceneX + (Number(p[0]) || 0) * dims.sceneWidth,
+        dims.sceneY + (Number(p[1]) || 0) * dims.sceneHeight
+      ])
+      const xs = scenePts.map(p => p[0]), ys = scenePts.map(p => p[1])
+      const x0 = Math.min(...xs), y0 = Math.min(...ys)
+      const w = Math.max(...xs) - x0, h = Math.max(...ys) - y0
+      const rel = scenePts.map(p => [p[0] - x0, p[1] - y0])
+      const data = buildDrawingData({
+        shape: "freehand", x: x0, y: y0, width: Math.max(1, w), height: Math.max(1, h), points: rel,
+        strokeColor: msg.color || "#b0a080", strokeWidth: Number(msg.width) || 2.5,
+        strokeAlpha: msg.opacity != null ? Number(msg.opacity) : 1, bezierFactor: 0
+      })
+      const created = await scene.createEmbeddedDocuments("Drawing", [data])
+      return bridge.reply(msg.reqId, { type: "road.pushed", sceneId: scene.id, ids: created.map(doc => doc.id) })
+    }
+
     // ── Read existing tiles + drawings on a scene ─────────────
     // Lets the editor LOAD a scene's current objects so they can be
     // moved / edited / deleted (not just created). Coords are scene
@@ -1564,6 +1596,50 @@ async function handleCommand(msg) {
       }))
       const created = await scene.createEmbeddedDocuments("Note", data)
       return bridge.reply(msg.reqId, { type: "note.created", sceneId: scene.id, ids: created.map(doc => doc.id) })
+    }
+
+    // ── Push ONE World Map settlement onto a scene (COA World Map "Send to
+    // Foundry") ────────────────────────────────────────────────────────────
+    // { sceneId, nx, ny (0..1 image-normalized), name, tier, population,
+    //   iconSrc: string|null (already uploaded via upload.begin/chunk/end),
+    //   color }. Marker = a Note with the uploaded icon when one was supplied,
+    // else a small filled circle (Drawing ellipse) tinted by color — no
+    // dependency on Foundry's bundled default-icon set. A second, ALWAYS-
+    // VISIBLE text Drawing carries the name/tier/population label (Note hover
+    // labels are permission/hover-gated; this guarantees it's readable on the
+    // canvas without hovering).
+    case "settlement.push": {
+      const scene = msg.sceneId ? game.scenes.get(msg.sceneId) : game.scenes.active
+      if (!scene) throw new Error("Scene not found: " + (msg.sceneId || "(no active scene)"))
+      const dims = sceneDimensions(scene)
+      const x = dims.sceneX + (Number(msg.nx) || 0) * dims.sceneWidth
+      const y = dims.sceneY + (Number(msg.ny) || 0) * dims.sceneHeight
+      const name = String(msg.name || "Settlement")
+      const tier = String(msg.tier || "")
+      const population = String(msg.population || "")
+      const color = msg.color || "#f5e6c8"
+      const hoverText = [name, [tier, population].filter(Boolean).join(" · ")].filter(Boolean).join("\n")
+      const ids = []
+      if (msg.iconSrc) {
+        const notes = await scene.createEmbeddedDocuments("Note", [{
+          x, y, text: hoverText, fontSize: 32, textAnchor: 1,
+          texture: { src: String(msg.iconSrc), tint: color }, iconSize: 40
+        }])
+        ids.push(...notes.map(doc => doc.id))
+      } else {
+        const r = 16
+        const marker = await scene.createEmbeddedDocuments("Drawing", [buildDrawingData({
+          shape: "ellipse", x: x - r, y: y - r, width: r * 2, height: r * 2,
+          strokeColor: color, strokeWidth: 2, strokeAlpha: 1, fillColor: color, fillAlpha: 0.85
+        })])
+        ids.push(...marker.map(doc => doc.id))
+      }
+      const label = await scene.createEmbeddedDocuments("Drawing", [buildDrawingData({
+        shape: "text", x: x + 22, y: y - 14, width: 220, height: 48,
+        text: hoverText, fontSize: 22, textColor: "#ffffff"
+      })])
+      ids.push(...label.map(doc => doc.id))
+      return bridge.reply(msg.reqId, { type: "settlement.pushed", sceneId: scene.id, ids })
     }
 
     // ── Update / delete existing tokens ───────────────────────
