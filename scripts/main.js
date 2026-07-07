@@ -658,6 +658,7 @@ function buildDrawingData(d) {
     fillAlpha:   d.fillAlpha != null ? Number(d.fillAlpha) : 0.5,
     hidden:      !!d.hidden
   }
+  if (d.sort != null) out.sort = Number(d.sort) || 0   // stacking order WITHIN the Drawings layer — lower = further back
   if (t === "freehand") out.bezierFactor = d.bezierFactor != null ? Number(d.bezierFactor) : 0
   // shape.points is a FLAT ArrayField of numbers [x0,y0,x1,y1,...] — NOT an
   // array of [x,y] pairs (a nested-array element fails "must be a number").
@@ -1448,7 +1449,8 @@ async function handleCommand(msg) {
       const data = buildDrawingData({
         shape: "freehand", x: x0, y: y0, width: Math.max(1, w), height: Math.max(1, h), points: rel,
         strokeColor: msg.color || "#b0a080", strokeWidth: Number(msg.width) || 2.5,
-        strokeAlpha: msg.opacity != null ? Number(msg.opacity) : 1, bezierFactor: 0
+        strokeAlpha: msg.opacity != null ? Number(msg.opacity) : 1, bezierFactor: 0,
+        sort: -100   // always render BELOW pushed settlement markers/labels (which sort higher)
       })
       const created = await scene.createEmbeddedDocuments("Drawing", [data])
       return bridge.reply(msg.reqId, { type: "road.pushed", sceneId: scene.id, ids: created.map(doc => doc.id) })
@@ -1718,6 +1720,7 @@ async function handleCommand(msg) {
         const markerShape = msg.markerShape || "circle"
         const markerFilled = msg.markerFilled !== false
         const markerData = tierMarkerData(markerShape, x, y, markerHalf, color, markerFilled)
+        markerData.sort = 100   // always render ABOVE pushed roads/rivers (sort -100)
         if (settlementId) markerData.flags = { [MOD]: { settlementId } }
         const marker = await scene.createEmbeddedDocuments("Drawing", [markerData])
         ids.push(...marker.map(doc => doc.id))
@@ -1747,7 +1750,8 @@ async function handleCommand(msg) {
       }
       const labelData = buildDrawingData({
         shape: "text", x: lx, y: ly, width: lblW, height: lblH,
-        text: hoverText, fontSize, textColor
+        text: hoverText, fontSize, textColor,
+        sort: 200   // topmost among pushed drawings — above roads/rivers (-100) and the marker itself (100)
       })
       labelData.flags = { [MOD]: { settlementLabel: true, ...(settlementId ? { settlementId } : {}) } }
       const label = await scene.createEmbeddedDocuments("Drawing", [labelData])
