@@ -1437,6 +1437,15 @@ async function handleCommand(msg) {
       if (!scene) throw new Error("Scene not found: " + (msg.sceneId || "(no active scene)"))
       const pts = Array.isArray(msg.points) ? msg.points : []
       if (pts.length < 2) throw new Error("A road needs at least 2 points")
+      const routeId = msg.routeId != null ? String(msg.routeId) : null
+      // Same replace-on-repush as settlement.push — without this, every test
+      // push left a stale duplicate underneath the new one (which is very
+      // likely why the sort/z-order fix looked like it "didn't work": you
+      // were seeing an OLD un-sorted copy, not just the fresh sorted one).
+      if (routeId) {
+        const stale = scene.drawings.filter(d => d.getFlag(MOD, "routeId") === routeId).map(d => d.id)
+        if (stale.length) await scene.deleteEmbeddedDocuments("Drawing", stale)
+      }
       const dims = sceneDimensions(scene)
       const scenePts = pts.map(p => [
         dims.sceneX + (Number(p[0]) || 0) * dims.sceneWidth,
@@ -1452,6 +1461,7 @@ async function handleCommand(msg) {
         strokeAlpha: msg.opacity != null ? Number(msg.opacity) : 1, bezierFactor: 0,
         sort: -100   // always render BELOW pushed settlement markers/labels (which sort higher)
       })
+      if (routeId) data.flags = { [MOD]: { routeId } }
       const created = await scene.createEmbeddedDocuments("Drawing", [data])
       return bridge.reply(msg.reqId, { type: "road.pushed", sceneId: scene.id, ids: created.map(doc => doc.id) })
     }
