@@ -1668,8 +1668,15 @@ async function handleCommand(msg) {
       // settlement label it would otherwise overlap (own labels are flagged so
       // we can find them again; pre-existing labels from before this fix have
       // no flag and aren't checked against).
+      // Foundry CENTERS a Drawing's text within its shape box — a box wider
+      // than the text (the old fixed 150px) left visible dead space between
+      // the marker and the actual glyphs. Shrink-wrap the box to an estimated
+      // text width instead (avg char width ≈ 0.58×fontSize for Signika) so
+      // there's ~nothing left for the centering to visibly gap out.
       const fontSize = 10
-      const lblW = 150, lblH = subLine ? 24 : 13
+      const estTextW = (s) => String(s || "").length * fontSize * 0.58
+      const lblW = Math.max(20, Math.ceil(Math.max(estTextW(name), estTextW(subLine)))) + 6
+      const lblH = subLine ? 24 : 13
       const gap = 3
       const baseX = x + markerHalf + gap, baseY = y - lblH / 2
       const existingLabels = scene.drawings
