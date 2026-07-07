@@ -1739,13 +1739,22 @@ async function handleCommand(msg) {
       // settlement label it would otherwise overlap (own labels are flagged so
       // we can find them again; pre-existing labels from before this fix have
       // no flag and aren't checked against).
-      // Foundry CENTERS a Drawing's text within its shape box, so the box is
+      // Foundry CENTERS a Drawing's text within its shape box, so each box is
       // shrink-wrapped to an ESTIMATED text width (avg char width ≈ charW ×
       // fontSize) rather than a fixed width — leaves ~nothing for centering
       // to visibly gap out.
+      // TWO SEPARATE single-line Drawings (name, then tier·population) instead
+      // of one two-line Drawing — Foundry's multi-line spacing inside a single
+      // Drawing box doesn't track fontSize the way a single line does, which
+      // was spreading the two lines far above/below the marker instead of a
+      // tight block beside it. Stacking them ourselves gives exact control.
       const estTextW = (s) => String(s || "").length * fontSize * charW
-      const lblW = Math.max(20, Math.ceil(Math.max(estTextW(name), estTextW(subLine)))) + padW
-      const lblH = subLine ? lineH * 2 : lineH + 1
+      const lineBoxH = lineH + 1
+      const lineGap = 1
+      const nameW = Math.max(20, Math.ceil(estTextW(name))) + padW
+      const subW = subLine ? Math.max(20, Math.ceil(estTextW(subLine))) + padW : 0
+      const lblW = Math.max(nameW, subW)
+      const lblH = subLine ? (lineBoxH * 2 + lineGap) : lineBoxH
       const baseX = x + markerHalf + gap, baseY = y - lblH / 2
       const existingLabels = scene.drawings
         .filter(d => d.getFlag(MOD, "settlementLabel") === true)
@@ -1758,13 +1767,18 @@ async function handleCommand(msg) {
         if (!existingLabels.some(e => overlaps(cand, e))) { ly = cand.y; break }
         ly = baseY + i * step   // last-tried position if every slot collides
       }
-      const labelData = buildDrawingData({
-        shape: "text", x: lx, y: ly, width: lblW, height: lblH,
-        text: hoverText, fontSize, textColor,
-        sort: 200   // topmost among pushed drawings — above roads/rivers (-100) and the marker itself (100)
-      })
-      labelData.flags = { [MOD]: { settlementLabel: true, ...(settlementId ? { settlementId } : {}) } }
-      const label = await scene.createEmbeddedDocuments("Drawing", [labelData])
+      const labelFlags = { [MOD]: { settlementLabel: true, ...(settlementId ? { settlementId } : {}) } }
+      const lineDrawings = [
+        buildDrawingData({ shape: "text", x: lx, y: ly, width: nameW, height: lineBoxH, text: name, fontSize, textColor, sort: 200 })
+      ]
+      if (subLine) {
+        lineDrawings.push(buildDrawingData({
+          shape: "text", x: lx, y: ly + lineBoxH + lineGap, width: subW, height: lineBoxH,
+          text: subLine, fontSize, textColor, sort: 200
+        }))
+      }
+      for (const ld of lineDrawings) ld.flags = labelFlags
+      const label = await scene.createEmbeddedDocuments("Drawing", lineDrawings)
       ids.push(...label.map(doc => doc.id))
       return bridge.reply(msg.reqId, { type: "settlement.pushed", sceneId: scene.id, ids })
     }
