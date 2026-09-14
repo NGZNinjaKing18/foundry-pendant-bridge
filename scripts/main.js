@@ -1049,6 +1049,142 @@ function readHP(actor) {
 }
 
 // ──────────────────────────────────────────────────────────────
+// Auto-Sort helpers — folder inventory + plan application
+// ──────────────────────────────────────────────────────────────
+
+const SORT_TYPES = ["Actor", "Scene"]
+
+function sortInventory() {
+  const folders = game.folders
+    .filter(f => SORT_TYPES.includes(f.type))
+    .map(f => ({
+      id: f.id, name: f.name, type: f.type,
+      parent: f.folder?.id || null,
+      color: f.color ?? null, sorting: f.sorting || "a", sort: f.sort ?? 0,
+    }))
+  const actors = game.actors.map(a => {
+    const d = a.system?.details || {}
+    const t = d.type
+    let owners = []
+    try {
+      owners = game.users
+        .filter(u => !u.isGM && a.testUserPermission(u, "OWNER"))
+        .map(u => u.name)
+    } catch {}
+    return {
+      id: a.id, name: a.name, type: a.type, folder: a.folder?.id || null,
+      img: resolveImg(a.img),
+      creatureType: (t && typeof t === "object" ? t.value : (typeof t === "string" ? t : null)) || null,
+      subtype: (t && typeof t === "object" ? t.subtype : null) || null,
+      cr: typeof d.cr === "number" ? d.cr : null,
+      level: typeof d.level === "number" ? d.level : null,
+      size: a.system?.traits?.size ?? null,
+      alignment: typeof d.alignment === "string" ? d.alignment : null,
+      disposition: a.prototypeToken?.disposition ?? null,
+      playerOwned: !!a.hasPlayerOwner,
+      owners,
+      source: a._stats?.compendiumSource || a.flags?.core?.sourceId || null,
+    }
+  })
+  const scenes = game.scenes.map(s => ({
+    id: s.id, name: s.name, folder: s.folder?.id || null,
+    active: !!s.active, navigation: !!s.navigation,
+    thumb: resolveImg(s.thumb || sceneBg(s)),
+    background: sceneBg(s) || null,
+    tokens: s.tokens?.size ?? 0,
+    notes: s.notes?.size ?? 0,
+    width: s.width ?? null, height: s.height ?? null,
+  }))
+  const maxDepth = Number(CONST?.FOLDER_MAX_DEPTH) || 3
+  return { folders, actors, scenes, maxDepth }
+}
+
+/**
+ * msg = {
+ *   folders: [{ key, name, type, parent: {id}|{key}|null, color?, sorting? }]  // parents listed before children
+ *   moves:   [{ type:'Actor'|'Scene', id, folder: {id}|{key}|null }]
+ *   deleteEmpty?: { candidates: [folderId] }   // delete these if they end up empty (deepest first)
+ * }
+ */
+async function sortApply(msg) {
+  const planFolders = Array.isArray(msg.folders) ? msg.folders : []
+  const moves = Array.isArray(msg.moves) ? msg.moves : []
+  const keyToId = new Map()
+
+  // Validate everything BEFORE writing anything.
+  const knownKeys = new Set()
+  const checkRef = (ref, type, what) => {
+    if (ref == null) return
+    if (ref.id) {
+      const f = game.folders.get(ref.id)
+      if (!f || f.type !== type) throw new Error(`${what}: folder ${ref.id} no longer exists`)
+    } else if (ref.key) {
+      if (!knownKeys.has(type + "|" + ref.key)) throw new Error(`${what}: unknown new folder "${ref.key}"`)
+    } else throw new Error(`${what}: bad folder reference`)
+  }
+  for (const f of planFolders) {
+    if (!SORT_TYPES.includes(f.type)) throw new Error("Bad folder type: " + f.type)
+    if (!String(f.name || "").trim()) throw new Error("A new folder has no name")
+    checkRef(f.parent, f.type, `Folder "${f.name}"`)
+    knownKeys.add(f.type + "|" + f.key)
+  }
+  for (const m of moves) {
+    if (!SORT_TYPES.includes(m.type)) throw new Error("Bad document type: " + m.type)
+    const coll = m.type === "Actor" ? game.actors : game.scenes
+    if (!coll.get(m.id)) throw new Error(`${m.type} ${m.id} no longer exists — refresh and preview again`)
+    checkRef(m.folder, m.type, `${m.type} ${m.id}`)
+  }
+
+  // 1) folders, in order (reuse an identical sibling if one appeared meanwhile)
+  const created = []
+  for (const f of planFolders) {
+    const parentId = f.parent ? (f.parent.id || keyToId.get(f.type + "|" + f.parent.key)) : null
+    const name = String(f.name).trim()
+    const existing = game.folders.find(x => x.type === f.type && (x.folder?.id || null) === parentId
+      && x.name.trim().toLowerCase() === name.toLowerCase())
+    if (existing) { keyToId.set(f.type + "|" + f.key, existing.id); continue }
+    const data = { name, type: f.type, folder: parentId, sorting: f.sorting === "m" ? "m" : "a" }
+    if (f.color) data.color = f.color
+    const doc = await Folder.create(data)
+    keyToId.set(f.type + "|" + f.key, doc.id)
+    created.push({ key: f.key, id: doc.id, type: f.type })
+  }
+
+  // 2) moves, batched per document class
+  const resolve = (ref, type) => ref == null ? null : (ref.id || keyToId.get(type + "|" + ref.key) || null)
+  let moved = 0
+  for (const type of SORT_TYPES) {
+    const updates = moves.filter(m => m.type === type).map(m => ({ _id: m.id, folder: resolve(m.folder, type) }))
+    const cls = type === "Actor" ? Actor : Scene
+    for (let i = 0; i < updates.length; i += 100) {
+      const chunk = updates.slice(i, i + 100)
+      await cls.updateDocuments(chunk)
+      moved += chunk.length
+    }
+  }
+
+  // 3) optionally remove candidate folders that are now empty (deepest first,
+  //    so a parent emptied by its child's removal is caught in the same pass)
+  const deleted = []
+  const cand = Array.isArray(msg.deleteEmpty?.candidates) ? msg.deleteEmpty.candidates : []
+  if (cand.length) {
+    const depthOf = (f) => { let d = 0, p = f.folder; while (p) { d++; p = p.folder } return d }
+    const list = cand.map(id => game.folders.get(id)).filter(f => f && SORT_TYPES.includes(f.type))
+      .sort((a, b) => depthOf(b) - depthOf(a))
+    for (const f of list) {
+      const coll = f.type === "Actor" ? game.actors : game.scenes
+      const hasDocs = coll.some(d => d.folder?.id === f.id)
+      const hasKids = game.folders.some(x => x.folder?.id === f.id)
+      if (hasDocs || hasKids) continue
+      deleted.push({ id: f.id, name: f.name, type: f.type, parent: f.folder?.id || null, color: f.color ?? null, sorting: f.sorting || "a" })
+      await f.delete()
+    }
+  }
+
+  return { created, moved, deleted }
+}
+
+// ──────────────────────────────────────────────────────────────
 // Inbound command handler
 // ──────────────────────────────────────────────────────────────
 
@@ -2214,6 +2350,18 @@ async function handleCommand(msg) {
       await ahRecomputeAll()           // storage/grants may change for actors carrying it
       ahRerenderSheets()
       return bridge.reply(msg.reqId, { type: "antihammer.gear.defs", builtin: AH_GEAR, order: AH_GEAR_ORDER, custom: ahGearDefs() })
+    }
+
+    // ── Auto-Sort (RealmScreen "Foundry Auto-Sort" window) ─────────
+    // The app owns the rules + plan; Foundry just reports what exists and
+    // applies an explicit, pre-computed plan.
+    case "sort.inventory": {
+      return bridge.reply(msg.reqId, { type: "sort.inventory", ...sortInventory() })
+    }
+    case "sort.apply": {
+      if (!game.user?.isGM) throw new Error("Only the GM can sort folders")
+      const result = await sortApply(msg)
+      return bridge.reply(msg.reqId, { type: "sort.applied", ...result, ...sortInventory() })
     }
 
     default:
