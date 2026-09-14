@@ -1071,6 +1071,22 @@ function sortInventory() {
         .filter(u => !u.isGM && a.testUserPermission(u, "OWNER"))
         .map(u => u.name)
     } catch {}
+    let race = null
+    try { const r = d.race; race = (r && typeof r === "object") ? (r.name || null) : (typeof r === "string" ? r : null) } catch {}
+    let background = null
+    try { const b = d.background; background = (b && typeof b === "object") ? (b.name || null) : (typeof b === "string" ? b : null) } catch {}
+    let classSummary = null, itemCount = null, spellcaster = false
+    try {
+      const items = a.items?.contents || a.items || []
+      itemCount = items.length
+      const classes = items.filter(it => it.type === "class")
+      if (classes.length) classSummary = classes.map(c => `${c.name} ${c.system?.levels ?? ""}`.trim()).join(" / ")
+      spellcaster = items.some(it => it.type === "spell") || !!(a.system?.spells && Object.values(a.system.spells).some(s => (s?.max || s?.value) > 0))
+    } catch {}
+    let hpPercent = null
+    try { const hp = a.system?.attributes?.hp; if (hp && typeof hp.max === "number" && hp.max > 0) hpPercent = Math.round(((hp.value ?? 0) / hp.max) * 100) } catch {}
+    let concentrating = false
+    try { concentrating = a.effects?.some?.(e => Array.from(e.statuses || []).includes("concentrating")) || false } catch {}
     return {
       id: a.id, name: a.name, type: a.type, folder: a.folder?.id || null,
       img: resolveImg(a.img),
@@ -1084,17 +1100,32 @@ function sortInventory() {
       playerOwned: !!a.hasPlayerOwner,
       owners,
       source: a._stats?.compendiumSource || a.flags?.core?.sourceId || null,
+      race, background, classSummary, itemCount, spellcaster, hpPercent, concentrating,
     }
   })
-  const scenes = game.scenes.map(s => ({
-    id: s.id, name: s.name, folder: s.folder?.id || null,
-    active: !!s.active, navigation: !!s.navigation,
-    thumb: resolveImg(s.thumb || sceneBg(s)),
-    background: sceneBg(s) || null,
-    tokens: s.tokens?.size ?? 0,
-    notes: s.notes?.size ?? 0,
-    width: s.width ?? null, height: s.height ?? null,
-  }))
+  const scenes = game.scenes.map(s => {
+    let gridType = null
+    try {
+      const gt = s.grid?.type
+      gridType = { 0: "gridless", 1: "square", 2: "hexOddR", 3: "hexEvenR", 4: "hexOddQ", 5: "hexEvenQ" }[gt] ?? null
+    } catch {}
+    let hasWeather = false, hasPlaylist = false, wallCount = null, lightCount = null, darkness = null
+    try { hasWeather = !!s.weather } catch {}
+    try { hasPlaylist = !!s.playlist } catch {}
+    try { wallCount = s.walls?.size ?? null } catch {}
+    try { lightCount = s.lights?.size ?? null } catch {}
+    try { darkness = typeof s.darkness === "number" ? Math.round(s.darkness * 100) : null } catch {}
+    return {
+      id: s.id, name: s.name, folder: s.folder?.id || null,
+      active: !!s.active, navigation: !!s.navigation,
+      thumb: resolveImg(s.thumb || sceneBg(s)),
+      background: sceneBg(s) || null,
+      tokens: s.tokens?.size ?? 0,
+      notes: s.notes?.size ?? 0,
+      width: s.width ?? null, height: s.height ?? null,
+      gridType, hasWeather, hasPlaylist, wallCount, lightCount, darkness,
+    }
+  })
   const maxDepth = Number(CONST?.FOLDER_MAX_DEPTH) || 3
   return { folders, actors, scenes, maxDepth }
 }
