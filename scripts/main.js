@@ -1115,6 +1115,8 @@ function sortInventory() {
     try { wallCount = s.walls?.size ?? null } catch {}
     try { lightCount = s.lights?.size ?? null } catch {}
     try { darkness = typeof s.darkness === "number" ? Math.round(s.darkness * 100) : null } catch {}
+    let tags = []
+    try { tags = s.getFlag(MOD, "tags") || [] } catch {}
     return {
       id: s.id, name: s.name, folder: s.folder?.id || null,
       active: !!s.active, navigation: !!s.navigation,
@@ -1124,6 +1126,7 @@ function sortInventory() {
       notes: s.notes?.size ?? 0,
       width: s.width ?? null, height: s.height ?? null,
       gridType, hasWeather, hasPlaylist, wallCount, lightCount, darkness,
+      tags,
     }
   })
   const maxDepth = Number(CONST?.FOLDER_MAX_DEPTH) || 3
@@ -2393,6 +2396,20 @@ async function handleCommand(msg) {
       if (!game.user?.isGM) throw new Error("Only the GM can sort folders")
       const result = await sortApply(msg)
       return bridge.reply(msg.reqId, { type: "sort.applied", ...result, ...sortInventory() })
+    }
+
+    // Rename a scene and/or replace its tags (Auto-Sort's Scene browser). Tags are
+    // stored as a scene flag — visible in-world to anyone browsing the same
+    // pendant-bridge tag store, and reported back by sort.inventory.
+    case "scene.update": {
+      if (!game.user?.isGM) throw new Error("Only the GM can rename or tag scenes")
+      const s = game.scenes.get(msg.id)
+      if (!s) throw new Error("Scene not found: " + msg.id)
+      if (typeof msg.name === "string" && msg.name.trim()) await s.update({ name: msg.name.trim() })
+      if (Array.isArray(msg.tags)) await s.setFlag(MOD, "tags", msg.tags.map(t => String(t).trim()).filter(Boolean))
+      let tags = []
+      try { tags = s.getFlag(MOD, "tags") || [] } catch {}
+      return bridge.reply(msg.reqId, { type: "scene.updated", id: s.id, name: s.name, tags })
     }
 
     default:
