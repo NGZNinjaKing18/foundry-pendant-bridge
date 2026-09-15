@@ -470,6 +470,21 @@ const bridge = {
       if (!scene) return
       this.send({ type: "scene.active", scene: serializeSceneMeta(scene), tokens: scene.tokens.map(serializeToken) })
     })
+    // ── Auto-Sort: tell the app the sidebar changed ───────────────
+    // One small event for anything that can change how scenes/folders sort (a new
+    // scene, a rename, a folder move, a tag edit). The app refreshes its view and
+    // auto-files NEW documents on it — without re-reading the world on every token
+    // move or HP tick. Actor create/update/delete already stream as actor.* events.
+    const sortDirty = (docType, reason, id) => this.send({ type: "sort.dirty", docType, reason, id: id || null })
+    const SCENE_SORT_KEYS = ["name", "folder", "navigation", "flags", "background", "thumb", "grid", "sort", "active"]
+    reg("createScene", (s) => sortDirty("Scene", "create", s.id))
+    reg("deleteScene", (s) => sortDirty("Scene", "delete", s.id))
+    reg("updateScene", (s, changes) => { if (changes && SCENE_SORT_KEYS.some(k => k in changes)) sortDirty("Scene", "update", s.id) })
+    const folderDirty = (reason) => (f) => { if (f && (f.type === "Actor" || f.type === "Scene")) sortDirty(f.type, "folder-" + reason, f.id) }
+    reg("createFolder", folderDirty("create"))
+    reg("updateFolder", folderDirty("update"))
+    reg("deleteFolder", folderDirty("delete"))
+
     reg("updateScene", (scene, changes) => {
       // Only the live scene matters (activation, background swap, grid/dim edits).
       if (!scene.active && !("active" in (changes || {}))) return
@@ -1215,7 +1230,11 @@ async function sortApply(msg) {
     }
   }
 
-  return { created, moved, deleted }
+  // key → folder id for EVERY planned folder (created or reused), so the app's
+  // undo can tell whether a document is still where this run put it.
+  const resolved = {}
+  for (const [k, id] of keyToId) resolved[k.slice(k.indexOf("|") + 1)] = id
+  return { created, moved, deleted, resolved }
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -2410,6 +2429,28 @@ async function handleCommand(msg) {
       let tags = []
       try { tags = s.getFlag(MOD, "tags") || [] } catch {}
       return bridge.reply(msg.reqId, { type: "scene.updated", id: s.id, name: s.name, tags })
+    }
+
+    // Batch rename / tag (Auto-Sort's Manage view). One round trip for any number
+    // of documents: { type:'Actor'|'Scene', updates:[{ id, name?, tags? }] }.
+    // Tags are Scene-only (a scene flag). Validates everything before writing.
+    case "sort.updateDocs": {
+      if (!game.user?.isGM) throw new Error("Only the GM can rename or tag")
+      const type = msg.docType === "Scene" ? "Scene" : msg.docType === "Actor" ? "Actor" : null
+      if (!type) throw new Error("Bad document type: " + msg.docType)
+      const coll = type === "Actor" ? game.actors : game.scenes
+      const list = Array.isArray(msg.updates) ? msg.updates : []
+      for (const u of list) if (!coll.get(u?.id)) throw new Error(`${type} ${u?.id} no longer exists — refresh and try again`)
+      const changes = []
+      for (const u of list) {
+        const c = { _id: u.id }
+        if (typeof u.name === "string" && u.name.trim()) c.name = u.name.trim()
+        if (type === "Scene" && Array.isArray(u.tags)) c[`flags.${MOD}.tags`] = u.tags.map(t => String(t).trim()).filter(Boolean)
+        if (Object.keys(c).length > 1) changes.push(c)
+      }
+      const cls = type === "Actor" ? Actor : Scene
+      for (let i = 0; i < changes.length; i += 100) await cls.updateDocuments(changes.slice(i, i + 100))
+      return bridge.reply(msg.reqId, { type: "sort.updated", updated: changes.length, ...sortInventory() })
     }
 
     default:
