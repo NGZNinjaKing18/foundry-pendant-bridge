@@ -1115,6 +1115,8 @@ function sortInventory() {
     try { const hp = a.system?.attributes?.hp; if (hp && typeof hp.max === "number" && hp.max > 0) hpPercent = Math.round(((hp.value ?? 0) / hp.max) * 100) } catch {}
     let concentrating = false
     try { concentrating = a.effects?.some?.(e => Array.from(e.statuses || []).includes("concentrating")) || false } catch {}
+    let tags = []
+    try { tags = a.getFlag(MOD, "tags") || [] } catch {}
     return {
       id: a.id, name: a.name, type: a.type, folder: a.folder?.id || null,
       img: resolveImg(a.img),
@@ -1129,6 +1131,7 @@ function sortInventory() {
       owners,
       source: a._stats?.compendiumSource || a.flags?.core?.sourceId || null,
       race, background, classSummary, itemCount, spellcaster, hpPercent, concentrating,
+      tags,
     }
   })
   const scenes = game.scenes.map(s => {
@@ -2505,7 +2508,7 @@ async function handleCommand(msg) {
 
     // Batch rename / tag (Auto-Sort's Manage view). One round trip for any number
     // of documents: { type:'Actor'|'Scene', updates:[{ id, name?, tags? }] }.
-    // Tags are Scene-only (a scene flag). Validates everything before writing.
+    // Tags are stored as a document flag (actors and scenes). Validates everything before writing.
     case "sort.updateDocs": {
       if (!game.user?.isGM) throw new Error("Only the GM can rename or tag")
       const type = msg.docType === "Scene" ? "Scene" : msg.docType === "Actor" ? "Actor" : null
@@ -2517,7 +2520,7 @@ async function handleCommand(msg) {
       for (const u of list) {
         const c = { _id: u.id }
         if (typeof u.name === "string" && u.name.trim()) c.name = u.name.trim()
-        if (type === "Scene" && Array.isArray(u.tags)) c[`flags.${MOD}.tags`] = u.tags.map(t => String(t).trim()).filter(Boolean)
+        if (Array.isArray(u.tags)) c[`flags.${MOD}.tags`] = u.tags.map(t => String(t).trim()).filter(Boolean)
         if (Object.keys(c).length > 1) changes.push(c)
       }
       const cls = type === "Actor" ? Actor : Scene
