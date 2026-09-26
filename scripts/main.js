@@ -1036,8 +1036,13 @@ async function uploadEnd(msg) {
   const FP = getFilePicker()
   if (!FP) throw new Error("FilePicker unavailable in this Foundry version")
   const folder = _uploadFolderFor(u.kind) + (u.subfolder ? "/" + u.subfolder : "")
-  // Ensure the destination folder exists (no-op if it does).
-  try { await FP.createDirectory("data", folder, {}) } catch {}
+  // Ensure the destination folder exists. createDirectory isn't recursive, so
+  // create each level ("…/portraits", then "…/portraits/npcs"); each call is a
+  // harmless error when that level already exists.
+  const parts = folder.split("/")
+  for (let i = 1; i <= parts.length; i++) {
+    try { await FP.createDirectory("data", parts.slice(0, i).join("/"), {}) } catch {}
+  }
 
   // De-dup: the client bakes an 8-char content hash into the filename, so a name
   // collision IS a content match — skip the write and reuse the existing path.
@@ -1058,7 +1063,7 @@ async function uploadEnd(msg) {
   const file = new File([bytes], u.filename, { type: u.mimeType })
 
   const result = await FP.upload("data", folder, file, {}, { notify: false })
-  if (!result || !result.path) throw new Error("FilePicker.upload returned no path")
+  if (!result || !result.path) throw new Error("Foundry refused the upload to " + folder + (result?.message ? ": " + result.message : ""))
   return { path: result.path, deduped: false }
 }
 
