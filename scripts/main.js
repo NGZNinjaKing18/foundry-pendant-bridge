@@ -848,12 +848,20 @@ function serializeActorFull(actor) {
 
 function serializeItem(item) {
   const data = item.toObject(false)
+  // dnd5e (>= 4) keeps an item's activities (attack / save / heal… — its roll
+  // buttons) in a collection that the prepared toObject(false) does not
+  // flatten into plain JSON. The source copy does, so send that.
+  let system = data.system
+  try {
+    const src = item.toObject(true)?.system
+    if (src?.activities && typeof src.activities === "object") system = { ...system, activities: src.activities }
+  } catch { /* system without activities */ }
   return {
     id:     item.id,
     name:   item.name,
     type:   item.type,
     img:    resolveImg(item.img),
-    system: data.system,
+    system,
     flags:  data.flags
   }
 }
@@ -1338,7 +1346,9 @@ async function handleCommand(msg) {
     }
     case "upload.chunk": {
       uploadChunk(msg)
-      return
+      // Acknowledge, so a caller that awaits the chunk (cmd) doesn't sit out
+      // its whole timeout; fire-and-forget callers send no reqId and get nothing.
+      return bridge.reply(msg.reqId, { type: "upload.chunk.ok", uploadId: msg.uploadId, seq: msg.seq })
     }
     case "upload.end": {
       const out = await uploadEnd(msg)
