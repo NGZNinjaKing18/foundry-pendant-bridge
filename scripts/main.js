@@ -1349,7 +1349,9 @@ async function handleCommand(msg) {
     case "actor.create": {
       const data = {
         name: String(msg.name || "New Actor"),
-        type: String(msg.type || "character")
+        // `msg.type` is the COMMAND ("actor.create") — a payload `type` overwrites it in
+        // the relay envelope — so the actor's own type travels as `actorType`.
+        type: String(msg.actorType || "character")
       }
       if (msg.img) data.img = msg.img
       if (msg.tokenImg) {
