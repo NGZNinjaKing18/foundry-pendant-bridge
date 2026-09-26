@@ -1443,6 +1443,61 @@ async function handleCommand(msg) {
       })
     }
 
+    // Search Actor compendiums (monsters/NPCs) by name. Returns CR + creature
+    // type from the index so a picker can show them without loading actors.
+    case "compendium.actor-search": {
+      const q = String(msg.query || "").toLowerCase().trim()
+      const limit = Math.min(Number(msg.limit) || 40, 200)
+      const results = []
+      for (const p of game.packs) {
+        if (p.documentName !== "Actor") continue
+        let index
+        try { index = await p.getIndex({ fields: ["system.details.cr", "system.details.type", "system.traits.size"] }) }
+        catch (e) { console.warn("[pendant-bridge] getIndex failed for", p.metadata.id, e); continue }
+        for (const entry of index) {
+          if (entry.type !== "npc") continue
+          if (q && !(entry.name || "").toLowerCase().includes(q)) continue
+          const t = entry.system?.details?.type
+          results.push({
+            packId: p.metadata.id || p.collection,
+            packLabel: p.metadata.label || p.title,
+            actorId: entry._id,
+            name: entry.name,
+            img: resolveImg(entry.img),
+            cr: entry.system?.details?.cr ?? null,
+            creatureType: (typeof t === "object" ? (t?.value === "custom" ? t?.custom : t?.value) : t) || null,
+            size: entry.system?.traits?.size || null
+          })
+          if (results.length >= limit) break
+        }
+        if (results.length >= limit) break
+      }
+      results.sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+      return bridge.reply(msg.reqId, { type: "compendium.actor-results", results })
+    }
+
+    // One compendium actor as plain SOURCE data (system + embedded items,
+    // activities included) — for importing into RealmScreen, nothing derived.
+    case "compendium.actor-get": {
+      const pack = game.packs.get(msg.packId)
+      if (!pack) throw new Error("Pack not found: " + msg.packId)
+      const actor = await pack.getDocument(msg.actorId)
+      if (!actor) throw new Error("Actor not found in pack: " + msg.actorId)
+      const src = actor.toObject()
+      return bridge.reply(msg.reqId, {
+        type: "compendium.actor",
+        actor: {
+          name: src.name,
+          type: src.type,
+          img: resolveImg(src.img),
+          tokenImg: resolveImg(src.prototypeToken?.texture?.src || src.img),
+          system: src.system,
+          items: (src.items || []).map(i => ({ name: i.name, type: i.type, img: resolveImg(i.img), system: i.system })),
+          systemVersion: game.system?.version || null
+        }
+      })
+    }
+
     // Pull an item from a compendium and add a copy to the actor.
     case "compendium.add-to-actor": {
       const pack = game.packs.get(msg.packId)
