@@ -1140,6 +1140,8 @@ function sortInventory() {
       const gt = s.grid?.type
       gridType = { 0: "gridless", 1: "square", 2: "hexOddR", 3: "hexEvenR", 4: "hexOddQ", 5: "hexEvenQ" }[gt] ?? null
     } catch {}
+    let gridSize = null
+    try { gridSize = typeof s.grid?.size === "number" ? s.grid.size : (typeof s.grid === "number" ? s.grid : null) } catch {}
     let hasWeather = false, hasPlaylist = false, wallCount = null, lightCount = null, darkness = null
     try { hasWeather = !!s.weather } catch {}
     try { hasPlaylist = !!s.playlist } catch {}
@@ -1152,11 +1154,12 @@ function sortInventory() {
       id: s.id, name: s.name, folder: s.folder?.id || null,
       active: !!s.active, navigation: !!s.navigation,
       thumb: resolveImg(s.thumb || sceneBg(s)),
-      background: sceneBg(s) || null,
+      // resolved like `thumb`, so the app can show the full map and not just the tile
+      background: resolveImg(sceneBg(s)) || null,
       tokens: s.tokens?.size ?? 0,
       notes: s.notes?.size ?? 0,
       width: s.width ?? null, height: s.height ?? null,
-      gridType, hasWeather, hasPlaylist, wallCount, lightCount, darkness,
+      gridType, gridSize, hasWeather, hasPlaylist, wallCount, lightCount, darkness,
       tags,
     }
   })
