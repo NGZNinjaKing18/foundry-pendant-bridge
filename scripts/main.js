@@ -151,11 +151,41 @@ const AH = {
     let doll
     try { const c = ahHeadlessCtx(actor); doll = { gender: ahDollGender(actor), worn: c.worn, back: c.back, occ: ahOccupancy(c), caps: ahCaps(c), hands: ahHandState(c) } }
     catch { doll = { gender: ahDollGender(actor), worn: {}, back: [], occ: {}, caps: Object.assign({}, AH_BASE_CAP) } }
+    // The sheet's real bag figure (worn containers × per-container spaces + gear
+    // storage + STR bonus; loose, baggable, unequipped items) and the off-body
+    // Storage (world containers + mount cargo) — so the app's cockpit shows the
+    // same numbers as the sheet panel (v0.105.0+).
+    let bag = null; const storage = []
+    try {
+      const c = ahHeadlessCtx(actor), eq = new Set(ahEquippedIds(c)), byItem = Object.fromEntries(items.map(i => [i.id, i]))
+      const nCont = [...eq].filter(id => c.metaById[id] && c.metaById[id].carryType === "Container").length
+      const base = (nCont > 0 ? capacity * nCont : 0) + ahGearStorage(actor)
+      const bagCap = base > 0 ? base + ahStrBonus(actor, cfg) : 0
+      const sbins = ahStorageBins({ actor }), sbIds = new Set(sbins.map(b => b.binId))
+      const sep = actor.getFlag(MOD, "ahPlaceSep") || {}, inBin = {}
+      for (const uid of Object.keys(sep)) { const b = ahSepBinOf(sep[uid]); if (sbIds.has(b) && byItem[uid.split("#")[0]]) (inBin[b] = inBin[b] || []).push(uid) }
+      const unitSp = (uid) => { const it = byItem[uid.split("#")[0]]; return uid.includes("#") ? it.spaces / Math.max(1, it.bundleCount || 1) : it.spaces }
+      const loads = (iid) => { const m = byItem[iid].meta || {}; return !eq.has(iid) && !m.ignoreSlot && m.baggable !== false }
+      let load = 0
+      for (const it of items) if (loads(it.id)) load += it.spaces
+      for (const b of Object.keys(inBin)) for (const uid of inBin[b]) if (loads(uid.split("#")[0])) load -= unitSp(uid)
+      load = Math.round(load * 100) / 100
+      bag = { capacity: bagCap, used: load, overflow: bagCap > 0 ? Math.max(0, Math.round((load - bagCap) * 100) / 100) : 0 }
+      const wcat = ahWorldCatalog()
+      for (const s of ahStash(actor)) {
+        const mine = sbins.filter(b => b.binId === "world:" + s.id || b.binId.startsWith("mount:" + s.id + ":"))
+        const uids = mine.flatMap(b => inBin[b.binId] || [])
+        const def = s.kind === "mount" ? AH_MOUNT_CATALOG[s.type] : wcat[s.type]
+        storage.push({ id: s.id, kind: s.kind, type: s.type, name: s.name || (def && def.name) || s.type, location: s.location || "",
+          cap: mine.reduce((n, b) => n + b.cap, 0), used: Math.round(uids.reduce((n, u) => n + unitSp(u), 0) * 100) / 100,
+          itemIds: [...new Set(uids.map(u => u.split("#")[0]))] })
+      }
+    } catch (e) { console.warn("[pendant-bridge] AH bag/storage summary failed", actor?.id, e) }
     return {
       id: actor.id, name: actor.name, img: resolveImg(actor.img), type: actor.type,
       capacity, capacityOverride: override, used, overflow,
       free: Math.max(0, Math.round((capacity - used) * 100) / 100),
-      itemCount: items.length, items, doll,
+      itemCount: items.length, items, doll, bag, storage,
     }
   },
 }
@@ -506,9 +536,14 @@ const bridge = {
         }
       }
     }
-    reg("createActiveEffect", (eff) => pushTokensForActor(actorOfEffect(eff)))
-    reg("updateActiveEffect", (eff) => pushTokensForActor(actorOfEffect(eff)))
-    reg("deleteActiveEffect", (eff) => pushTokensForActor(actorOfEffect(eff)))
+    const pushActorForEffect = (eff) => {
+      const actor = actorOfEffect(eff)
+      pushTokensForActor(actor)
+      if (actor) this.send({ type: "actor.update", id: actor.id, changes: {}, actor: serializeActorLight(actor) })
+    }
+    reg("createActiveEffect", pushActorForEffect)
+    reg("updateActiveEffect", pushActorForEffect)
+    reg("deleteActiveEffect", pushActorForEffect)
   },
 
   teardownHooks() {
@@ -581,6 +616,147 @@ function sceneDimensions(scene) {
     sceneWidth: w, sceneHeight: h,
     width: w + 2 * padX, height: h + 2 * padY,
     gridSize: grid, gridDistance: Number(scene.grid?.distance) || 5, padding: pad
+  }
+}
+
+// ── Scene document data (shared by scene.create + scene.update) ───────────
+// `msg.config` carries Map Studio's Scene-Config groups: basics / grid /
+// lighting / ambience (see the app's MapStudio/scene/sceneSchema.js).
+//
+// create = true  → the COMPLETE data for Scene.create: every group is written,
+//                  missing values fall back to Foundry-ish defaults (name
+//                  "New Scene", 4000×3000, padding 0.25, square 100px grid …).
+// create = false → a PARTIAL update: only what the message carries — `name`,
+//                  `background.src` (imgPath), width/height, and only the config
+//                  groups present. A group that IS present is written whole
+//                  (the app always sends a section complete), and an emptied
+//                  image ('' foreground / fog overlay) or weather CLEARS it,
+//                  whereas create simply leaves those unset.
+// Field paths cover v11–v14 at once: v12+ nested (grid.*, fog.*, environment.*)
+// AND v11 top-level keys (gridType, fogExploration, globalLight, darkness …) —
+// Foundry drops whichever the running version doesn't recognise. v14's
+// Level-held background/foreground is handled by finishSceneImage().
+const sceneNum = (v, d) => (v != null && isFinite(+v) ? +v : d)
+
+function buildSceneData(msg, create) {
+  const cfg = msg.config || {}
+  const data = {}
+  if (create) {
+    data.name = String(msg.name || cfg.basics?.name || "New Scene")
+    data.background = { src: msg.imgPath }
+    data.width  = Number(msg.width)  || 4000
+    data.height = Number(msg.height) || 3000
+  } else {
+    const name = [msg.name, cfg.basics?.name].find(n => typeof n === "string" && n.trim())
+    if (name) data.name = name.trim()
+    if (msg.imgPath) data.background = { src: msg.imgPath }
+    if (Number(msg.width)  > 0) data.width  = Number(msg.width)
+    if (Number(msg.height) > 0) data.height = Number(msg.height)
+  }
+  if (create || cfg.grid)  sceneGridData(data, cfg.grid || {}, msg)
+  if (create || cfg.basics) sceneBasicsData(data, cfg.basics || {}, create)
+  if (create || cfg.lighting) sceneLightingData(data, cfg.lighting || {}, create)
+  if (create || cfg.ambience) sceneAmbienceData(data, cfg.ambience || {}, create)
+  return data
+}
+
+// Grid group → padding, background offsets, grid (+ v11 top-level grid keys).
+function sceneGridData(data, g, msg) {
+  data.padding = sceneNum(g.padding, msg.padding != null ? Number(msg.padding) : 0.25)
+  if (g.offsetX != null) data.background = { ...data.background, offsetX: sceneNum(g.offsetX, 0) }
+  if (g.offsetY != null) data.background = { ...data.background, offsetY: sceneNum(g.offsetY, 0) }
+  // v12 carries color/alpha/style/thickness IN the grid object; v11 reads them
+  // top-level. Set BOTH so one payload works across 11–13.
+  const gridType = sceneNum(g.type, 1), gridColor = g.color || "#000000", gridAlpha = sceneNum(g.alpha, 0.2)
+  data.grid = { type: gridType, size: sceneNum(g.size, 100), distance: sceneNum(g.distance, 5), units: g.units != null ? String(g.units) : "ft", style: g.style || "solidLines", thickness: sceneNum(g.thickness, 1), color: gridColor, alpha: gridAlpha }
+  data.gridType = gridType; data.gridColor = gridColor; data.gridAlpha = gridAlpha
+}
+
+// Basics group → navigation, backdrop colour, foreground, default ownership.
+function sceneBasicsData(data, b, create) {
+  if (b.navigation != null) data.navigation = !!b.navigation
+  if (b.navName) data.navName = String(b.navName)
+  if (b.backgroundColor) data.backgroundColor = String(b.backgroundColor)
+  if (b.foreground) data.foreground = String(b.foreground)
+  else if (!create && b.foreground !== undefined) data.foreground = null   // '' clears it
+  if (b.foregroundElevation != null) data.foregroundElevation = sceneNum(b.foregroundElevation, 20)
+  if (b.ownership != null) data.ownership = { default: sceneNum(b.ownership, 0) }
+}
+
+// Lighting group → vision, fog (v12 nested `fog` + v11 top-level fog* keys),
+// global light + darkness (v12 `environment.*` + v11 globalLight/darkness).
+function sceneLightingData(data, l, create) {
+  if (l.tokenVision != null) data.tokenVision = !!l.tokenVision
+  const fogExp = l.fogExploration != null ? !!l.fogExploration : true
+  data.fog = { exploration: fogExp, overlay: l.fogOverlay || null, colors: { unexplored: l.fogUnexploredColor || null, explored: l.fogExploredColor || null } }
+  data.fogExploration = fogExp
+  if (l.fogOverlay) data.fogOverlay = String(l.fogOverlay)
+  else if (!create && l.fogOverlay !== undefined) data.fogOverlay = null   // '' clears it
+  if (l.fogUnexploredColor) data.fogUnexploredColor = l.fogUnexploredColor
+  if (l.fogExploredColor) data.fogExploredColor = l.fogExploredColor
+  const glob = !!l.globalLight, thr = sceneNum(l.globalLightThreshold, 1), dark = sceneNum(l.darknessLevel, 0)
+  data.environment = { ...data.environment,
+    globalLight: { enabled: glob, darkness: { max: thr } },
+    darknessLevel: dark, darknessLock: !!l.darknessLock,
+  }
+  data.globalLight = glob; data.globalLightThreshold = thr; data.darkness = dark
+}
+
+// Ambience group → environment cycle/base/dark (merged into the same
+// `environment` object lighting writes) + weather (v11–13 top-level effect id).
+function sceneAmbienceData(data, am, create) {
+  data.environment = { ...data.environment,
+    cycle: !!am.blend,
+    base: { hue: am.base?.hue || "#000000", intensity: sceneNum(am.base?.intensity, 0), luminosity: sceneNum(am.base?.luminosity, 0), saturation: sceneNum(am.base?.saturation, 0), shadows: sceneNum(am.base?.shadows, 0) },
+    dark: { hue: am.dark?.hue || "#000000", intensity: sceneNum(am.dark?.intensity, 0), luminosity: sceneNum(am.dark?.luminosity, -0.25), saturation: sceneNum(am.dark?.saturation, 0), shadows: sceneNum(am.dark?.shadows, 0) },
+  }
+  if (am.weather) data.weather = String(am.weather)
+  else if (!create && am.weather !== undefined) data.weather = ""   // '' = none
+}
+
+/**
+ * After the Scene document is written: v14 Level images, thumbnail, initial view.
+ * All best-effort — a failure here must never fail the publish (the scene exists).
+ * create = true runs exactly what scene.create always did; on an update only the
+ * parts the message carries are touched.
+ */
+async function finishSceneImage(scene, msg, create = false) {
+  const b = msg.config?.basics || {}
+  const fgSent = !create && b.foreground !== undefined
+  // v14 moved the map image from Scene.background onto the new Level document.
+  // Set it on the scene's first level (Foundry auto-creates one for simple
+  // scenes); create a Ground level only if none exists and there's a map image.
+  // v11–13 use the top-level `background`/`foreground` from buildSceneData().
+  if ((game.release?.generation || 0) >= 14 && (msg.imgPath || fgSent)) {
+    try {
+      const lvl = {}
+      if (msg.imgPath) lvl.background = { src: msg.imgPath }
+      if (b.foreground) lvl.foreground = { src: String(b.foreground) }
+      else if (fgSent) lvl.foreground = { src: null }
+      if (scene.firstLevel) await scene.firstLevel.update(lvl)
+      else if (msg.imgPath) await scene.createEmbeddedDocuments("Level", [{ name: "Ground", ...lvl }])
+    } catch (e) { console.warn("[pendant-bridge] v14 Level background set failed:", e) }
+  }
+  // Auto-generate the navigation/sidebar thumbnail from the background.
+  if (create || msg.imgPath || fgSent) {
+    try { const tn = await scene.createThumbnail(); if (tn && tn.thumb) await scene.update({ thumb: tn.thumb }) }
+    catch (e) { console.warn("[pendant-bridge] scene thumbnail failed:", e) }
+  }
+  // Initial view position: the client sends the camera centre in IMAGE space
+  // (0..width / 0..height); shift it into the padded-canvas space Foundry's
+  // `initial` expects by adding the background's sceneX/sceneY offset.
+  if (b.initial && b.initial.x != null) {
+    try {
+      const dim = sceneDimensions(scene)
+      // Foundry's initial.scale is schema-bounded (~0.25–3 on v12+); clamp so
+      // an extreme editor zoom can't throw and drop the whole position.
+      const sc = b.initial.scale != null ? Math.max(0.25, Math.min(3, Number(b.initial.scale))) : null
+      await scene.update({ initial: {
+        x: Math.round(Number(b.initial.x) + (dim.sceneX || 0)),
+        y: Math.round(Number(b.initial.y) + (dim.sceneY || 0)),
+        scale: sc
+      } })
+    } catch (e) { console.warn("[pendant-bridge] initial view failed:", e) }
   }
 }
 
@@ -777,9 +953,27 @@ function snapshotState() {
     world: { id: game.world?.id, title: game.world?.title, system: game.system?.id },
     system: { id: game.system?.id, version: game.system?.version },
     foundryOrigin: window.location.origin,
+    // What this module can do, so the app checks capabilities instead of
+    // guessing from "Unknown command" errors (v0.105.0+).
+    bridge: bridgeInfo(),
+    // The running fight, so the app's Combat Tracker isn't empty after a reconnect.
+    combat: game.combat ? serializeCombat(game.combat) : null,
     actors,
     recentChat
   }
+}
+
+// Every command handleCommand understands, read from its own source so the list
+// can never drift from the switch below.
+let _bridgeCommands = null
+function bridgeInfo() {
+  if (!_bridgeCommands) {
+    // Commands are dotted ("actor.update") plus "ping"; nested switches' cases
+    // ("next", "Actor") are not commands.
+    try { _bridgeCommands = [...new Set([...handleCommand.toString().matchAll(/case "([a-zA-Z][\w.-]*)"/g)].map(m => m[1]))].filter(c => c === "ping" || /^[a-z]+\.[\w.-]+$/i.test(c)) }
+    catch { _bridgeCommands = [] }
+  }
+  return { version: game.modules.get(MOD)?.version || null, commands: _bridgeCommands, protocol: 2 }
 }
 
 function serializeActorLight(actor) {
@@ -798,6 +992,14 @@ function serializeActorLight(actor) {
     const d = actor.system?.details
     level = d?.level ?? d?.cr ?? null
   } catch {}
+  // At-a-glance stats (prepared data; dnd5e paths, absent on other systems).
+  let ac = null, passive = null, statuses = []
+  try { ac = actor.system?.attributes?.ac?.value ?? null } catch {}
+  try {
+    const sk = actor.system?.skills
+    if (sk) passive = { prc: sk.prc?.passive ?? null, inv: sk.inv?.passive ?? null, ins: sk.ins?.passive ?? null }
+  } catch {}
+  try { statuses = Array.from(actor.statuses || []) } catch {}
   return {
     id:      actor.id,
     name:    actor.name,
@@ -806,6 +1008,8 @@ function serializeActorLight(actor) {
     tokenImg, tokenW, tokenH,
     hp:      readHP(actor),
     level,
+    ac, passive, statuses,
+    hasPlayerOwner: !!actor.hasPlayerOwner,
     ownership: actor.ownership,
     folder:  actor.folder?.id || null
   }
@@ -1522,88 +1726,8 @@ async function handleCommand(msg) {
 
     // ── Create scene from an uploaded image ───────────────────
     case "scene.create": {
-      const cfg = msg.config || {}
-      const b = cfg.basics || {}, g = cfg.grid || {}, l = cfg.lighting || {}, am = cfg.ambience || {}
-      const num = (v, d) => (v != null && isFinite(+v) ? +v : d)
-      const data = {
-        name: String(msg.name || b.name || "New Scene"),
-        background: { src: msg.imgPath },
-        width:  Number(msg.width)  || 4000,
-        height: Number(msg.height) || 3000,
-        padding: num(g.padding, msg.padding != null ? Number(msg.padding) : 0.25),
-      }
-      if (g.offsetX != null) data.background.offsetX = num(g.offsetX, 0)
-      if (g.offsetY != null) data.background.offsetY = num(g.offsetY, 0)
-      if (b.navigation != null) data.navigation = !!b.navigation
-      if (b.navName) data.navName = String(b.navName)
-      if (b.backgroundColor) data.backgroundColor = String(b.backgroundColor)
-      if (b.foreground) data.foreground = String(b.foreground)
-      if (b.foregroundElevation != null) data.foregroundElevation = num(b.foregroundElevation, 20)
-      if (b.ownership != null) data.ownership = { default: num(b.ownership, 0) }
-
-      // Grid — v12 carries color/alpha/style/thickness IN the grid object; v11 reads
-      // them top-level. We set BOTH; Foundry cleans whichever the running version
-      // doesn't recognise, so one payload works across 11–13.
-      const gridType = num(g.type, 1), gridColor = g.color || "#000000", gridAlpha = num(g.alpha, 0.2)
-      data.grid = { type: gridType, size: num(g.size, 100), distance: num(g.distance, 5), units: g.units != null ? String(g.units) : "ft", style: g.style || "solidLines", thickness: num(g.thickness, 1), color: gridColor, alpha: gridAlpha }
-      data.gridType = gridType; data.gridColor = gridColor; data.gridAlpha = gridAlpha
-
-      // Vision / fog (v12 nested `fog` + v11 top-level fog* keys).
-      if (l.tokenVision != null) data.tokenVision = !!l.tokenVision
-      const fogExp = l.fogExploration != null ? !!l.fogExploration : true
-      data.fog = { exploration: fogExp, overlay: l.fogOverlay || null, colors: { unexplored: l.fogUnexploredColor || null, explored: l.fogExploredColor || null } }
-      data.fogExploration = fogExp
-      if (l.fogOverlay) data.fogOverlay = String(l.fogOverlay)
-      if (l.fogUnexploredColor) data.fogUnexploredColor = l.fogUnexploredColor
-      if (l.fogExploredColor) data.fogExploredColor = l.fogExploredColor
-
-      // Lighting / ambience (v12 `environment.*` + v11 top-level globalLight/darkness).
-      const glob = !!l.globalLight, thr = num(l.globalLightThreshold, 1), dark = num(l.darknessLevel, 0)
-      data.environment = {
-        globalLight: { enabled: glob, darkness: { max: thr } },
-        darknessLevel: dark, darknessLock: !!l.darknessLock, cycle: !!am.blend,
-        base: { hue: am.base?.hue || "#000000", intensity: num(am.base?.intensity, 0), luminosity: num(am.base?.luminosity, 0), saturation: num(am.base?.saturation, 0), shadows: num(am.base?.shadows, 0) },
-        dark: { hue: am.dark?.hue || "#000000", intensity: num(am.dark?.intensity, 0), luminosity: num(am.dark?.luminosity, -0.25), saturation: num(am.dark?.saturation, 0), shadows: num(am.dark?.shadows, 0) },
-      }
-      data.globalLight = glob; data.globalLightThreshold = thr; data.darkness = dark
-
-      // Weather particle effect (v11–13 top-level `weather` = effect id; '' = none).
-      if (am.weather) data.weather = String(am.weather)
-
-      const scene = await Scene.create(data)
-      // v14 moved the map image from Scene.background onto the new Level document.
-      // Set it on the scene's first level (Foundry auto-creates one for simple
-      // scenes); create a Ground level only if none exists. Best-effort: a schema
-      // mismatch must never fail the publish (the scene already exists). v11–13 use
-      // the top-level `background` set in `data` above and skip this block.
-      if ((game.release?.generation || 0) >= 14 && msg.imgPath) {
-        try {
-          const lvl = { background: { src: msg.imgPath } }
-          if (b.foreground) lvl.foreground = { src: String(b.foreground) }
-          if (scene.firstLevel) await scene.firstLevel.update(lvl)
-          else await scene.createEmbeddedDocuments("Level", [{ name: "Ground", ...lvl }])
-        } catch (e) { console.warn("[pendant-bridge] v14 Level background set failed:", e) }
-      }
-      // Auto-generate the navigation/sidebar thumbnail from the background. Best-
-      // effort: a thumbnail failure must never fail the publish.
-      try { const tn = await scene.createThumbnail(); if (tn && tn.thumb) await scene.update({ thumb: tn.thumb }) }
-      catch (e) { console.warn("[pendant-bridge] scene thumbnail failed:", e) }
-      // Initial view position: the client sends the camera centre in IMAGE space
-      // (0..width / 0..height); shift it into the padded-canvas space Foundry's
-      // `initial` expects by adding the background's sceneX/sceneY offset.
-      if (b.initial && b.initial.x != null) {
-        try {
-          const dim = sceneDimensions(scene)
-          // Foundry's initial.scale is schema-bounded (~0.25–3 on v12+); clamp so
-          // an extreme editor zoom can't throw and drop the whole position.
-          const sc = b.initial.scale != null ? Math.max(0.25, Math.min(3, Number(b.initial.scale))) : null
-          await scene.update({ initial: {
-            x: Math.round(Number(b.initial.x) + (dim.sceneX || 0)),
-            y: Math.round(Number(b.initial.y) + (dim.sceneY || 0)),
-            scale: sc
-          } })
-        } catch (e) { console.warn("[pendant-bridge] initial view failed:", e) }
-      }
+      const scene = await Scene.create(buildSceneData(msg, true))
+      await finishSceneImage(scene, msg, true)
       return bridge.reply(msg.reqId, {
         type: "scene.created",
         id: scene.id, name: scene.name, dimensions: sceneDimensions(scene)
@@ -2207,6 +2331,65 @@ async function handleCommand(msg) {
       })
     }
 
+    // The current fight (null when there is none) — for a client that
+    // (re)connects mid-combat.
+    case "combat.get": {
+      const c = msg.combatId ? game.combats.get(msg.combatId) : game.combat
+      return bridge.reply(msg.reqId, { type: "combat.update", combat: c ? serializeCombat(c) : null })
+    }
+
+    // Add actors to the current fight (creating one on the active scene if
+    // needed). Uses each actor's token on that scene when there is one, so the
+    // combatant moves with it; otherwise adds the actor alone.
+    case "combatant.create": {
+      if (!game.user?.isGM) throw new Error("Only the GM can add combatants")
+      const scene = (msg.sceneId ? game.scenes.get(msg.sceneId) : null) || game.scenes.active || null
+      let combat = msg.combatId ? game.combats.get(msg.combatId) : game.combat
+      if (!combat) combat = await CONFIG.Combat.documentClass.create({ scene: scene?.id || null, active: true })
+      const ids = Array.isArray(msg.actorIds) ? msg.actorIds : (msg.actorId ? [msg.actorId] : [])
+      const already = new Set(combat.combatants.map(cb => cb.actorId))
+      const data = []
+      for (const id of ids) {
+        const actor = game.actors.get(id)
+        if (!actor || already.has(id)) continue
+        const tok = scene ? scene.tokens.find(t => t.actorId === id) : null
+        data.push({ actorId: id, tokenId: tok?.id || null, sceneId: tok ? scene.id : null, hidden: !!msg.hidden })
+      }
+      if (data.length) await combat.createEmbeddedDocuments("Combatant", data)
+      return bridge.reply(msg.reqId, { type: "combat.update", combat: serializeCombat(combat), added: data.length })
+    }
+
+    // Remove combatants from the current fight.
+    case "combatant.delete": {
+      const c = msg.combatId ? game.combats.get(msg.combatId) : game.combat
+      if (!c) throw new Error("No active combat")
+      const ids = (Array.isArray(msg.ids) ? msg.ids : [msg.id]).filter(id => c.combatants.get(id))
+      if (ids.length) await c.deleteEmbeddedDocuments("Combatant", ids)
+      return bridge.reply(msg.reqId, { type: "combat.update", combat: game.combats.get(c.id) ? serializeCombat(c) : null })
+    }
+
+    // Short / long rest through the game system's own rules (dnd5e: hit dice,
+    // class resources, item uses, spell slots, exhaustion…), no dialog.
+    case "actor.rest": {
+      const a = game.actors.get(msg.id)
+      if (!a) throw new Error("Actor not found: " + msg.id)
+      const kind = msg.kind === "short" ? "short" : "long"
+      const fn = kind === "short" ? a.shortRest : a.longRest
+      if (typeof fn !== "function") throw new Error("This game system has no " + kind + " rest")
+      const opts = { dialog: false, chat: msg.chat !== false }
+      if (kind === "long") opts.newDay = msg.newDay !== false
+      await fn.call(a, opts)
+      return bridge.reply(msg.reqId, { type: "actor", actor: serializeActorFull(a) })
+    }
+
+    // Delete actors — e.g. the app's test pushes (GM only).
+    case "actor.delete": {
+      if (!game.user?.isGM) throw new Error("Only the GM can delete actors")
+      const ids = (Array.isArray(msg.ids) ? msg.ids : [msg.id]).filter(id => game.actors.get(id))
+      if (ids.length) await Actor.deleteDocuments(ids)
+      return bridge.reply(msg.reqId, { type: "actor.deleted", ids })
+    }
+
     // Set a combatant's initiative / hidden / defeated.
     case "combatant.update": {
       const c = msg.combatId ? game.combats.get(msg.combatId) : game.combat
@@ -2498,15 +2681,26 @@ async function handleCommand(msg) {
     // Rename a scene and/or replace its tags (Auto-Sort's Scene browser). Tags are
     // stored as a scene flag — visible in-world to anyone browsing the same
     // pendant-bridge tag store, and reported back by sort.inventory.
+    // Map Studio also re-publishes onto the SAME scene through here: with
+    // imgPath / width / height / config it applies buildSceneData(msg, false)
+    // and replies with `dimensions` (the app reads that as "full update applied").
     case "scene.update": {
       if (!game.user?.isGM) throw new Error("Only the GM can rename or tag scenes")
       const s = game.scenes.get(msg.id)
       if (!s) throw new Error("Scene not found: " + msg.id)
-      if (typeof msg.name === "string" && msg.name.trim()) await s.update({ name: msg.name.trim() })
+      // Map Studio re-publish: map image / size / config groups (+ name) in one
+      // partial update. Anything else (Auto-Sort's { id, name, tags }) = rename.
+      const full = !!(msg.imgPath || msg.width || msg.height || msg.config)
+      if (full) {
+        const data = buildSceneData(msg, false)
+        if (Object.keys(data).length) await s.update(data)
+        const b = msg.config?.basics || {}
+        if (msg.imgPath || b.initial || b.foreground !== undefined) await finishSceneImage(s, msg, false)
+      } else if (typeof msg.name === "string" && msg.name.trim()) await s.update({ name: msg.name.trim() })
       if (Array.isArray(msg.tags)) await s.setFlag(MOD, "tags", msg.tags.map(t => String(t).trim()).filter(Boolean))
       let tags = []
       try { tags = s.getFlag(MOD, "tags") || [] } catch {}
-      return bridge.reply(msg.reqId, { type: "scene.updated", id: s.id, name: s.name, tags })
+      return bridge.reply(msg.reqId, { type: "scene.updated", id: s.id, name: s.name, tags, ...(full ? { dimensions: sceneDimensions(s) } : {}) })
     }
 
     // Batch rename / tag (Auto-Sort's Manage view). One round trip for any number
