@@ -1630,6 +1630,22 @@ function fsFolderPath(doc) {
   return out.join("/")
 }
 
+/** World settings, minus the sorter's own ledger (it lists old paths on purpose). */
+function fsWorldSettings() {
+  const coll = game.settings.storage?.get?.("world")
+  return Array.from(coll?.values?.() || coll || []).filter(s => s?.key !== `${MOD}.${FS_LEDGER}`)
+}
+
+/** Every document uuid in the editable (world) compendiums + read-only ones, for full checks. */
+async function fsAllPackUuids() {
+  const out = []
+  for (const pack of game.packs) {
+    if ((pack.metadata?.packageType || "world") === "system") continue
+    try { for (const d of await pack.getDocuments()) out.push(d.uuid) } catch {}
+  }
+  return out
+}
+
 /** Visit every string of a document and its embedded documents. */
 function fsWalk(doc, visit, embed = null) {
   const src = doc?._source
@@ -1750,8 +1766,7 @@ async function fsScan(msg) {
     }
   }
   // world settings (module configs) — read-only: never rewritten
-  const settingsColl = game.settings.storage?.get?.("world")
-  for (const s of Array.from(settingsColl?.values?.() || settingsColl || [])) {
+  for (const s of fsWorldSettings()) {
     const v = typeof s?.value === "string" ? s.value : JSON.stringify(s?.value ?? "")
     for (const h of findRefs(v, lookup, bases)) {
       if (!h.wildcard) refs.push({ u: "", t: "Setting", n: s.key, fp: "", pk: "", pt: "", f: h.key, k: "value", ed: false })
@@ -1922,8 +1937,7 @@ async function fsStillUsed(keys, packUuids) {
   for (const [, uuids] of fsByPack(packUuids)) {
     for (const u of uuids) { let d = null; try { d = await fromUuid(u) } catch {} ; if (d) check(d) }
   }
-  const settingsColl = game.settings.storage?.get?.("world")
-  for (const s of Array.from(settingsColl?.values?.() || settingsColl || [])) {
+  for (const s of fsWorldSettings()) {
     const v = typeof s?.value === "string" ? s.value : JSON.stringify(s?.value ?? "")
     if (!mightMention(v, needles)) continue
     for (const h of findRefs(v, lookup, bases)) if (!h.wildcard) note(h.key, `setting ${s.key}`)
@@ -1998,13 +2012,48 @@ async function fsRetryShrinks(L, probe) {
   return n
 }
 
+/**
+ * Files copied but whose original was KEPT because something still used it: relink
+ * again, re-check everything (every compendium), and when nothing uses the original
+ * any more and it is byte-identical to the copy, shrink it and count it as moved.
+ */
+async function fsRetryKept(L, probe) {
+  const froms = Object.keys(L.kept)
+  if (!froms.length) return 0
+  const entry = (f) => (typeof L.kept[f] === "string" ? { to: L.kept[f] } : L.kept[f])
+  const packUuids = await fsAllPackUuids()
+  fsProgress("relink", 0, froms.length, "files kept earlier", true)
+  await fsRelink(new Map(froms.map(f => [f, entry(f).to])), packUuids)
+  const still = await fsStillUsed(froms, packUuids)
+  let n = 0, i = 0
+  for (const from of froms) {
+    i++
+    if (still.get(from)?.length) continue
+    const e = entry(from)
+    fsProgress("shrink", i, froms.length, from, true)
+    try {
+      const [orig, copy] = [await fsFetch(from), await fsFetch(e.to)]
+      if (isStubBytes(orig)) { L.done[from] = e.to; delete L.kept[from]; n++; continue }
+      const h = await fsHash(copy)
+      if (orig.length !== copy.length || await fsHash(orig, h) !== h) continue   // not the same file — leave both
+      const it = { from, to: e.to, h }
+      await fsShrinkItem(it, probe)
+      L.done[from] = e.to
+      if (it.s !== "done" && it.retry !== false) L.toShrink[from] = { to: e.to, h }
+      delete L.kept[from]; n++
+    } catch { /* stays kept; tried again next run */ }
+  }
+  return n
+}
+
 async function fsRunInflight() {
   const L = fsLedger()
   const B = L.inflight
   if (!B) {
+    const k = await fsRetryKept(L, L.probe || {})
     const n = await fsRetryShrinks(L, L.probe || {})
-    if (n) await fsSave(L)
-    return { none: true, shrunk: n, toShrink: Object.keys(L.toShrink).length }
+    if (n || k) await fsSave(L)
+    return { none: true, shrunk: n, recovered: k, toShrink: Object.keys(L.toShrink).length, kept: Object.keys(L.kept).length }
   }
   const items = B.items
   const total = items.length
@@ -2058,7 +2107,7 @@ async function fsRunInflight() {
   // 5) Close the batch.
   for (const it of items) {
     if (it.s === "done" || it.s === "unshrunk") { L.done[it.from] = it.to; L.reusable = L.reusable.filter(t => t !== it.to) }
-    else if (it.s === "kept") L.kept[it.from] = it.to
+    else if (it.s === "kept") L.kept[it.from] = { to: it.to, h: it.h, uuids: it.uuids || [] }
     if (it.s === "unshrunk" && it.retry) L.toShrink[it.from] = { to: it.to, h: it.h }
   }
   await fsRetryShrinks(L, probe)

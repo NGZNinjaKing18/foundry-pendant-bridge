@@ -120,6 +120,9 @@ function makeFoundry() {
         crash.saves++
         if (crash.atSave && crash.saves === crash.atSave) throw boom()
         settingsStore.set(key, structuredClone(v))
+        // like Foundry: a world setting is a Setting document holding the JSON
+        const doc = worldSettings.docs.find(d => d.key === `${mod}.${key}`)
+        if (doc) doc.value = JSON.stringify(v); else worldSettings.docs.push({ key: `${mod}.${key}`, value: JSON.stringify(v) })
       },
       storage: new Map([["world", worldSettings]]),
     },
@@ -366,4 +369,25 @@ test("crash at EVERY save and EVERY upload, then resume: no link ever breaks, ev
     assert.ok(Object.keys(L.done).length >= 5, `${label}: only ${Object.keys(L.done).length} moved`)
     assert.equal(L.inflight, null, `${label}: batch left open`)
   }
+})
+
+test("files kept earlier are recovered once nothing uses the original", async (t) => {
+  const P = await loadPlanner()
+  if (!P) return t.skip("pendant-home not next to this repo")
+  const W = buildWorld()
+  const bridge = await loadBridge(W.globals)
+  const { plan } = await planFor(bridge, P, W)
+  await bridge.fsProbe({ root: ROOT, exts: [...new Set(plan.items.map(i => P.extOf(i.from)))] })
+  await bridge.fsMove({ root: ROOT, batchId: "b1", items: plan.items })
+  assert.ok(bridge.fsLedger().kept["uploads/stubborn.webp"], "kept while its actor refuses edits")
+  W.game.actors.get("a2").failUpdate = false                       // the blocker goes away
+  const r = await bridge.fsRunInflight()
+  assert.equal(r.recovered, 1)
+  const L = bridge.fsLedger()
+  assert.ok(!L.kept["uploads/stubborn.webp"])
+  const to = L.done["uploads/stubborn.webp"]
+  assert.equal(W.game.actors.get("a2")._own.img, to)
+  assert.deepEqual(W.FOUNDRY.files.get(to), BYTES["uploads/stubborn.webp"])
+  assert.ok(W.FOUNDRY.files.get("uploads/stubborn.webp").length < 200, "original shrunk")
+  await assertNothingBroken(W, "after recovery")
 })
