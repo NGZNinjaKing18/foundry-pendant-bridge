@@ -137,7 +137,7 @@ function makeFoundry() {
   const globals = {
     Hooks: { once() {}, on() {} },
     game,
-    CONST: { UPLOADABLE_FILE_EXTENSIONS: { webp: "image/webp", png: "image/png", jpg: "image/jpeg", mp3: "audio/mpeg", pdf: "application/pdf" } },
+    CONST: { UPLOADABLE_FILE_EXTENSIONS: { webp: "image/webp", png: "image/png", jpg: "image/jpeg", mp3: "audio/mpeg", pdf: "application/pdf", json: "application/json", txt: "text/plain" } },
     foundry: {
       utils: { deepClone: (o) => structuredClone(o), getRoute: (p) => "/" + String(p).replace(/^\/+/, "") },
       abstract: { Document: Doc },
@@ -185,6 +185,8 @@ const BYTES = {
   "worlds/w/assets/scenes/s1-thumb.webp": enc("THUMB"),
   "worlds/w/rand/r1.webp": enc("RANDOM1"),
   "modules/x/y.png": enc("MODULE"),
+  "worlds/w/world.json": enc('{"id":"w"}'),
+  "uploads/notes.json": enc("{}"),
   "worlds/other/z.png": enc("OTHER"),
 }
 
@@ -273,6 +275,7 @@ test("scan finds every link; plan pins what can't be relinked", async (t) => {
   const { scan, plan } = await planFor(bridge, P, W)
   assert.ok(!scan.files.some(f => f.startsWith("modules/") || f.startsWith("worlds/other")), "core/module/other-world files are never in scope")
   assert.deepEqual(scan.otherWorlds, ["other"])
+  assert.ok(!scan.files.some(f => f.endsWith(".json")), "data files (world.json…) are never in scope")
   const to = Object.fromEntries(plan.items.map(i => [i.from, i.to]))
   assert.equal(to["worlds/w/maps/Cave Map.webp"], `${ROOT}/Maps/The Cave/Cave Map.webp`)
   assert.equal(to["worlds/w/tokens/gob.webp"], `${ROOT}/Tokens and Actors/Bestiary/Monsters/Goblin Boss/gob.webp`)

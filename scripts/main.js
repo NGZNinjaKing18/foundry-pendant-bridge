@@ -1517,6 +1517,13 @@ function fsExts() {
   out.pdf = "application/pdf"
   return out
 }
+function fsIsMedia(key, exts = fsExts()) {
+  const ext = extOf(key)
+  const mime = exts[ext]
+  if (!mime) return false
+  if (/(^|\/)world\.json$|(^|\/)module\.json$|(^|\/)system\.json$/i.test(key)) return false
+  return /^(image|audio|video)\//.test(mime) || ext === "pdf"
+}
 function fsMime(name) { return fsExts()[extOf(name)] || "application/octet-stream" }
 
 function fsLedger() {
@@ -1668,7 +1675,9 @@ async function fsBrowseAll(root) {
       const key = fsNorm(f)
       if (!key) continue
       const inDest = key.toLowerCase() === rootKey || key.toLowerCase().startsWith(rootKey + "/")
-      if (!exts[extOf(key)]) { if (!inDest) skippedTypes++; continue }
+      // Only media is ever in scope: images, audio, video, PDFs. Data files (world.json,
+      // module JSON, text) can be read by code we can't see or rewrite — never move them.
+      if (!fsIsMedia(key, exts)) { if (!inDest) skippedTypes++; continue }
       ;(inDest ? destFiles : files).push(key)
     }
     for (const d of res.dirs || []) {
@@ -2083,6 +2092,7 @@ async function fsMove(msg) {
       if (!from || !to) throw new Error("bad path in batch")
       if (!to.toLowerCase().startsWith(rootLow)) throw new Error("destination outside " + root + ": " + to)
       if (from.toLowerCase().startsWith(rootLow)) throw new Error("source is already inside " + root + ": " + from)
+      if (!fsIsMedia(from)) throw new Error("only images, audio, video and PDFs can be moved: " + from)
     }
     L.inflight = {
       id: String(msg.batchId), root, at: Date.now(),
