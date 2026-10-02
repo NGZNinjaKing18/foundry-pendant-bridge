@@ -1,0 +1,9 @@
+{
+  "name": "pendant-bridge-dev",
+  "private": true,
+  "type": "module",
+  "description": "Dev-only: lets Node run the pure-module tests. Foundry ignores this file.",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  }
+}

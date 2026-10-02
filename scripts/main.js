@@ -14,7 +14,14 @@
  * can match call ↔ reply.
  */
 
+import {
+  normalizePath, encodePath, splitPath, extOf, makeLookup, findRefs, expandWildcard,
+  rewriteString, collectUpdates, forEachString, needlesFor, mightMention,
+  hashBytes53, stubText, isStubBytes,
+} from "./file-sort.js"
+
 const MOD = "pendant-bridge"
+const FS_LEDGER = "fileSortLedger"
 
 // ──────────────────────────────────────────────────────────────
 // Anti-Hammer Space — slot-based encumbrance layered over the actor's
@@ -258,6 +265,14 @@ Hooks.once("init", () => {
     type:    Object,
     default: {},
     onChange: () => { ahRecomputeAll().catch(() => {}); ahRerenderSheets() }
+  })
+  // File sorter ledger (RealmScreen "Foundry Library ▸ Files"): every file moved,
+  // and the batch in flight, so an interrupted run resumes instead of guessing.
+  game.settings.register(MOD, FS_LEDGER, {
+    scope:   "world",
+    config:  false,
+    type:    Object,
+    default: {}
   })
   game.settings.register(MOD, "ahBindContainers", {
     name:    "Anti-Hammer: bind bag to dnd5e containers (experimental)",
@@ -1458,6 +1473,634 @@ async function sortApply(msg) {
   const resolved = {}
   for (const [k, id] of keyToId) resolved[k.slice(k.indexOf("|") + 1)] = id
   return { created, moved, deleted, resolved }
+}
+
+// ──────────────────────────────────────────────────────────────
+// File sorter — move user-data files into a tidy tree WITHOUT breaking links
+// ──────────────────────────────────────────────────────────────
+// Foundry's client API can list folders, create folders and upload — it can't
+// move or delete. So a "move" here is:
+//   1. COPY   the file to its new path, then read it back and compare hashes
+//   2. RELINK every document that points at the old path (world + world
+//      compendiums, embedded docs, HTML, flags…) to the new one
+//   3. VERIFY a fresh sweep finds nothing still pointing at the old path
+//   4. SHRINK the old file: overwrite it with a tiny "moved to …" placeholder
+// Until step 4 both files exist and are identical, so a crash anywhere leaves
+// every link working. Each batch's progress is written to the FS_LEDGER world
+// setting between steps; files.resume replays an interrupted batch (every step
+// is idempotent and never overwrites a verified copy). The app plans WHERE
+// things go (fileSortModel.mjs); this side only executes and double-checks.
+
+let _fsBusy = false
+let _fsKnownFiles = null              // Set of every in-scope key from the last scan
+const _fsDirsMade = new Set()
+
+// getRoute honours a server's route prefix ("/vtt/…"); it moved under foundry.utils in v12.
+const fsGetRoute = (p) => {
+  const fn = foundry.utils?.getRoute ?? globalThis.getRoute
+  try { return fn ? fn(p) : "/" + String(p).replace(/^\/+/, "") } catch { return "/" + String(p).replace(/^\/+/, "") }
+}
+function fsBases() {
+  const o = window.location.origin
+  return [...new Set([o + fsGetRoute("/"), o + "/"])]
+}
+function fsUrl(key) { return fsGetRoute(encodePath(key)) }
+function fsNorm(raw) { return normalizePath(raw, fsBases()) }
+
+function fsExts() {
+  const map = CONST.UPLOADABLE_FILE_EXTENSIONS
+  if (map && typeof map === "object") return Object.fromEntries(Object.entries(map).map(([k, v]) => [k.toLowerCase(), v]))
+  const out = {}
+  for (const e of ["png", "jpg", "jpeg", "webp", "gif", "svg", "avif", "bmp", "tiff"]) out[e] = "image/" + (e === "jpg" ? "jpeg" : e === "svg" ? "svg+xml" : e)
+  for (const e of ["mp3", "ogg", "oga", "wav", "flac", "m4a", "opus", "aac", "weba"]) out[e] = "audio/" + e
+  for (const e of ["webm", "mp4", "m4v", "ogv"]) out[e] = "video/" + e
+  out.pdf = "application/pdf"
+  return out
+}
+function fsMime(name) { return fsExts()[extOf(name)] || "application/octet-stream" }
+
+function fsLedger() {
+  let raw = {}
+  try { raw = game.settings.get(MOD, FS_LEDGER) || {} } catch {}
+  const L = foundry.utils.deepClone(raw)
+  L.done ||= {}; L.kept ||= {}; L.reusable ||= []; L.toShrink ||= {}
+  return L
+}
+async function fsSave(L) { await game.settings.set(MOD, FS_LEDGER, L) }
+
+let _fsLastProgress = 0
+function fsProgress(phase, done, total, label = "", force = false) {
+  const now = Date.now()
+  if (!force && now - _fsLastProgress < 300) return
+  _fsLastProgress = now
+  bridge.send({ type: "files.progress", phase, done, total, label: String(label).slice(0, 200) })
+}
+
+async function fsHash(u8, like = null) {
+  if (like && like.startsWith("c53:")) return hashBytes53(u8)
+  if (globalThis.crypto?.subtle) {
+    const d = new Uint8Array(await crypto.subtle.digest("SHA-256", u8))
+    return "s256:" + Array.from(d, b => b.toString(16).padStart(2, "0")).join("") + ":" + u8.length
+  }
+  return hashBytes53(u8)
+}
+
+async function fsFetch(key, allowMissing = false) {
+  const url = fsUrl(key)
+  const bust = (url.includes("?") ? "&" : "?") + "rsv=" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
+  let r
+  try { r = await fetch(url + bust, { cache: "no-store" }) }
+  catch (e) { throw new Error(`couldn't read ${key} (${e?.message || "network error"})`) }
+  if (!r.ok) {
+    if (allowMissing && r.status === 404) return null
+    throw new Error(`couldn't read ${key} (HTTP ${r.status})`)
+  }
+  return new Uint8Array(await r.arrayBuffer())
+}
+
+async function fsEnsureDir(dir) {
+  const FP = getFilePicker()
+  const parts = dir.split("/").filter(Boolean)
+  for (let i = 1; i <= parts.length; i++) {
+    const d = parts.slice(0, i).join("/")
+    if (_fsDirsMade.has(d)) continue
+    // Look before creating: creating a folder that exists pops an error toast in Foundry.
+    let exists = false
+    try { await FP.browse("data", d, {}); exists = true } catch {}
+    if (!exists) { try { await FP.createDirectory("data", d, {}) } catch { /* raced into existence */ } }
+    _fsDirsMade.add(d)
+  }
+}
+
+/** Upload bytes as dir/name; → the key Foundry actually saved it under. */
+async function fsUpload(dir, name, bytes) {
+  const FP = getFilePicker()
+  if (!FP) throw new Error("FilePicker unavailable in this Foundry version")
+  const file = new File([bytes], name, { type: fsMime(name) })
+  const r = await FP.upload("data", dir, file, {}, { notify: false })
+  if (!r || r.status === "error" || !r.path) throw new Error("Foundry refused the upload of " + name + (r?.message ? ": " + r.message : ""))
+  return fsNorm(r.path)
+}
+
+/** A 1×1 image (for servers that refuse a text placeholder under an image name). */
+async function fsCanvasImage(ext, color) {
+  const type = { png: "image/png", webp: "image/webp", jpg: "image/jpeg", jpeg: "image/jpeg" }[ext]
+  if (!type) return null
+  const c = document.createElement("canvas"); c.width = c.height = 1
+  const g = c.getContext("2d"); g.fillStyle = color; g.fillRect(0, 0, 1, 1)
+  const blob = await new Promise(res => c.toBlob(res, type, 0.8))
+  return blob ? new Uint8Array(await blob.arrayBuffer()) : null
+}
+const fsEnc = (s) => new TextEncoder().encode(s)
+const fsSame = (a, b) => a && b && a.length === b.length && a.every((x, i) => x === b[i])
+
+// ── where things are ──────────────────────────────────────────
+
+function fsWorldCollections() {
+  const out = []
+  for (const coll of game.collections?.values?.() || []) {
+    if (!coll || coll.documentName === "Setting" || coll.documentName === "FogExploration") continue
+    out.push(coll)
+  }
+  return out
+}
+function fsEmbedded(doc) {
+  try { return Object.entries(doc?.constructor?.metadata?.embedded || {}) } catch { return [] }
+}
+function fsChildren(doc, field) {
+  let v
+  try { v = doc[field] } catch { return [] }
+  if (!v) return []
+  if (v instanceof foundry.abstract.Document) return [v]
+  if (typeof v.values === "function") return Array.from(v.values())
+  if (typeof v[Symbol.iterator] === "function") return Array.from(v)
+  return []
+}
+function fsFolderPath(doc) {
+  const out = []
+  let f = doc?.folder, guard = 0
+  while (f && guard++ < 20) { out.unshift(f.name); f = f.folder }
+  return out.join("/")
+}
+
+/** Visit every string of a document and its embedded documents. */
+function fsWalk(doc, visit, embed = null) {
+  const src = doc?._source
+  if (!src) return
+  const emb = fsEmbedded(doc)
+  const skip = new Set(["_id", "_stats", ...emb.map(([, f]) => f)])
+  forEachString(src, skip, (str, path, editable) => visit(str, path, editable, embed))
+  for (const [name, field] of emb) {
+    for (const child of fsChildren(doc, field)) {
+      fsWalk(child, visit, embed || { type: name, doc: child })
+    }
+  }
+}
+
+/** List user-data files: everything except core/module/system folders and other worlds. */
+async function fsBrowseAll(root) {
+  const FP = getFilePicker()
+  if (!FP) throw new Error("FilePicker unavailable in this Foundry version")
+  const worldId = game.world.id
+  const exts = fsExts()
+  const rootKey = root.toLowerCase()
+  const files = [], destFiles = [], otherWorlds = [], unreadable = [], topDirs = new Set()
+  let skippedTypes = 0, dirsSeen = 0
+  const queue = [""]
+  const skipDir = (d) => {
+    const low = d.toLowerCase()
+    const parts = low.split("/")
+    if (parts.length === 1 && (low === "modules" || low === "systems")) return true
+    if (parts[0] === "worlds" && parts.length === 2 && parts[1] !== worldId.toLowerCase()) { otherWorlds.push(d.split("/")[1]); return true }
+    if (parts[0] === "worlds" && parts.length === 3 && parts[1] === worldId.toLowerCase() && (parts[2] === "data" || parts[2] === "packs")) return true
+    return false
+  }
+  const browse = async (dir) => {
+    let res
+    try { res = await FP.browse("data", dir || "", {}) }
+    catch (e) {
+      if (!dir) { try { res = await FP.browse("data", ".", {}) } catch {} }
+      if (!res) { unreadable.push(dir || "/"); return }
+    }
+    dirsSeen++
+    fsProgress("browse", dirsSeen, dirsSeen + queue.length, dir)
+    for (const f of res.files || []) {
+      const key = fsNorm(f)
+      if (!key) continue
+      const inDest = key.toLowerCase() === rootKey || key.toLowerCase().startsWith(rootKey + "/")
+      if (!exts[extOf(key)]) { if (!inDest) skippedTypes++; continue }
+      ;(inDest ? destFiles : files).push(key)
+    }
+    for (const d of res.dirs || []) {
+      const key = fsNorm(d)
+      if (!key || skipDir(key)) continue
+      if (!key.includes("/")) topDirs.add(key)
+      queue.push(key)
+    }
+  }
+  while (queue.length) {
+    const wave = queue.splice(0, 6)
+    await Promise.all(wave.map(browse))
+  }
+  return { files, destFiles, otherWorlds, unreadable, topDirs: [...topDirs], skippedTypes, dirsSeen }
+}
+
+// ── scan (read-only) ──────────────────────────────────────────
+
+async function fsScan(msg) {
+  const root = String(msg.root || "").trim()
+  if (!root) throw new Error("files.scan needs a root folder name")
+  const t0 = Date.now()
+  const L = fsLedger()
+  const doneOld = new Set(Object.keys(L.done).map(k => k.toLowerCase()))
+  const listing = await fsBrowseAll(root)
+  const files = listing.files.filter(k => !doneOld.has(k.toLowerCase()))
+  const placeholders = listing.files.length - files.length
+  _fsKnownFiles = new Set(files)
+  const lookup = makeLookup(files)
+  const bases = fsBases()
+  const refs = []
+  const unknown = new Map()       // missing-file key → one place that uses it
+  const worldId = game.world.id
+
+  const scanTop = (doc, top) => {
+    let tokenCtx = null
+    fsWalk(doc, (str, path, editable, embed) => {
+      const miss = []
+      const hits = findRefs(str, lookup, bases, miss)
+      for (const k of miss) if (!unknown.has(k)) unknown.set(k, `${top.t} "${top.n}"`)
+      if (!hits.length) return
+      let e = "", en = "", an = "", afp = ""
+      if (embed) {
+        e = embed.type
+        try { en = embed.doc.name || "" } catch {}
+        if (e === "Token") {
+          if (!tokenCtx || tokenCtx.doc !== embed.doc) {
+            const actor = embed.doc.actorId ? game.actors.get(embed.doc.actorId) : null
+            tokenCtx = { doc: embed.doc, an: actor?.name || "", afp: actor ? fsFolderPath(actor) : "" }
+          }
+          an = tokenCtx.an; afp = tokenCtx.afp
+        }
+      }
+      for (const h of hits) {
+        if (h.wildcard) {
+          for (const k of expandWildcard(h.key, files)) refs.push({ ...top, f: k, k: path, ed: false, wild: h.key, e, en, an, afp })
+        } else refs.push({ ...top, f: h.key, k: path, ed: editable, amb: h.ambiguous || undefined, e, en, an, afp })
+      }
+    })
+  }
+
+  // world documents
+  const colls = fsWorldCollections()
+  let ci = 0
+  for (const coll of colls) {
+    fsProgress("documents", ++ci, colls.length, coll.documentName, true)
+    for (const doc of Array.from(coll)) {
+      try { scanTop(doc, { u: doc.uuid, t: doc.documentName, n: doc.name || doc.id, fp: fsFolderPath(doc), pk: "", pt: "" }) }
+      catch (e) { console.warn("[pendant-bridge] files.scan skipped", doc?.uuid, e) }
+    }
+  }
+  // world settings (module configs) — read-only: never rewritten
+  const settingsColl = game.settings.storage?.get?.("world")
+  for (const s of Array.from(settingsColl?.values?.() || settingsColl || [])) {
+    const v = typeof s?.value === "string" ? s.value : JSON.stringify(s?.value ?? "")
+    for (const h of findRefs(v, lookup, bases)) {
+      if (!h.wildcard) refs.push({ u: "", t: "Setting", n: s.key, fp: "", pk: "", pt: "", f: h.key, k: "value", ed: false })
+    }
+  }
+  // the world's own background (world.json — can't be edited from here)
+  if (game.world?.background) {
+    for (const h of findRefs(game.world.background, lookup, bases)) refs.push({ u: "", t: "World", n: game.world.title, fp: "", pk: "", pt: "", f: h.key, k: "background", ed: false })
+  }
+  // compendiums: world packs are editable; module packs are read (to protect files they use) but never edited
+  const packs = Array.from(game.packs).filter(p => (p.metadata?.packageType || "world") !== "system")
+  const skippedPacks = []
+  let pi = 0
+  for (const pack of packs) {
+    const label = pack.metadata?.label || pack.collection
+    fsProgress("compendiums", ++pi, packs.length, label, true)
+    let docs
+    try { docs = await pack.getDocuments() } catch (e) { skippedPacks.push(label); continue }
+    const pt = pack.metadata?.packageType || "world"
+    for (const doc of docs) {
+      try { scanTop(doc, { u: doc.uuid, t: doc.documentName, n: doc.name || doc.id, fp: fsFolderPath(doc), pk: label, pt }) }
+      catch (e) { console.warn("[pendant-bridge] files.scan skipped", doc?.uuid, e) }
+    }
+  }
+
+  // Already-broken links (path-like text pointing at a user-data file that isn't there).
+  const inScope = (k) => {
+    const low = k.toLowerCase()
+    return low.startsWith(`worlds/${worldId.toLowerCase()}/`) || listing.topDirs.some(t => t.toLowerCase() !== "worlds" && low.startsWith(t.toLowerCase() + "/"))
+  }
+  const broken = []
+  for (const [k, where] of unknown) {
+    if (!inScope(k) || doneOld.has(k.toLowerCase()) || listing.destFiles.includes(k)) continue
+    broken.push({ key: k, where })
+    if (broken.length >= 300) break
+  }
+
+  fsProgress("done", 1, 1, "", true)
+  return {
+    root, worldId, worldTitle: game.world.title, foundry: game.version || game.data?.version || "",
+    files, destFiles: listing.destFiles, otherWorlds: listing.otherWorlds, topDirs: listing.topDirs,
+    unreadable: listing.unreadable, skippedTypes: listing.skippedTypes, placeholders,
+    refs, broken, brokenMore: unknown.size > broken.length, skippedPacks,
+    exts: Object.keys(fsExts()),
+    ledger: { done: Object.keys(L.done).length, kept: Object.keys(L.kept).length, keptMap: L.kept, root: L.root || null,
+              inflight: L.inflight ? { id: L.inflight.id, n: L.inflight.items.length } : null, probe: L.probe || null,
+              reusable: L.reusable },
+    ms: Date.now() - t0,
+  }
+}
+
+// ── server test ───────────────────────────────────────────────
+
+async function fsProbe(msg) {
+  const root = String(msg.root || "").trim()
+  if (!root) throw new Error("files.probe needs a root folder name")
+  const dir = root + "/_sorter"
+  await fsEnsureDir(dir)
+  const tryUp = async (name, bytes) => {
+    if (!bytes) return false
+    try { return (await fsUpload(dir, name, bytes)) === dir + "/" + name } catch { return false }
+  }
+  const caps = { overwrite: false, text: {}, image: {}, at: Date.now() }
+  const A = fsEnc("probe A " + Date.now()), B = fsEnc("probe B " + Date.now() + "!")
+  if (await tryUp("probe-overwrite.webp", A) && await tryUp("probe-overwrite.webp", B)) {
+    caps.overwrite = fsSame(await fsFetch(dir + "/probe-overwrite.webp", true), B)
+  } else {
+    const ia = await fsCanvasImage("png", "#000"), ib = await fsCanvasImage("png", "#fff")
+    if (await tryUp("probe-overwrite.png", ia) && await tryUp("probe-overwrite.png", ib)) {
+      caps.overwrite = fsSame(await fsFetch(dir + "/probe-overwrite.png", true), ib)
+    }
+  }
+  const exts = [...new Set((Array.isArray(msg.exts) ? msg.exts : []).map(e => String(e).toLowerCase()))].filter(e => fsExts()[e])
+  let i = 0
+  for (const ext of exts) {
+    fsProgress("probe", ++i, exts.length, ext, true)
+    caps.text[ext] = await tryUp("probe." + ext, fsEnc(stubText("(server test)")))
+    if (!caps.text[ext]) caps.image[ext] = await tryUp("probe-image." + ext, await fsCanvasImage(ext, "#000"))
+  }
+  const L = fsLedger()
+  L.probe = caps
+  await fsSave(L)
+  return caps
+}
+
+// ── relink + verify ───────────────────────────────────────────
+
+/** Rewrite one document (and its embedded documents) through `rw`. */
+async function fsRelinkDoc(doc, rw, needles, stats) {
+  const src = doc?._source
+  if (!src) return
+  const emb = fsEmbedded(doc)
+  const skip = new Set(["_id", "_stats", ...emb.map(([, f]) => f)])
+  const updates = collectUpdates(src, skip, rw)
+  if (Object.keys(updates).length) {
+    try { await doc.update(updates, { render: false, pendantFileSort: true }); stats.docs++ }
+    catch (e) { stats.errors.push(`${doc.documentName} "${doc.name || doc.id}": ${e?.message || e}`) }
+  }
+  for (const [, field] of emb) {
+    for (const child of fsChildren(doc, field)) {
+      let text = ""
+      try { text = JSON.stringify(child._source) } catch {}
+      if (mightMention(text, needles)) await fsRelinkDoc(child, rw, needles, stats)
+    }
+  }
+}
+
+function fsByPack(uuids) {
+  const out = new Map()
+  for (const u of uuids || []) {
+    const m = /^Compendium\.([^.]+\.[^.]+)\./.exec(String(u))
+    if (!m) continue
+    if (!out.has(m[1])) out.set(m[1], new Set())
+    out.get(m[1]).add(u)
+  }
+  return out
+}
+
+/** Point every link at `map`'s old keys to the new keys. */
+async function fsRelink(map, packUuids) {
+  const stats = { docs: 0, errors: [] }
+  const lower = new Map()
+  for (const [k, v] of map) lower.set(k.toLowerCase(), v)
+  // A case-only match is followed only when the scan proved no OTHER file has
+  // that exact spelling (on a case-sensitive server it could be a different file).
+  const resolve = (key) => map.get(key) ?? ((_fsKnownFiles && !_fsKnownFiles.has(key)) ? lower.get(key.toLowerCase()) ?? null : null)
+  const bases = fsBases()
+  const rw = (s) => rewriteString(s, resolve, bases)
+  const needles = needlesFor([...map.keys()])
+  const touch = async (doc) => {
+    let text = ""
+    try { text = JSON.stringify(doc._source) } catch { return }
+    if (mightMention(text, needles)) await fsRelinkDoc(doc, rw, needles, stats)
+  }
+  for (const coll of fsWorldCollections()) for (const doc of Array.from(coll)) await touch(doc)
+  for (const [packId, uuids] of fsByPack(packUuids)) {
+    const pack = game.packs.get(packId)
+    if (!pack || (pack.metadata?.packageType || "world") !== "world") continue
+    const wasLocked = !!pack.locked
+    try {
+      if (wasLocked) await pack.configure({ locked: false })
+      for (const u of uuids) {
+        let d = null
+        try { d = await fromUuid(u) } catch {}
+        if (d) await touch(d)
+      }
+    } catch (e) { stats.errors.push(`compendium ${pack.metadata?.label || packId}: ${e?.message || e}`) }
+    finally { if (wasLocked) { try { await pack.configure({ locked: true }) } catch {} } }
+  }
+  return stats
+}
+
+/** Who still points at any of these keys (case-insensitive)? → Map key → [where] */
+async function fsStillUsed(keys, packUuids) {
+  const lookup = makeLookup(keys)
+  const bases = fsBases()
+  const needles = needlesFor(keys)
+  const out = new Map()
+  const note = (k, where) => { if (!out.has(k)) out.set(k, []); const a = out.get(k); if (a.length < 5) a.push(where) }
+  const check = (doc) => {
+    let text = ""
+    try { text = JSON.stringify(doc._source) } catch { return }
+    if (!mightMention(text, needles)) return
+    const where = `${doc.documentName} "${doc.name || doc.id}"`
+    fsWalk(doc, (str) => { for (const h of findRefs(str, lookup, bases)) if (!h.wildcard) note(h.key, where) })
+  }
+  for (const coll of fsWorldCollections()) for (const doc of Array.from(coll)) check(doc)
+  for (const [, uuids] of fsByPack(packUuids)) {
+    for (const u of uuids) { let d = null; try { d = await fromUuid(u) } catch {} ; if (d) check(d) }
+  }
+  const settingsColl = game.settings.storage?.get?.("world")
+  for (const s of Array.from(settingsColl?.values?.() || settingsColl || [])) {
+    const v = typeof s?.value === "string" ? s.value : JSON.stringify(s?.value ?? "")
+    if (!mightMention(v, needles)) continue
+    for (const h of findRefs(v, lookup, bases)) if (!h.wildcard) note(h.key, `setting ${s.key}`)
+  }
+  if (game.world?.background) for (const h of findRefs(game.world.background, lookup, bases)) note(h.key, "world background")
+  // Wildcard token images whose pattern now matches a moved file
+  for (const actor of game.actors) {
+    const src = actor.prototypeToken?.texture?.src || ""
+    if (src.includes("*")) for (const k of expandWildcard(fsNorm(src), keys)) note(k, `Actor "${actor.name}" random token image`)
+  }
+  return out
+}
+
+// ── one batch, crash-safe ─────────────────────────────────────
+
+// `ours` = this destination is a half-finished copy WE made (an earlier attempt
+// of this item, or a failed batch), so it may be overwritten. Anything else
+// already sitting there is never touched.
+async function fsCopyItem(it, ours) {
+  const src = await fsFetch(it.from)
+  if (isStubBytes(src)) throw new Error("the original is already a placeholder")
+  const h = await fsHash(src)
+  const existing = await fsFetch(it.to, true)
+  if (existing) {
+    if (existing.length === src.length && await fsHash(existing, h) === h) { it.h = h; it.n = src.length; return }
+    if (!ours) throw new Error("a different file already exists at " + it.to)
+  }
+  const { dir, name } = splitPath(it.to)
+  await fsEnsureDir(dir)
+  const actual = await fsUpload(dir, name, src)
+  if (actual && actual !== it.to) it.to = actual          // the server renamed it — follow the truth
+  const back = await fsFetch(it.to)
+  if (back.length !== src.length || await fsHash(back, h) !== h) throw new Error("the copy didn't match the original")
+  it.h = h; it.n = src.length
+}
+
+function fsStubBytes(it, probe) {
+  const ext = extOf(it.from)
+  if (probe?.text?.[ext]) return fsEnc(stubText(it.to))
+  if (probe?.image?.[ext]) return "image"
+  return null
+}
+
+async function fsShrinkItem(it, probe) {
+  // Never shrink unless the new copy is still there and identical.
+  const copy = await fsFetch(it.to)
+  if (await fsHash(copy, it.h) !== it.h) throw new Error("the new copy changed — original left untouched")
+  let bytes = fsStubBytes(it, probe)
+  if (bytes === "image") bytes = await fsCanvasImage(extOf(it.from), "#000")
+  if (!bytes) { it.s = "unshrunk"; it.err = "this server won't take a placeholder for ." + extOf(it.from) + " files — the original was left in place"; return }
+  const { dir, name } = splitPath(it.from)
+  const actual = await fsUpload(dir, name, bytes)
+  if (actual !== it.from) { it.s = "unshrunk"; it.err = "the server saved the placeholder under another name (" + actual + ")"; return }
+  const back = await fsFetch(it.from, true)
+  if (!back || back.length !== bytes.length) { it.s = "unshrunk"; it.err = "the original didn't shrink"; return }
+  it.s = "done"
+}
+
+/** Originals whose shrink failed earlier (network blip…): shrink them now if nothing uses them. */
+async function fsRetryShrinks(L, probe) {
+  const keys = Object.keys(L.toShrink)
+  if (!keys.length) return 0
+  const still = await fsStillUsed(keys, [])
+  let n = 0
+  for (const from of keys) {
+    if (still.get(from)?.length) continue
+    const it = { from, to: L.toShrink[from].to, h: L.toShrink[from].h }
+    try { await fsShrinkItem(it, probe) } catch { continue }
+    if (it.s === "done" || !it.err) { delete L.toShrink[from]; n++ }
+    else delete L.toShrink[from]                       // the server can't take it — retrying won't help
+  }
+  return n
+}
+
+async function fsRunInflight() {
+  const L = fsLedger()
+  const B = L.inflight
+  if (!B) {
+    const n = await fsRetryShrinks(L, L.probe || {})
+    if (n) await fsSave(L)
+    return { none: true, shrunk: n, toShrink: Object.keys(L.toShrink).length }
+  }
+  const items = B.items
+  const total = items.length
+  const probe = L.probe || {}
+
+  // 1) COPY (+ read back). Items already past this step are never re-copied.
+  const retry = new Set(items.filter(it => it.tried).map(it => it.from))
+  if (items.some(it => it.s === "pending" && !it.tried)) {
+    for (const it of items) if (it.s === "pending") it.tried = true
+    await fsSave(L)
+  }
+  let i = 0
+  for (const it of items) {
+    i++
+    if (it.s !== "pending") continue
+    fsProgress("copy", i, total, it.from, true)
+    if (L.done[it.from]) { it.s = "skipped"; it.err = "already moved"; continue }
+    try { await fsCopyItem(it, retry.has(it.from) || L.reusable.includes(it.to)); it.s = "copied" }
+    catch (e) { it.s = "failed"; it.err = e?.message || String(e); if (!L.reusable.includes(it.to)) L.reusable.push(it.to) }
+  }
+  await fsSave(L)
+
+  // 2) RELINK everything that points at a copied file.
+  const live = items.filter(it => it.s === "copied" || it.s === "relinked")
+  const packUuids = [...new Set(live.flatMap(it => it.uuids || []))]
+  if (live.length) {
+    fsProgress("relink", 0, live.length, "", true)
+    const stats = await fsRelink(new Map(live.map(it => [it.from, it.to])), packUuids)
+    B.relinkErrors = stats.errors.slice(0, 50)
+    B.docsUpdated = (B.docsUpdated || 0) + stats.docs
+    for (const it of live) it.s = "relinked"
+    await fsSave(L)
+  }
+
+  // 3) VERIFY nothing still uses the old paths, then 4) SHRINK the originals.
+  const ready = items.filter(it => it.s === "relinked")
+  if (ready.length) {
+    fsProgress("verify", 0, ready.length, "", true)
+    const still = await fsStillUsed(ready.map(it => it.from), packUuids)
+    let j = 0
+    for (const it of ready) {
+      j++
+      const users = still.get(it.from)
+      if (users?.length) { it.s = "kept"; it.err = "still used by " + users.join(", "); continue }
+      fsProgress("shrink", j, ready.length, it.from, true)
+      try { await fsShrinkItem(it, probe) }
+      catch (e) { it.s = "unshrunk"; it.err = (e?.message || String(e)) + " — will retry next run"; it.retry = true }
+    }
+  }
+
+  // 5) Close the batch.
+  for (const it of items) {
+    if (it.s === "done" || it.s === "unshrunk") { L.done[it.from] = it.to; L.reusable = L.reusable.filter(t => t !== it.to) }
+    else if (it.s === "kept") L.kept[it.from] = it.to
+    if (it.s === "unshrunk" && it.retry) L.toShrink[it.from] = { to: it.to, h: it.h }
+  }
+  await fsRetryShrinks(L, probe)
+  L.root = B.root || L.root
+  L.lastBatch = { id: B.id, at: Date.now(), docsUpdated: B.docsUpdated || 0, relinkErrors: B.relinkErrors || [],
+                  results: items.map(it => ({ from: it.from, to: it.to, s: it.s, err: it.err || undefined })) }
+  L.inflight = null
+  await fsSave(L)
+  fsProgress("batch", total, total, "", true)
+  return { batch: L.lastBatch, done: Object.keys(L.done).length }
+}
+
+async function fsWithLock(fn) {
+  if (_fsBusy) throw new Error("The file sorter is already running in this Foundry window")
+  _fsBusy = true
+  try { return await fn() } finally { _fsBusy = false }
+}
+
+async function fsMove(msg) {
+  const root = String(msg.root || "").trim()
+  const items = Array.isArray(msg.items) ? msg.items : []
+  if (!root || !msg.batchId) throw new Error("files.move needs root + batchId")
+  if (!items.length || items.length > 100) throw new Error("files.move takes 1–100 files")
+  const L = fsLedger()
+  if (!L.probe?.overwrite) throw new Error("Run the server test first (it checks this server lets placeholders replace files)")
+  if (L.inflight && L.inflight.id !== msg.batchId) throw new Error("An earlier batch didn't finish — resume it first")
+  if (!L.inflight) {
+    const rootLow = root.toLowerCase() + "/"
+    for (const it of items) {
+      const from = fsNorm(it.from), to = fsNorm(it.to)
+      if (!from || !to) throw new Error("bad path in batch")
+      if (!to.toLowerCase().startsWith(rootLow)) throw new Error("destination outside " + root + ": " + to)
+      if (from.toLowerCase().startsWith(rootLow)) throw new Error("source is already inside " + root + ": " + from)
+    }
+    L.inflight = {
+      id: String(msg.batchId), root, at: Date.now(),
+      items: items.map(it => ({ from: fsNorm(it.from), to: fsNorm(it.to), uuids: (it.uuids || []).filter(u => String(u).startsWith("Compendium.")).slice(0, 200), s: "pending" })),
+    }
+    await fsSave(L)
+  }
+  return fsRunInflight()
+}
+
+function fsStatus() {
+  const L = fsLedger()
+  return {
+    busy: _fsBusy, root: L.root || null, done: Object.keys(L.done).length, kept: Object.keys(L.kept).length,
+    toShrink: Object.keys(L.toShrink).length,
+    inflight: L.inflight ? { id: L.inflight.id, n: L.inflight.items.length, at: L.inflight.at } : null,
+    probe: L.probe || null, lastBatch: L.lastBatch || null,
+  }
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -2723,6 +3366,33 @@ async function handleCommand(msg) {
       const cls = type === "Actor" ? Actor : Scene
       for (let i = 0; i < changes.length; i += 100) await cls.updateDocuments(changes.slice(i, i + 100))
       return bridge.reply(msg.reqId, { type: "sort.updated", updated: changes.length, ...sortInventory() })
+    }
+
+    // ── File sorter (RealmScreen Foundry Library ▸ Files) ──────────
+    // scan = read-only; probe = tiny test files under <root>/_sorter;
+    // move/resume = one crash-safe batch (see fsRunInflight).
+    case "files.scan": {
+      if (!game.user?.isGM) throw new Error("Only the GM can scan files")
+      const result = await fsWithLock(() => fsScan(msg))
+      return bridge.reply(msg.reqId, { type: "files.scanned", ...result })
+    }
+    case "files.probe": {
+      if (!game.user?.isGM) throw new Error("Only the GM can test uploads")
+      const caps = await fsWithLock(() => fsProbe(msg))
+      return bridge.reply(msg.reqId, { type: "files.probed", probe: caps })
+    }
+    case "files.move": {
+      if (!game.user?.isGM) throw new Error("Only the GM can move files")
+      const result = await fsWithLock(() => fsMove(msg))
+      return bridge.reply(msg.reqId, { type: "files.moved", ...result })
+    }
+    case "files.resume": {
+      if (!game.user?.isGM) throw new Error("Only the GM can move files")
+      const result = await fsWithLock(() => fsRunInflight())
+      return bridge.reply(msg.reqId, { type: "files.moved", ...result })
+    }
+    case "files.status": {
+      return bridge.reply(msg.reqId, { type: "files.status", ...fsStatus() })
     }
 
     default:
