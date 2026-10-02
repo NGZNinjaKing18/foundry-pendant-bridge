@@ -1719,8 +1719,14 @@ async function fsScan(msg) {
   const L = fsLedger()
   const doneOld = new Set(Object.keys(L.done).map(k => k.toLowerCase()))
   const listing = await fsBrowseAll(root)
-  const files = listing.files.filter(k => !doneOld.has(k.toLowerCase()))
-  const placeholders = listing.files.length - files.length
+  const outside = listing.files.filter(k => !doneOld.has(k.toLowerCase()))
+  const placeholders = listing.files.length - outside.length
+  // Files this sorter already placed inside the root are in scope too, so a changed
+  // layout can re-sort them. `origins` says where each first came from.
+  const placedMap = fsPlacedMap(L)
+  const placed = listing.destFiles.filter(k => !doneOld.has(k.toLowerCase()) && placedMap.has(k.toLowerCase()))
+  const origins = Object.fromEntries(placed.map(k => [k, fsOriginOf(k, placedMap)]))
+  const files = outside.concat(placed)
   _fsKnownFiles = new Set(files)
   const lookup = makeLookup(files)
   const bases = fsBases()
@@ -1807,7 +1813,7 @@ async function fsScan(msg) {
   fsProgress("done", 1, 1, "", true)
   return {
     root, worldId, worldTitle: game.world.title, foundry: game.version || game.data?.version || "",
-    files, destFiles: listing.destFiles, otherWorlds: listing.otherWorlds, topDirs: listing.topDirs,
+    files, origins, destFiles: listing.destFiles, otherWorlds: listing.otherWorlds, topDirs: listing.topDirs,
     unreadable: listing.unreadable, skippedTypes: listing.skippedTypes, placeholders,
     refs, broken, brokenMore: unknown.size > broken.length, skippedPacks,
     exts: Object.keys(fsExts()),
@@ -2106,7 +2112,10 @@ async function fsRunInflight() {
 
   // 5) Close the batch.
   for (const it of items) {
-    if (it.s === "done" || it.s === "unshrunk") { L.done[it.from] = it.to; L.reusable = L.reusable.filter(t => t !== it.to) }
+    if (it.s === "done" || it.s === "unshrunk") {
+      L.done[it.from] = it.to; L.reusable = L.reusable.filter(t => t !== it.to)
+      fsRetarget(L, it.from, it.to)                    // a re-sorted file: kept/toShrink entries follow it
+    }
     else if (it.s === "kept") L.kept[it.from] = { to: it.to, h: it.h, uuids: it.uuids || [] }
     if (it.s === "unshrunk" && it.retry) L.toShrink[it.from] = { to: it.to, h: it.h }
   }
@@ -2118,6 +2127,28 @@ async function fsRunInflight() {
   await fsSave(L)
   fsProgress("batch", total, total, "", true)
   return { batch: L.lastBatch, done: Object.keys(L.done).length }
+}
+
+/** lower(placed path) → the path it was moved from, for every file the sorter put inside the root. */
+function fsPlacedMap(L) {
+  const m = new Map()
+  for (const [o, t] of Object.entries(L.done)) m.set(String(t).toLowerCase(), o)
+  for (const [o, e] of Object.entries(L.kept)) m.set(String(typeof e === "string" ? e : e?.to).toLowerCase(), o)
+  return m
+}
+/** Follow a placed file back through re-sorts to where it ORIGINALLY lived. */
+function fsOriginOf(key, placed) {
+  let k = key, guard = 0
+  while (placed.has(k.toLowerCase()) && guard++ < 20) k = placed.get(k.toLowerCase())
+  return k
+}
+/** A placed file moved again: anything still pointing at its old spot follows it. */
+function fsRetarget(L, oldTo, newTo) {
+  const low = oldTo.toLowerCase()
+  for (const [o, e] of Object.entries(L.kept)) {
+    if (typeof e === "string" ? e.toLowerCase() === low : e?.to?.toLowerCase() === low) L.kept[o] = typeof e === "string" ? newTo : { ...e, to: newTo }
+  }
+  for (const [o, e] of Object.entries(L.toShrink)) if (e?.to?.toLowerCase() === low) L.toShrink[o] = { ...e, to: newTo }
 }
 
 async function fsWithLock(fn) {
@@ -2136,11 +2167,14 @@ async function fsMove(msg) {
   if (L.inflight && L.inflight.id !== msg.batchId) throw new Error("An earlier batch didn't finish — resume it first")
   if (!L.inflight) {
     const rootLow = root.toLowerCase() + "/"
+    const placedMap = fsPlacedMap(L)
     for (const it of items) {
       const from = fsNorm(it.from), to = fsNorm(it.to)
       if (!from || !to) throw new Error("bad path in batch")
       if (!to.toLowerCase().startsWith(rootLow)) throw new Error("destination outside " + root + ": " + to)
-      if (from.toLowerCase().startsWith(rootLow)) throw new Error("source is already inside " + root + ": " + from)
+      if (from.toLowerCase() === to.toLowerCase()) throw new Error("already there: " + from)
+      // Inside the root, only re-sort files this sorter put there itself.
+      if (from.toLowerCase().startsWith(rootLow) && !placedMap.has(from.toLowerCase())) throw new Error("source is inside " + root + " but wasn't put there by the sorter: " + from)
       if (!fsIsMedia(from)) throw new Error("only images, audio, video and PDFs can be moved: " + from)
     }
     L.inflight = {
@@ -2150,6 +2184,63 @@ async function fsMove(msg) {
     await fsSave(L)
   }
   return fsRunInflight()
+}
+
+// ── leftover folders ──────────────────────────────────────────
+// Foundry can't delete or rename folders from a browser. So every folder that now
+// holds NOTHING but placeholders gets a "DELETE THIS FOLDER" note, for whoever can
+// reach the server. A folder with anything still in use is never marked.
+const FS_MARK = "DELETE THIS FOLDER"
+async function fsMarkLeftovers(msg) {
+  const L = fsLedger()
+  const root = String(msg.root || L.root || "").trim()
+  const FP = getFilePicker()
+  const doneLow = new Set(Object.keys(L.done).map(k => k.toLowerCase()))
+  const worldId = game.world.id.toLowerCase()
+  const protectedDir = (d) => {
+    const low = d.toLowerCase()
+    return !low || low === "worlds" || low === `worlds/${worldId}` || low === root.toLowerCase() || low === "modules" || low === "systems" ||
+      low === `${root.toLowerCase()}/_sorter` || low.startsWith(`worlds/${worldId}/data`) || low.startsWith(`worlds/${worldId}/packs`)
+  }
+  const isMark = (k) => splitPath(k).name.startsWith(FS_MARK)
+  const memo = new Map()
+  const qualifies = async (dir) => {
+    if (memo.has(dir)) return memo.get(dir)
+    let ok = false
+    try {
+      const res = await FP.browse("data", dir, {})
+      const files = (res.files || []).map(fsNorm)
+      ok = files.every(k => doneLow.has(k.toLowerCase()) || isMark(k)) && files.some(k => doneLow.has(k.toLowerCase()))
+      if (ok) for (const d of (res.dirs || []).map(fsNorm)) { if (!(await qualifies(d))) { ok = false; break } }
+      if (!files.length && (res.dirs || []).length) {   // only subfolders: qualifies when they all do
+        ok = true
+        for (const d of (res.dirs || []).map(fsNorm)) { if (!(await qualifies(d))) { ok = false; break } }
+      }
+      memo.set(dir + "#marked", files.some(isMark))
+    } catch { ok = false }
+    memo.set(dir, ok)
+    return ok
+  }
+  const candidates = new Set()
+  for (const k of Object.keys(L.done)) {
+    let d = splitPath(k).dir
+    while (d && !protectedDir(d)) { candidates.add(d); d = splitPath(d).dir }
+  }
+  const ext = fsExts().txt ? "txt" : fsExts().md ? "md" : "webp"
+  const body = fsEnc(`Everything in this folder was moved by RealmScreen into "${root}".
+Nothing uses these files any more, so this whole folder can be deleted.
+`)
+  const marked = []
+  let i = 0
+  for (const d of [...candidates].sort((a, b) => a.length - b.length)) {
+    fsProgress("mark", ++i, candidates.size, d)
+    if (!(await qualifies(d))) continue
+    const parent = splitPath(d).dir
+    if (parent && !protectedDir(parent) && (await qualifies(parent))) continue    // the parent gets the note instead
+    if (!memo.get(d + "#marked")) { try { await fsUpload(d, `${FS_MARK}.${ext}`, body) } catch { continue } }
+    marked.push(d)
+  }
+  return { marked }
 }
 
 function fsStatus() {
@@ -3449,6 +3540,11 @@ async function handleCommand(msg) {
       if (!game.user?.isGM) throw new Error("Only the GM can move files")
       const result = await fsWithLock(() => fsRunInflight())
       return bridge.reply(msg.reqId, { type: "files.moved", ...result })
+    }
+    case "files.markLeftovers": {
+      if (!game.user?.isGM) throw new Error("Only the GM can do this")
+      const result = await fsWithLock(() => fsMarkLeftovers(msg))
+      return bridge.reply(msg.reqId, { type: "files.marked", ...result })
     }
     case "files.status": {
       return bridge.reply(msg.reqId, { type: "files.status", ...fsStatus() })

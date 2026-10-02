@@ -168,7 +168,7 @@ async function loadBridge(globals) {
     .replace(/from "\.\/file-sort\.js"/, `from ${JSON.stringify(pathToFileURL(join(here, "../scripts/file-sort.js")).href)}`)
   const dir = mkdtempSync(join(tmpdir(), "pb-harness-"))
   const file = join(dir, "main.mjs")
-  writeFileSync(file, src + "\nexport { fsScan, fsProbe, fsMove, fsRunInflight, fsStatus, fsLedger }\n")
+  writeFileSync(file, src + "\nexport { fsScan, fsProbe, fsMove, fsRunInflight, fsStatus, fsLedger, fsMarkLeftovers }\n")
   return import(pathToFileURL(file).href + "?v=" + Math.random())
 }
 
@@ -280,8 +280,8 @@ test("scan finds every link; plan pins what can't be relinked", async (t) => {
   assert.deepEqual(scan.otherWorlds, ["other"])
   assert.ok(!scan.files.some(f => f.endsWith(".json")), "data files (world.json…) are never in scope")
   const to = Object.fromEntries(plan.items.map(i => [i.from, i.to]))
-  assert.equal(to["worlds/w/maps/Cave Map.webp"], `${ROOT}/Maps/The Cave/Cave Map.webp`)
-  assert.equal(to["worlds/w/tokens/gob.webp"], `${ROOT}/Tokens and Actors/Bestiary/Monsters/Goblin Boss/gob.webp`)
+  assert.equal(to["worlds/w/maps/Cave Map.webp"], `${ROOT}/Maps/Cave Map.webp`)
+  assert.equal(to["worlds/w/tokens/gob.webp"], `${ROOT}/Tokens and Actors/Goblin Boss/gob.webp`)
   assert.equal(to["uploads/song.mp3"], `${ROOT}/Audio/Battle/song.mp3`)
   assert.equal(to["uploads/unused.png"], `${ROOT}/Unused/uploads/unused.png`)
   const pinned = Object.fromEntries(plan.pinned.map(p => [p.from, p.why]))
@@ -307,11 +307,11 @@ test("a full run moves, relinks, verifies and shrinks — and keeps what it can'
   await assertNothingBroken(W, "after run")
   // originals of moved files are now placeholders saying where they went
   const old = new TextDecoder().decode(W.FOUNDRY.files.get("worlds/w/maps/Cave Map.webp"))
-  assert.match(old, /^RealmScreen moved this file\.\nNew location: Chronicles of Albuna\/Maps\/The Cave\/Cave Map\.webp/)
+  assert.match(old, /^RealmScreen moved this file\.\nNew location: Chronicles of Albuna\/Maps\/Cave Map\.webp/)
   // the journal kept its written forms: plain attribute stays plain, absolute URL stays absolute
   const html = W.game.collections.get("JournalEntry").docs[0].pages.docs[0]._own.text.content
-  assert.match(html, /src="Chronicles of Albuna\/Maps\/The Cave\/Cave Map\.webp"/)
-  assert.match(html, new RegExp(`src='${ORIGIN}/Chronicles%20of%20Albuna/Tokens%20and%20Actors/Heroes%20\\(compendium\\)/Hero/Hero\\.png\\?x=1'`))
+  assert.match(html, /src="Chronicles of Albuna\/Maps\/Cave Map\.webp"/)
+  assert.match(html, new RegExp(`src='${ORIGIN}/Chronicles%20of%20Albuna/Tokens%20and%20Actors/Hero/Hero\\.png\\?x=1'`))
   // the scene's encoded background stayed encoded
   assert.match(W.game.collections.get("Scene").docs[0]._own.background.src, /^Chronicles%20of%20Albuna\/Maps\//)
   // the world compendium was edited and re-locked
@@ -362,8 +362,14 @@ test("crash at EVERY save and EVERY upload, then resume: no link ever breaks, ev
     await assertNothingBroken(W, label + " (finished)")
     // every file that moved: exactly one full copy exists, original shrunk
     const L = bridge.fsLedger()
+    // where a placed file first came from (a re-sort chains: original → copy → new spot)
+    const back = new Map()
+    for (const [o, t] of Object.entries(L.done)) back.set(t, o)
+    for (const [o, e] of Object.entries(L.kept)) back.set(e.to || e, o)
+    const originOf = (k) => { let g = 0; while (back.has(k) && !(k in BYTES) && g++ < 10) k = back.get(k); return k }
     for (const [from, to] of Object.entries(L.done)) {
-      assert.deepEqual(W.FOUNDRY.files.get(to), BYTES[from], `${label}: copy of ${from} differs`)
+      if (W.FOUNDRY.files.get(to).length < 200 && L.done[to]) continue   // moved on again; checked at its last spot
+      assert.deepEqual(W.FOUNDRY.files.get(to), BYTES[originOf(to)], `${label}: copy of ${from} differs`)
       assert.ok(W.FOUNDRY.files.get(from).length < 200, `${label}: ${from} wasn't shrunk`)
     }
     assert.ok(Object.keys(L.done).length >= 5, `${label}: only ${Object.keys(L.done).length} moved`)
@@ -390,4 +396,37 @@ test("files kept earlier are recovered once nothing uses the original", async (t
   assert.deepEqual(W.FOUNDRY.files.get(to), BYTES["uploads/stubborn.webp"])
   assert.ok(W.FOUNDRY.files.get("uploads/stubborn.webp").length < 200, "original shrunk")
   await assertNothingBroken(W, "after recovery")
+})
+
+test("a changed layout re-sorts files already placed; leftover folders get a DELETE THIS FOLDER note", async (t) => {
+  const P = await loadPlanner()
+  if (!P) return t.skip("pendant-home not next to this repo")
+  const W = buildWorld()
+  const bridge = await loadBridge(W.globals)
+  // 1) a first run under an OLD layout: everything nested two extra levels deep
+  const { plan } = await planFor(bridge, P, W)
+  await bridge.fsProbe({ root: ROOT, exts: [...new Set(plan.items.map(i => P.extOf(i.from)))] })
+  const old = plan.items.map(i => ({ ...i, to: i.to.replace(`${ROOT}/`, `${ROOT}/Old layout/x/`) }))
+  await bridge.fsMove({ root: ROOT, batchId: "b1", items: old })
+  await assertNothingBroken(W, "old layout")
+  // 2) rescan: placed files come back with where they first came from, and re-sort
+  const scan2 = await bridge.fsScan({ root: ROOT })
+  assert.equal(scan2.origins[`${ROOT}/Old layout/x/Maps/Cave Map.webp`], "worlds/w/maps/Cave Map.webp")
+  const plan2 = P.buildFilePlan(scan2, { root: ROOT })
+  assert.ok(plan2.resort >= 5, "placed files re-sorted: " + plan2.resort)
+  const r = await bridge.fsMove({ root: ROOT, batchId: "b2", items: plan2.items })
+  assert.ok(r.batch.results.every(x => x.s === "done" || x.s === "kept"), JSON.stringify(r.batch.results.filter(x => x.s !== "done")))
+  await assertNothingBroken(W, "after re-sort")
+  assert.deepEqual(W.FOUNDRY.files.get(`${ROOT}/Maps/Cave Map.webp`), BYTES["worlds/w/maps/Cave Map.webp"])
+  // a third scan: nothing left to re-sort
+  const plan3 = P.buildFilePlan(await bridge.fsScan({ root: ROOT }), { root: ROOT })
+  assert.equal(plan3.items.filter(i => i.from.startsWith(ROOT)).length, 0, JSON.stringify(plan3.items.map(i => i.from + " -> " + i.to)))
+  // 3) mark leftovers: only folders holding nothing but placeholders
+  const { marked } = await bridge.fsMarkLeftovers({ root: ROOT })
+  assert.ok(marked.includes(`${ROOT}/Old layout`), "the whole old layout folder: " + marked.join(" · "))
+  assert.ok(marked.includes("worlds/w/maps"), marked.join(" · "))
+  assert.ok(!marked.includes("uploads"), "uploads still holds a file a setting uses")
+  assert.ok(!marked.some(d => d.startsWith(`${ROOT}/Old layout/`)), "only the topmost leftover folder is marked")
+  assert.ok(W.FOUNDRY.files.has(`${ROOT}/Old layout/DELETE THIS FOLDER.txt`))
+  await assertNothingBroken(W, "after marking")
 })
