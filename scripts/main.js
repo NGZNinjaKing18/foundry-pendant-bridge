@@ -1756,7 +1756,11 @@ async function fsScan(msg) {
       for (const h of hits) {
         if (h.wildcard) {
           for (const k of expandWildcard(h.key, files)) refs.push({ ...top, f: k, k: path, ed: false, wild: h.key, e, en, an, afp })
-        } else refs.push({ ...top, f: h.key, k: path, ed: editable, amb: h.ambiguous || undefined, e, en, an, afp })
+        } else {
+          const written = normalizePath(h.cand.raw, bases)
+          refs.push({ ...top, f: h.key, k: path, ed: editable, amb: h.ambiguous || undefined, e, en, an, afp,
+                      raw: written !== h.key ? h.cand.raw.slice(0, 300) : undefined })   // how the link is really written, when it differs
+        }
       }
     })
   }
@@ -1898,7 +1902,9 @@ async function fsRelink(map, packUuids) {
   for (const [k, v] of map) lower.set(k.toLowerCase(), v)
   // A case-only match is followed only when the scan proved no OTHER file has
   // that exact spelling (on a case-sensitive server it could be a different file).
-  const resolve = (key) => map.get(key) ?? ((_fsKnownFiles && !_fsKnownFiles.has(key)) ? lower.get(key.toLowerCase()) ?? null : null)
+  // (Without a scan in this Foundry session — e.g. a resume right after a reload — a
+  // case-only match is followed too: the scan that planned this batch matched it that way.)
+  const resolve = (key) => map.get(key) ?? ((!_fsKnownFiles || !_fsKnownFiles.has(key)) ? lower.get(key.toLowerCase()) ?? null : null)
   const bases = fsBases()
   const rw = (s) => rewriteString(s, resolve, bases)
   const needles = needlesFor([...map.keys()])
