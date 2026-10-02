@@ -494,6 +494,22 @@ const bridge = {
     reg("updateCombatant", (cb) => pushCombat(cb.parent))
     reg("createCombat", (c) => pushCombat(c))
     reg("deleteCombat", (c) => this.send({ type: "combat.update", combat: game.combat ? serializeCombat(game.combat) : null }))
+    // A fighter's HP or conditions changing is an actor/token edit, not a
+    // combat one — re-send the running fight (coalesced) when it touches a
+    // combatant, so the combatants' hp/statuses stay live.
+    let combatPushTimer = null
+    const touchCombat = (actorId, tokenId) => {
+      const c = game.combat
+      if (!c || !c.combatants.some(cb => (actorId && cb.actorId === actorId) || (tokenId && cb.tokenId === tokenId))) return
+      clearTimeout(combatPushTimer)
+      combatPushTimer = setTimeout(() => { if (game.combat) pushCombat(game.combat) }, 250)
+    }
+    const touchActor = (a) => { if (a?.documentName === "Actor") touchCombat(a.isToken ? null : a.id, a.isToken ? a.token?.id : null) }
+    reg("updateActor", (actor) => touchActor(actor))
+    reg("updateToken", (doc) => touchCombat(null, doc.id))
+    reg("createActiveEffect", (fx) => touchActor(fx.parent))
+    reg("updateActiveEffect", (fx) => touchActor(fx.parent))
+    reg("deleteActiveEffect", (fx) => touchActor(fx.parent))
 
     // ── Live scene mirror (COA Scene View) ───────────────────
     // Stream token moves/creates/deletes on the ACTIVE scene, and push the
@@ -1124,10 +1140,17 @@ function serializeCombat(c) {
     // of re-deriving order from raw (unsorted) initiative values.
     current:   c.combatant?.id || null,
     turnOrder: (c.turns || []).map(t => t.id),
-    combatants: c.combatants.map(cb => ({
-      id: cb.id, actorId: cb.actorId, tokenId: cb.tokenId, name: cb.name, initiative: cb.initiative,
-      hidden: cb.hidden, defeated: cb.defeated
-    }))
+    // hp / statuses / pc come from the combatant's OWN actor — for an unlinked
+    // token that is the synthetic actor, so three goblins carry three HP pools
+    // (the app's Discord tracker shows them as bands).
+    combatants: c.combatants.map(cb => {
+      let hp = null, statuses = [], pc = false
+      try { const a = cb.actor; if (a) { hp = readHP(a); statuses = Array.from(a.statuses || []); pc = !!a.hasPlayerOwner } } catch {}
+      return {
+        id: cb.id, actorId: cb.actorId, tokenId: cb.tokenId, name: cb.name, initiative: cb.initiative,
+        hidden: cb.hidden, defeated: cb.defeated, hp, statuses, pc
+      }
+    })
   }
 }
 
@@ -1292,6 +1315,98 @@ function readHP(actor) {
     const hp = actor.system?.attributes?.hp ?? actor.system?.hp
     if (hp && typeof hp === "object") return { value: hp.value, max: hp.max, temp: hp.temp ?? null }
   } catch {}
+  return null
+}
+
+// ──────────────────────────────────────────────────────────────
+// actor.roll / item.use — the system's own rolls, no dialogs
+// ──────────────────────────────────────────────────────────────
+// dnd5e changed every roll signature in 4.0: (config, dialog, message) and an
+// array of rolls back, where 3.x took (id, options) and returned one roll.
+// Both are handled; anything else throws in words the app shows the player.
+
+const pbDnd5eMajor = () => (game.system?.id === "dnd5e" ? parseInt(String(game.system.version || "0"), 10) || 0 : 0)
+const pbAdv = (mode) => ({ advantage: mode === "adv", disadvantage: mode === "dis" })
+const PB_ABIL = { str: "Strength", dex: "Dexterity", con: "Constitution", int: "Intelligence", wis: "Wisdom", cha: "Charisma" }
+
+function pbRollLabel(msg) {
+  const k = String(msg.key || "")
+  switch (msg.kind) {
+    case "skill":   return (CONFIG.DND5E?.skills?.[k]?.label) || k
+    case "save":    return (PB_ABIL[k] || k) + " save"
+    case "ability": return (PB_ABIL[k] || k) + " check"
+    case "death":   return "Death save"
+    case "hitDie":  return "Hit die"
+    default:        return "Roll"
+  }
+}
+
+function pbRollSummary(r) {
+  const roll = Array.isArray(r) ? r[0] : r
+  if (!roll || typeof roll !== "object" || roll.total == null) return { total: null, formula: null, dice: [] }
+  return {
+    total: roll.total,
+    formula: roll.formula,
+    dice: (roll.dice || []).map(d => ({ faces: d.faces, results: (d.results || []).map(x => ({ result: x.result, active: x.active })) }))
+  }
+}
+
+async function pbRollActor(a, msg) {
+  if (game.system?.id !== "dnd5e") throw new Error("One-click rolls need the dnd5e system")
+  const v4 = pbDnd5eMajor() >= 4
+  const key = String(msg.key || "")
+  const mode = msg.mode
+  const message = { create: true, ...(msg.rollMode ? { rollMode: msg.rollMode } : {}) }
+  const v3opts = { fastForward: true, chatMessage: true, ...pbAdv(mode), ...(msg.rollMode ? { rollMode: msg.rollMode } : {}) }
+  switch (msg.kind) {
+    case "skill":
+      if (!a.system?.skills?.[key]) throw new Error("No such skill: " + key)
+      return v4 ? a.rollSkill({ skill: key, ...pbAdv(mode) }, { configure: false }, message) : a.rollSkill(key, v3opts)
+    case "save":
+      if (!a.system?.abilities?.[key]) throw new Error("No such ability: " + key)
+      return v4 ? a.rollSavingThrow({ ability: key, ...pbAdv(mode) }, { configure: false }, message) : a.rollAbilitySave(key, v3opts)
+    case "ability":
+      if (!a.system?.abilities?.[key]) throw new Error("No such ability: " + key)
+      return v4 ? a.rollAbilityCheck({ ability: key, ...pbAdv(mode) }, { configure: false }, message) : a.rollAbilityTest(key, v3opts)
+    case "death":
+      return v4 ? a.rollDeathSave({ ...pbAdv(mode) }, { configure: false }, message) : a.rollDeathSave(v3opts)
+    case "hitDie": {
+      // key = denomination ("d10"); blank = the system picks the largest left.
+      return v4 ? a.rollHitDie({ denomination: key || undefined }, { configure: false }, message) : a.rollHitDie(key || undefined, { dialog: false })
+    }
+    default: throw new Error("Unknown roll kind: " + msg.kind)
+  }
+}
+
+async function pbUseItem(item, msg) {
+  if (game.system?.id !== "dnd5e") throw new Error("Using items from the app needs the dnd5e system")
+  const kind = msg.kind || "use"
+  const mode = msg.mode
+  if (pbDnd5eMajor() >= 4) {
+    const acts = Array.from(item.system?.activities?.values?.() || item.system?.activities || [])
+    if (kind === "attack") {
+      const act = acts.find(x => x.type === "attack")
+      if (!act) throw new Error(item.name + " has no attack")
+      return act.rollAttack({ ...pbAdv(mode) }, { configure: false }, { create: true })
+    }
+    if (kind === "damage") {
+      const act = acts.find(x => x.type === "attack" && x.damage?.parts?.length) || acts.find(x => x.damage?.parts?.length) || acts.find(x => typeof x.rollDamage === "function")
+      if (!act || typeof act.rollDamage !== "function") throw new Error(item.name + " has no damage roll")
+      return act.rollDamage({}, { configure: false }, { create: true })
+    }
+    // A full use: the item's first activity, consuming what it consumes
+    // (spell slot at the spell's own level, a charge, a quantity).
+    const act = acts[0]
+    if (act && typeof act.use === "function") {
+      const res = await act.use({}, { configure: false }, { create: true })
+      return res?.rolls || null
+    }
+    return item.use?.({}, { configure: false }, { create: true })
+  }
+  // dnd5e 3.x
+  if (kind === "attack") { if (typeof item.rollAttack !== "function" || !item.hasAttack) throw new Error(item.name + " has no attack"); return item.rollAttack({ fastForward: true, ...pbAdv(mode) }) }
+  if (kind === "damage") { if (typeof item.rollDamage !== "function" || !item.hasDamage) throw new Error(item.name + " has no damage roll"); return item.rollDamage({ options: { fastForward: true } }) }
+  await item.use({}, { configureDialog: false })
   return null
 }
 
@@ -3179,6 +3294,31 @@ async function handleCommand(msg) {
       if (kind === "long") opts.newDay = msg.newDay !== false
       await fn.call(a, opts)
       return bridge.reply(msg.reqId, { type: "actor", actor: serializeActorFull(a) })
+    }
+
+    // The game system's OWN roll for a check — so proficiency, expertise,
+    // Jack of All Trades, effects and bonuses are dnd5e's math, not ours. No
+    // dialog; the roll lands in Foundry chat as normal. (RealmScreen's Discord
+    // character sheet.) { id, kind:'skill'|'save'|'ability'|'death'|'hitDie',
+    // key, mode:'normal'|'adv'|'dis', rollMode? } → roll.result
+    case "actor.roll": {
+      const a = game.actors.get(msg.id)
+      if (!a) throw new Error("Actor not found: " + msg.id)
+      const r = await pbRollActor(a, msg)
+      return bridge.reply(msg.reqId, { type: "roll.result", ...pbRollSummary(r), label: pbRollLabel(msg) })
+    }
+
+    // Use an item the way its sheet button does: attack, damage, or a full use
+    // (a spell's slot, a feature's charge, a potion's quantity — all consumed by
+    // the system). { actorId, itemId, kind:'attack'|'damage'|'use',
+    // mode:'normal'|'adv'|'dis' } → roll.result (total null for a plain use)
+    case "item.use": {
+      const a = game.actors.get(msg.actorId)
+      if (!a) throw new Error("Actor not found: " + msg.actorId)
+      const item = a.items.get(msg.itemId)
+      if (!item) throw new Error("Item not found: " + msg.itemId)
+      const r = await pbUseItem(item, msg)
+      return bridge.reply(msg.reqId, { type: "roll.result", ...pbRollSummary(r), label: item.name, actor: serializeActorFull(a) })
     }
 
     // Delete actors — e.g. the app's test pushes (GM only).
