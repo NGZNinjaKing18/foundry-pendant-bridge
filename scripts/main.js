@@ -19,6 +19,7 @@ import {
   rewriteString, collectUpdates, forEachString, needlesFor, mightMention,
   hashBytes53, stubText, isStubBytes,
 } from "./file-sort.js"
+import { setLook, previewLook, currentLook } from "./look.js"
 
 const MOD = "pendant-bridge"
 const FS_LEDGER = "fileSortLedger"
@@ -3466,6 +3467,20 @@ async function handleCommand(msg) {
     // panel agree exactly.
     case "antihammer.config.get": {
       return bridge.reply(msg.reqId, { type: "antihammer.config", config: AH.cfg() })
+    }
+    // ── RealmScreen campaign look (scripts/look.js) ──────────────
+    // { look: payload|null, announce? } → stored in the world setting every
+    // client applies; null = back to stock. preview = this GM client only.
+    case "look.set": {
+      const r = await setLook(msg.look || null, { announce: !!msg.announce })
+      return bridge.reply(msg.reqId, { type: "look.set", ...r })
+    }
+    case "look.preview": {
+      await previewLook(msg.look || null, Number(msg.seconds) || 120)
+      return bridge.reply(msg.reqId, { type: "look.preview", ok: true })
+    }
+    case "look.get": {
+      return bridge.reply(msg.reqId, { type: "look.get", look: currentLook() })
     }
     case "antihammer.config.set": {
       const cur = AH.cfg()

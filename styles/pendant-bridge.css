@@ -420,3 +420,19 @@
   .ah-panel .ah-tile.empty:hover, .ah-panel .ah-cont-chip:hover, .ah-panel .ah-tray-it:hover,
   .ah-panel .ah-act:active, .ah-panel .ah-ghostbtn:active { transform: none; }
 }
+
+/* ── RealmScreen campaign look (scripts/look.js) ─────────────────
+   Only the elements the look ADDS live here; colours/fonts come from Foundry's
+   own variables, overridden in the injected <style id="pb-look">. */
+#players .pb-campaign {
+  font-size: var(--font-size-11, 0.6875rem); font-weight: 700; letter-spacing: .16em; text-transform: uppercase;
+  padding-bottom: 4px; margin-bottom: 4px; border-bottom: 1px solid var(--color-cool-4);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#pause .pb-pause-sub {
+  margin-top: -0.75rem; font-family: var(--font-serif); font-size: var(--font-size-16); line-height: 1rem;
+  letter-spacing: .24em; text-transform: uppercase; color: #ada7b8; opacity: .8;
+}
+.chat-message .pb-session-card h3 { margin: 0 0 2px; font-family: var(--font-h3, var(--font-serif)); border: none; }
+.chat-message .pb-session-card p { margin: 0; color: var(--color-dark-4); }
+.chat-message .message-metadata .pb-worldtime { white-space: nowrap; }
