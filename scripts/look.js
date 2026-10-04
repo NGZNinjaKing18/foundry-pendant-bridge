@@ -148,12 +148,13 @@ function buildCss(look) {
   const ty = p.type
   if (ty && typeof ty === "object") {
     const n = (v, lo, hi, d) => { const x = Number(v); return Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : d }
-    const h = n(ty.height, 100, 480, 180), icon = n(ty.icon, 32, 240, 100)
+    const k = n(ty.scale, 0.5, 3, 1)   // the "scale everything" dial
+    const h = Math.round(n(ty.height, 100, 480, 180) * k), icon = Math.round(n(ty.icon, 32, 240, 100) * k)
     const caps = ty.caps === false ? "none" : "uppercase"
-    L.push(`body.pb-look #pause.pb-look{height:${h}px;top:calc(50vh - ${Math.round(h / 2 + 10)}px);gap:${n(ty.gap, 0, 80, 24)}px}`,
+    L.push(`body.pb-look #pause.pb-look{height:${h}px;top:calc(50vh - ${Math.round(h / 2 + 10)}px);gap:${Math.round(n(ty.gap, 0, 80, 24) * k)}px}`,
       `body.pb-look #pause.pb-look img{width:${icon}px;height:${icon}px}`,
-      `body.pb-look #pause.pb-look figcaption{font-size:${n(ty.size1, 12, 96, 24)}px;line-height:1.1;letter-spacing:${n(ty.track1, 0, 0.8, 0.3)}em;font-weight:${ty.bold1 === false ? "normal" : "bold"};text-transform:${caps}}`,
-      `body.pb-look #pause.pb-look .pb-pause-sub{font-size:${n(ty.size2, 10, 64, 16)}px;line-height:1.1;margin-top:0;letter-spacing:${n(ty.track2, 0, 0.8, 0.24)}em;font-weight:${ty.bold2 ? "bold" : "normal"};text-transform:${caps}}`)
+      `body.pb-look #pause.pb-look figcaption{font-size:${Math.round(n(ty.size1, 12, 96, 24) * k)}px;line-height:1.1;letter-spacing:${n(ty.track1, 0, 0.8, 0.3)}em;font-weight:${ty.bold1 === false ? "normal" : "bold"};text-transform:${caps}}`,
+      `body.pb-look #pause.pb-look .pb-pause-sub{font-size:${Math.round(n(ty.size2, 10, 64, 16) * k)}px;line-height:1.1;margin-top:0;letter-spacing:${n(ty.track2, 0, 0.8, 0.24)}em;font-weight:${ty.bold2 ? "bold" : "normal"};text-transform:${caps}}`)
   }
   if (p.motion === "gentle") L.push(`body.pb-look #pause.pb-look{animation-duration:6s} body.pb-look #pause.pb-look img.fa-spin{--fa-animation-duration:40s}`)
   if (p.motion === "still") L.push(`body.pb-look #pause.pb-look{animation:none} body.pb-look #pause.pb-look img{animation:none}`)
