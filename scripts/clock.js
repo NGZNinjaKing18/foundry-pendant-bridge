@@ -82,13 +82,16 @@ function clockHtml(c, gm) {
         .map(([d, h, l, t]) => `<button type="button" data-days="${d}" data-hours="${h}" data-tooltip="${t}" aria-label="${t}">${l}</button>`).join("") +
       `</div>`
     : ""
-  const head = gm ? `<div class="pb-clock-camp">${esc(c.session ? c.campaignName : "No session · world date")}</div>` : ""
-  return `${head}${dialSvg(c)}<div class="pb-clock-date">${esc(c.date)}</div><div class="pb-clock-part">${esc(c.part)} · ${esc(c.time)}</div>${steps}`
+  const head = gm ? `<div class="pb-clock-camp">${esc(c.session ? c.campaignName : "World date")}</div>` : ""
+  const day = c.dateDay || c.date, year = c.dateDay ? c.dateYear : ""
+  return `${head}${dialSvg(c)}<div class="pb-clock-date" title="${esc(c.date)}">${esc(day)}</div>` +
+    `${year ? `<div class="pb-clock-year">${esc(year)}</div>` : ""}<div class="pb-clock-part">${esc(c.part)} · ${esc(c.time)}</div>${steps}`
 }
 
 function chatBarHtml(c) {
-  return `<div class="pb-chatclock-text">${c.weekday ? `<div class="pb-chatclock-wd">${esc(c.weekday)}</div>` : ""}` +
-    `<div class="pb-chatclock-date" title="${esc(c.date)} · ${esc(c.part)} · ${esc(c.time)}">${esc(c.date)}</div></div>${phasesSvg(c)}`
+  const top = [c.weekday, c.dateDay ? c.dateYear : ""].filter(Boolean).join(" · ")
+  return `<div class="pb-chatclock-text">${top ? `<div class="pb-chatclock-wd">${esc(top)}</div>` : ""}` +
+    `<div class="pb-chatclock-date" title="${esc(c.date)} · ${esc(c.part)} · ${esc(c.time)}">${esc(c.dateDay || c.date)}</div></div>${phasesSvg(c)}`
 }
 
 // ── placing ───────────────────────────────────────────────────
@@ -104,6 +107,7 @@ function placePlayers(root) {
   if (!root) return
   let box = root.querySelector(":scope > .pb-clock")
   root.classList.toggle("pb-clock-player", !!clock && !game.user?.isGM)
+  root.classList.toggle("pb-has-clock", !!clock)
   if (!clock) { box?.remove(); return }
   if (!box) {
     box = document.createElement("section")
