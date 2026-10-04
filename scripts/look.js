@@ -26,7 +26,8 @@ let current = null          // the look being shown (null = stock)
 let previewTimer = null
 const ORIG = {}             // CONFIG values captured at init
 
-const cssColor = (v) => (/^#[0-9a-f]{6}$/i.test(String(v || "")) ? v : null)
+// #rrggbb, or #rrggbbaa when the DM gave the colour some see-through.
+const cssColor = (v) => (/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(String(v || "")) ? v : null)
 // A blend = { stops: [2–3 hex], dir: 'across'|'down'|'diagonal', amt }. → CSS gradient or null.
 function blendCss(b, dirOverride) {
   const stops = (b && Array.isArray(b.stops) ? b.stops : []).filter(x => cssColor(x)).slice(0, 3)
@@ -74,6 +75,23 @@ function buildCss(look) {
   if (fh) for (const n of [1, 2, 3, 4]) vars.push(`--font-h${n}:${fh}, var(--font-serif)`)
   if (vars.length) L.push(`body.pb-look{${vars.join(";")}}`)
 
+  // Text colours — Foundry re-declares its text variables on every dark-themed
+  // element (.themed.theme-dark), so they're set there too. Light-themed
+  // windows keep Foundry's dark-on-light text.
+  const T = look.text || {}
+  const tv = []
+  if (cssColor(T.textMain)) tv.push(`--color-text-primary:${T.textMain}`)
+  if (cssColor(T.textSub)) tv.push(`--color-text-secondary:${T.textSub}`)
+  if (cssColor(T.textFaint)) tv.push(`--color-text-subtle:${T.textFaint}`)
+  if (cssColor(T.textHead)) tv.push(`--color-text-emphatic:${T.textHead}`)
+  if (cssColor(T.textLink)) tv.push(`--content-link-text-color:${T.textLink}`, `--color-text-hyperlink:${T.textLink}`)
+  const DARK = "body.pb-look.theme-dark, body.pb-look .themed.theme-dark"
+  if (tv.length) L.push(`${DARK}{${tv.join(";")}}`)
+  if (cssColor(T.textSub)) L.push(`body.pb-look.theme-dark{color:${T.textSub}}`)  // Foundry's body text is the secondary tier
+  if (cssColor(T.textHead)) L.push(`body.pb-look :is(h1,h2,h3,h4):not(.theme-light *, .chat-message *){color:${T.textHead}}`)
+  if (cssColor(T.textLink)) L.push(`body.pb-look a[href]:not(.theme-light *, .chat-message *){color:${T.textLink}}`)
+  if (cssColor(T.chatText)) L.push(`body.pb-look .chat-message .message-content{color:${T.chatText}}`)
+
   // Light touch: the active control, the viewed scene, the campaign name.
   if (acc) {
     L.push(`body.pb-look #ui-left, body.pb-look #ui-right, body.pb-look #ui-middle{--control-active-border-color:${acc}}`)
@@ -87,8 +105,8 @@ function buildCss(look) {
   // Chat
   const c = look.chat || {}
   if (c.paper === "dark") {
-    L.push(`body.pb-look .chat-message:not(.whisper,.blind,.emote){--chat-message-background:var(--color-cool-5);--chat-message-border-color:var(--color-cool-4);color:var(--color-light-2)}`,
-      `body.pb-look .chat-message:not(.whisper,.blind,.emote) .message-header{color:var(--color-light-5)}`)
+    L.push(`body.pb-look .chat-message:not(.whisper,.blind,.emote){--chat-message-background:var(--color-cool-5);--chat-message-border-color:var(--color-cool-4);color:var(--color-text-primary)}`,
+      `body.pb-look .chat-message:not(.whisper,.blind,.emote) .message-header{color:var(--color-text-subtle)}`)
   } else if (c.paper === "tinted" && acc) {
     L.push(`body.pb-look .chat-message{--chat-message-background:linear-gradient(color-mix(in srgb, ${acc} 16%, transparent), color-mix(in srgb, ${acc} 16%, transparent)), url("${route("ui/parchment.jpg")}") repeat}`)
   }
@@ -126,6 +144,17 @@ function buildCss(look) {
   const pc = textG ? null : p.color === "accent" && acc ? acc : p.color === "light" ? "var(--color-light-1)" : null
   if (pc) L.push(`body.pb-look #pause.pb-look figcaption, body.pb-look #pause.pb-look .pb-pause-sub{color:${pc}}`)
   if (fp) L.push(`body.pb-look #pause.pb-look figcaption, body.pb-look #pause.pb-look .pb-pause-sub{font-family:${fp}, var(--font-serif)}`)
+  // Pause type: the DM's sizes and spacing (only sent when changed from Foundry's).
+  const ty = p.type
+  if (ty && typeof ty === "object") {
+    const n = (v, lo, hi, d) => { const x = Number(v); return Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : d }
+    const h = n(ty.height, 100, 480, 180), icon = n(ty.icon, 32, 240, 100)
+    const caps = ty.caps === false ? "none" : "uppercase"
+    L.push(`body.pb-look #pause.pb-look{height:${h}px;top:calc(50vh - ${Math.round(h / 2 + 10)}px);gap:${n(ty.gap, 0, 80, 24)}px}`,
+      `body.pb-look #pause.pb-look img{width:${icon}px;height:${icon}px}`,
+      `body.pb-look #pause.pb-look figcaption{font-size:${n(ty.size1, 12, 96, 24)}px;line-height:1.1;letter-spacing:${n(ty.track1, 0, 0.8, 0.3)}em;font-weight:${ty.bold1 === false ? "normal" : "bold"};text-transform:${caps}}`,
+      `body.pb-look #pause.pb-look .pb-pause-sub{font-size:${n(ty.size2, 10, 64, 16)}px;line-height:1.1;margin-top:0;letter-spacing:${n(ty.track2, 0, 0.8, 0.24)}em;font-weight:${ty.bold2 ? "bold" : "normal"};text-transform:${caps}}`)
+  }
   if (p.motion === "gentle") L.push(`body.pb-look #pause.pb-look{animation-duration:6s} body.pb-look #pause.pb-look img.fa-spin{--fa-animation-duration:40s}`)
   if (p.motion === "still") L.push(`body.pb-look #pause.pb-look{animation:none} body.pb-look #pause.pb-look img{animation:none}`)
   L.push(`@media (prefers-reduced-motion: reduce){body.pb-look #pause.pb-look, body.pb-look #pause.pb-look img{animation:none}}`)
@@ -181,7 +210,7 @@ function applyConfig(look) {
       const fam = look?.names?.font ? `${look.names.font}, Signika` : ORIG.text?.fontFamily
       // A blend becomes a PIXI gradient fill (array of colours; 0 = top→bottom, 1 = left→right).
       const nb = look?.names?.blend
-      const stops = nb && Array.isArray(nb.stops) ? nb.stops.filter(x => cssColor(x)).slice(0, 3) : []
+      const stops = nb && Array.isArray(nb.stops) ? nb.stops.filter(x => cssColor(x)).map(x => x.slice(0, 7)).slice(0, 3) : []  // PIXI fills ignore see-through
       const fill = stops.length >= 2 ? stops : (look?.names?.color || ORIG.text?.fill)
       const gType = stops.length >= 2 ? (nb.dir === "across" ? 1 : 0) : ORIG.text?.fillGradientType
       if (ts.fontFamily !== fam || JSON.stringify(ts.fill) !== JSON.stringify(fill) || ts.fillGradientType !== gType) {
