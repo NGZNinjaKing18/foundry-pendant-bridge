@@ -20,6 +20,7 @@ import {
   hashBytes53, stubText, isStubBytes,
 } from "./file-sort.js"
 import { setLook, previewLook, currentLook } from "./look.js"
+import { setClock, currentClock, setClockSender } from "./clock.js"
 
 const MOD = "pendant-bridge"
 const FS_LEDGER = "fileSortLedger"
@@ -583,6 +584,7 @@ const bridge = {
     this.pendingHooks = false
   }
 }
+setClockSender((m) => bridge.send(m))
 
 // ──────────────────────────────────────────────────────────────
 // Snapshot / serialization helpers
@@ -3481,6 +3483,17 @@ async function handleCommand(msg) {
     }
     case "look.get": {
       return bridge.reply(msg.reqId, { type: "look.get", look: currentLook() })
+    }
+    // ── RealmScreen campaign clock (scripts/clock.js) ─────────────
+    // { clock: payload|null } → the world setting every client draws (sky dial +
+    // chat date bar) and Foundry's world time. The GM's ±day/±hour buttons send
+    // `clock.step` back; RealmScreen moves its canon date and re-sends.
+    case "clock.set": {
+      const r = await setClock(msg.clock || null)
+      return bridge.reply(msg.reqId, { type: "clock.set", ...r })
+    }
+    case "clock.get": {
+      return bridge.reply(msg.reqId, { type: "clock.get", clock: currentClock() })
     }
     case "antihammer.config.set": {
       const cur = AH.cfg()

@@ -436,3 +436,48 @@
 .chat-message .pb-session-card h3 { margin: 0 0 2px; font-family: var(--font-h3, var(--font-serif)); border: none; }
 .chat-message .pb-session-card p { margin: 0; color: var(--color-dark-4); }
 .chat-message .message-metadata .pb-worldtime { white-space: nowrap; }
+
+/* ── RealmScreen campaign clock (scripts/clock.js) ────────────────
+   The sky dial in the Players area and the date bar on top of chat. Colours are
+   Foundry's own variables; only the sky itself (art, not UI) has fixed tones. */
+#players .pb-clock {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding-bottom: 6px; margin-bottom: 6px; border-bottom: 1px solid var(--color-cool-4);
+  pointer-events: all;
+}
+#players.pb-clock-player .pb-clock { padding-bottom: 0; margin-bottom: 0; border-bottom: none; }
+#players.pb-clock-player > :not(.pb-clock) { display: none; }
+#players .pb-clock-camp {
+  font-size: var(--font-size-11, 0.6875rem); font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--pb-accent, var(--color-warm-1)); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#players .pb-dial { width: 132px; height: 132px; display: block; }
+#players .pb-clock-date { font-size: var(--font-size-13, 0.8125rem); color: var(--color-text-primary); text-align: center; }
+#players .pb-clock-part { font-size: var(--font-size-11, 0.6875rem); color: var(--color-text-secondary); text-align: center; }
+#players .pb-clock-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; width: 100%; margin-top: 4px; }
+#players .pb-clock-steps button { min-height: 0; height: 22px; padding: 0 2px; font-size: var(--font-size-11, 0.6875rem); line-height: 1; }
+
+.pb-dial .pb-ground { fill: rgba(0, 0, 0, .45); }
+.pb-dial .pb-ring { fill: none; stroke: var(--color-cool-4, #302831); stroke-width: 2; }
+.pb-dial .pb-horizon { stroke: var(--color-border, #4a4150); stroke-width: 1; opacity: .7; }
+.pb-dial .pb-sky-day { fill: #2f4a6e; }
+.pb-dial .pb-sky-twilight { fill: #4a3450; }
+.pb-dial .pb-sky-night { fill: #151a30; }
+.pb-dial .pb-sun { fill: var(--pb-accent, var(--color-warm-1, #ee9b3a)); }
+.pb-dial .pb-dial-time { font-family: var(--font-body, var(--font-sans)); font-size: 13px; fill: var(--color-text-primary, #efe6d8); }
+.pb-dial .pb-moon-dark, .pb-phases .pb-moon-dark { fill: #26222c; stroke: #000; stroke-width: .4; }
+
+.pb-chatclock {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; margin: 0 0 4px; border-bottom: 1px solid var(--color-cool-4);
+}
+.pb-chatclock-text { flex: 1; min-width: 0; }
+.pb-chatclock-wd {
+  font-size: var(--font-size-11, 0.6875rem); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--pb-accent, var(--color-warm-1));
+}
+.pb-chatclock-date {
+  font-family: var(--font-h4, var(--font-body)); font-size: var(--font-size-14, 0.875rem); font-weight: 600;
+  color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pb-chatclock .pb-phases { flex: 0 0 auto; height: 22px; width: auto; }
