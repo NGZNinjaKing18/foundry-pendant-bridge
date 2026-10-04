@@ -21,12 +21,6 @@
 const MOD = "pendant-bridge"
 const STYLE_ID = "pb-look"
 
-// Foundry V14 palettes (css/foundry2.css: base, .mixin-theme-fantasy-variables, .mixin-theme-scifi-variables)
-const PALETTES = {
-  default: null,
-  fantasy: { "warm-1": "#ee9b3a", "warm-2": "#603032", "warm-3": "#372021", "cool-3": "#251a1c", "cool-4": "#0c0609", "cool-5": "11, 9, 10" },
-  scifi:   { "warm-1": "#3a9bee", "warm-2": "#303260", "warm-3": "#202137", "cool-3": "#202137", "cool-4": "#15151e", "cool-5": "11, 9, 10" },
-}
 
 let current = null          // the look being shown (null = stock)
 let previewTimer = null
@@ -53,14 +47,15 @@ function clientOptedOut(look) {
 function buildCss(look) {
   const L = []
   const acc = cssColor(look.accent)
-  const pal = PALETTES[look.palette] || null
+  // Foundry's interface colours, set one by one (each optional; missing = Foundry's own).
+  const ui = look.colours || {}
   const vars = []
-  if (pal) {
-    vars.push(`--color-warm-1:${pal["warm-1"]}`, `--color-warm-2:${pal["warm-2"]}`, `--color-warm-3:${pal["warm-3"]}`,
-      `--color-cool-3:${pal["cool-3"]}`, `--color-cool-4:${pal["cool-4"]}`, `--color-cool-5:rgb(${pal["cool-5"]})`,
-      `--color-cool-5-25:rgba(${pal["cool-5"]},.25)`, `--color-cool-5-50:rgba(${pal["cool-5"]},.5)`,
-      `--color-cool-5-75:rgba(${pal["cool-5"]},.75)`, `--color-cool-5-90:rgba(${pal["cool-5"]},.9)`)
-  }
+  const bg = cssColor(ui.panelBg)
+  if (bg) vars.push(`--color-cool-5:${bg}`, `--color-cool-5-25:color-mix(in srgb, ${bg} 25%, transparent)`, `--color-cool-5-50:color-mix(in srgb, ${bg} 50%, transparent)`,
+    `--color-cool-5-75:color-mix(in srgb, ${bg} 75%, transparent)`, `--color-cool-5-90:color-mix(in srgb, ${bg} 90%, transparent)`)
+  if (cssColor(ui.panelBorder)) vars.push(`--color-cool-4:${ui.panelBorder}`)
+  if (cssColor(ui.panelHover)) vars.push(`--color-cool-3:${ui.panelHover}`)
+  if (cssColor(ui.highlight)) vars.push(`--color-warm-2:${ui.highlight}`, `--color-shadow-primary:${ui.highlight}`)
   if (acc) vars.push(`--pb-accent:${acc}`)
   if (acc && look.reach === "full") {
     // Same lever Foundry's own fantasy/sci-fi themes use: re-point the warm accents.
@@ -69,9 +64,10 @@ function buildCss(look) {
   }
   const tint = Math.max(0, Math.min(30, Number(look.tint) || 0))
   if (acc && tint) {
-    const base5 = pal ? pal["cool-5"] : "11, 10, 19"
-    vars.push(`--color-cool-5-75:color-mix(in srgb, ${acc} ${tint}%, rgba(${base5},.75))`,
-      `--color-cool-5-90:color-mix(in srgb, ${acc} ${Math.round(tint * 0.7)}%, rgba(${base5},.9))`)
+    const b75 = bg ? `color-mix(in srgb, ${bg} 75%, transparent)` : "rgba(11, 10, 19, .75)"
+    const b90 = bg ? `color-mix(in srgb, ${bg} 90%, transparent)` : "rgba(11, 10, 19, .9)"
+    vars.push(`--color-cool-5-75:color-mix(in srgb, ${acc} ${tint}%, ${b75})`,
+      `--color-cool-5-90:color-mix(in srgb, ${acc} ${Math.round(tint * 0.7)}%, ${b90})`)
   }
   const fb = cssFont(look.fonts?.body), fh = cssFont(look.fonts?.head), fp = cssFont(look.fonts?.pause)
   if (fb) vars.push(`--font-body:${fb}, var(--font-sans)`, `--font-sans:${fb}, "Signika", ui-sans-serif, sans-serif`)
