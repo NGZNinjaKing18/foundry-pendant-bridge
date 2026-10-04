@@ -440,22 +440,18 @@
 /* ── RealmScreen campaign clock (scripts/clock.js) ────────────────
    The sky dial in the Players area and the date bar on top of chat. Colours are
    Foundry's own variables; only the sky itself (art, not UI) has fixed tones. */
-/* Its own panel, built like Foundry's #players-active (200px, rounded, edged) —
-   the background lives on that inner list in V14, not on #players, so a clock
-   placed in #players had none. Players: fully opaque, and not faded with the
-   idle UI (it is all they have there). GM: a stronger panel than the list's 75%. */
+/* No panel (the user's call): the dial and its text sit straight on the canvas,
+   with a shadow under the text so it reads over any map. 200px = Foundry's own
+   player-list width. Players: never faded with the idle UI (it is all they have there). */
 #players .pb-clock {
   box-sizing: border-box; width: 200px; pointer-events: all;
   display: flex; flex-direction: column; align-items: center; gap: 1px; text-align: center;
-  padding: 8px 8px 8px; border-radius: 8px;
-  background: var(--color-cool-5-90, rgba(11, 10, 19, .9));
-  border: 1px solid var(--border-color, var(--color-cool-4));
+  padding: 4px 0;
+  text-shadow: 0 0 4px #000, 0 0 2px #000;
 }
-#players.pb-clock-player .pb-clock { background: var(--color-cool-5, rgb(11, 10, 19)); }
 #players.pb-clock-player.faded-ui, #players.pb-clock-player .faded-ui { opacity: 1; }
 #players.pb-clock-player > :not(.pb-clock) { display: none; }
-body.theme-light #players .pb-clock { background: rgba(255, 255, 255, .85); }
-body.theme-light #players.pb-clock-player .pb-clock { background: var(--color-light-1, #f7f3e8); }
+#players .pb-clock-steps button { text-shadow: none; }
 #players .pb-clock-camp {
   font-size: var(--font-size-11, 0.6875rem); font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
   color: var(--pb-accent, var(--color-warm-1)); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;

@@ -9,7 +9,7 @@
 //   • a sky dial in the Players area (bottom left) — the upper half is the sky,
 //     the sun and every moon (true relative size, real phase) travel round it.
 //     Players see the dial INSTEAD of the player list; the GM sees it ABOVE the
-//     list, with −1d −1h +1h +1d buttons while a session runs;
+//     list, with −1d −1h +1h +1d buttons (no session = they move the world date);
 //   • a date bar at the top of chat — weekday over the date, moon phases.
 //
 // The buttons never change the date here: they send `clock.step` to
@@ -76,7 +76,7 @@ function phasesSvg(c) {
 }
 
 function clockHtml(c, gm) {
-  const steps = gm && c.session
+  const steps = gm
     ? `<div class="pb-clock-steps">` +
       [[-1, 0, "−1d", "Back a day"], [0, -1, "−1h", "Back an hour"], [0, 1, "+1h", "On an hour"], [1, 0, "+1d", "On a day"]]
         .map(([d, h, l, t]) => `<button type="button" data-days="${d}" data-hours="${h}" data-tooltip="${t}" aria-label="${t}">${l}</button>`).join("") +
