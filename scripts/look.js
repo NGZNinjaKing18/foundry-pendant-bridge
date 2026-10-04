@@ -156,6 +156,15 @@ function buildCss(look) {
       `body.pb-look #pause.pb-look figcaption{font-size:${Math.round(n(ty.size1, 12, 96, 24) * k)}px;line-height:1.1;letter-spacing:${n(ty.track1, 0, 0.8, 0.3)}em;font-weight:${ty.bold1 === false ? "normal" : "bold"};text-transform:${caps}}`,
       `body.pb-look #pause.pb-look .pb-pause-sub{font-size:${Math.round(n(ty.size2, 10, 64, 16) * k)}px;line-height:1.1;margin-top:0;letter-spacing:${n(ty.track2, 0, 0.8, 0.24)}em;font-weight:${ty.bold2 ? "bold" : "normal"};text-transform:${caps}}`)
   }
+  // Glow / shadow behind the words (filter, so it also works on blended text).
+  const gl = p.glow
+  if (gl && (gl.kind === "glow" || gl.kind === "shadow") && cssColor(gl.color)) {
+    const s = Math.max(1, Math.min(48, Number(gl.size) || 12)) * Math.max(0.5, Math.min(3, Number(gl.scale) || 1))
+    const r = (n) => Math.round(n * 10) / 10
+    const f = gl.kind === "shadow" ? `drop-shadow(${r(s / 6)}px ${r(s / 4)}px ${r(s / 3)}px ${gl.color})`
+      : `drop-shadow(0 0 ${r(s / 2)}px ${gl.color}) drop-shadow(0 0 ${r(s)}px ${gl.color})`
+    L.push(`body.pb-look #pause.pb-look figcaption, body.pb-look #pause.pb-look .pb-pause-sub{filter:${f}}`)
+  }
   if (p.motion === "gentle") L.push(`body.pb-look #pause.pb-look{animation-duration:6s} body.pb-look #pause.pb-look img.fa-spin{--fa-animation-duration:40s}`)
   if (p.motion === "still") L.push(`body.pb-look #pause.pb-look{animation:none} body.pb-look #pause.pb-look img{animation:none}`)
   L.push(`@media (prefers-reduced-motion: reduce){body.pb-look #pause.pb-look, body.pb-look #pause.pb-look img{animation:none}}`)
