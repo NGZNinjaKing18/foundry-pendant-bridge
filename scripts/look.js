@@ -98,6 +98,12 @@ function buildCss(look) {
       `body.pb-look #pause.pb-look::before, body.pb-look #pause.pb-look::after{content:"";position:absolute;left:22%;right:22%;height:1px;background:color-mix(in srgb, ${acc} 45%, transparent)}`,
       `body.pb-look #pause.pb-look::before{top:0} body.pb-look #pause.pb-look::after{bottom:0}`)
   }
+  // The DM's own picture behind the band; the tint (or Foundry's dark) sits on top so text stays readable.
+  if (p.bandImage) {
+    const shade = band && acc ? `color-mix(in srgb, ${acc} ${band}%, var(--color-cool-5-50))` : "var(--color-cool-5-50)"
+    L.push(`body.pb-look #pause.pb-look{background:linear-gradient(${shade}, ${shade}), url("${route(p.bandImage)}") center / cover no-repeat}`)
+    if (p.bandFade !== false) L.push(`body.pb-look #pause.pb-look{-webkit-mask-image:linear-gradient(to right, transparent 0%, #000 22%, #000 78%, transparent 100%);mask-image:linear-gradient(to right, transparent 0%, #000 22%, #000 78%, transparent 100%)}`)
+  }
   const pc = p.color === "accent" && acc ? acc : p.color === "light" ? "var(--color-light-1)" : null
   if (pc) L.push(`body.pb-look #pause.pb-look figcaption, body.pb-look #pause.pb-look .pb-pause-sub{color:${pc}}`)
   if (fp) L.push(`body.pb-look #pause.pb-look figcaption, body.pb-look #pause.pb-look .pb-pause-sub{font-family:${fp}, var(--font-serif)}`)
@@ -235,6 +241,8 @@ async function setTurnMarker(tm) {
 Hooks.once("init", () => {
   game.settings.register(MOD, "look", { scope: "world", config: false, type: Object, default: null, onChange: (v) => applyLook(v) })
   game.settings.register(MOD, "lookSnapshot", { scope: "world", config: false, type: Object, default: null })
+  // Which of the DM's rotating pause lines is showing — world-wide so every player sees the same one.
+  game.settings.register(MOD, "lookPauseIdx", { scope: "world", config: false, type: Number, default: 0, onChange: () => { try { ui.pause?.render() } catch { /* */ } } })
   game.settings.register(MOD, "lookOptOut", {
     name: "PENDANT-BRIDGE.settings.lookOptOut.name", hint: "PENDANT-BRIDGE.settings.lookOptOut.hint",
     scope: "client", config: true, type: Boolean, default: false, onChange: () => applyLook(readSetting()),
@@ -253,12 +261,21 @@ Hooks.on("renderGamePause", (app, el) => {
   const img = root.querySelector("img")
   if (img && p.icon) img.src = p.icon.startsWith("data:") ? p.icon : route(p.icon)
   if (img) img.classList.toggle("fa-spin", p.spin !== false)
+  // Rotating lines fill their slot; the GM's client moves to the next one on each pause.
+  let l1 = p.line1, l2 = p.line2
+  const rot = p.rotate && Array.isArray(p.rotate.lines) && p.rotate.lines.length ? p.rotate : null
+  if (rot) {
+    let i = 0
+    try { i = Number(game.settings.get(MOD, "lookPauseIdx")) || 0 } catch { /* */ }
+    const line = rot.lines[((i % rot.lines.length) + rot.lines.length) % rot.lines.length]
+    if (rot.slot === 1) l1 = line; else l2 = line
+  }
   const cap = root.querySelector("figcaption")
-  if (cap && p.line1) cap.innerText = p.line1
-  if (p.line2) {
+  if (cap && l1) cap.innerText = l1
+  if (l2) {
     const sub = document.createElement("div")
     sub.className = "pb-pause-sub"
-    sub.textContent = p.line2
+    sub.textContent = l2
     root.appendChild(sub)
   }
 })
@@ -291,4 +308,14 @@ Hooks.on("renderChatMessageHTML", (msg, html) => {
   s.className = "pb-worldtime"
   s.textContent = t
   meta.prepend(s)
+})
+
+// Each pause moves the DM's rotating lines on by one (one GM does it, for everyone).
+Hooks.on("pauseGame", (paused) => {
+  if (!paused || !current?.pause?.rotate?.lines?.length) return
+  const gm = game.users?.activeGM
+  if (gm ? !gm.isSelf : !game.user?.isGM) return
+  let i = 0
+  try { i = Number(game.settings.get(MOD, "lookPauseIdx")) || 0 } catch { /* */ }
+  game.settings.set(MOD, "lookPauseIdx", (i + 1) % 100000).catch?.(() => {})
 })
