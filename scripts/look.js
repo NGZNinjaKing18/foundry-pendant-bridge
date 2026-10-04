@@ -33,6 +33,14 @@ let previewTimer = null
 const ORIG = {}             // CONFIG values captured at init
 
 const cssColor = (v) => (/^#[0-9a-f]{6}$/i.test(String(v || "")) ? v : null)
+// A blend = { stops: [2–3 hex], dir: 'across'|'down'|'diagonal', amt }. → CSS gradient or null.
+function blendCss(b, dirOverride) {
+  const stops = (b && Array.isArray(b.stops) ? b.stops : []).filter(x => cssColor(x)).slice(0, 3)
+  if (stops.length < 2) return null
+  const dir = dirOverride || (b.dir === "down" ? "to bottom" : b.dir === "diagonal" ? "135deg" : "to right")
+  return `linear-gradient(${dir}, ${stops.join(", ")})`
+}
+const gradientText = (g) => `background:${g};-webkit-background-clip:text;background-clip:text;color:transparent`
 const cssFont = (v) => (/^[A-Za-z0-9 ]{2,40}$/.test(String(v || "")) ? `"${v}"` : null)
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]))
 const route = (p) => { try { return foundry.utils.getRoute(p) } catch { return "/" + p } }
@@ -75,6 +83,10 @@ function buildCss(look) {
     L.push(`body.pb-look #ui-left, body.pb-look #ui-right, body.pb-look #ui-middle{--control-active-border-color:${acc}}`)
     L.push(`body.pb-look #players .pb-campaign{color:${acc}}`)
   }
+  {
+    const g = blendCss(look.players?.nameBlend)
+    if (g) L.push(`body.pb-look #players .pb-campaign{${gradientText(g)}}`)
+  }
 
   // Chat
   const c = look.chat || {}
@@ -84,7 +96,9 @@ function buildCss(look) {
   } else if (c.paper === "tinted" && acc) {
     L.push(`body.pb-look .chat-message{--chat-message-background:linear-gradient(color-mix(in srgb, ${acc} 16%, transparent), color-mix(in srgb, ${acc} 16%, transparent)), url("${route("ui/parchment.jpg")}") repeat}`)
   }
-  if (c.edge && acc) L.push(`body.pb-look .chat-message{border-left:5px solid ${acc}}`)
+  const edgeG = c.edge ? blendCss(c.edgeBlend, "to bottom") : null
+  if (edgeG) L.push(`body.pb-look .chat-message:not(.whisper,.blind,.emote){border-left:5px solid transparent;border-image:${edgeG} 1;border-image-width:0 0 0 5px}`)
+  else if (c.edge && acc) L.push(`body.pb-look .chat-message{border-left:5px solid ${acc}}`)
   if (cssColor(c.whisper) && c.whisper !== "#e8e8ef") L.push(`body.pb-look .chat-message{--color-whisper-background:${c.whisper}}`)
   if (cssColor(c.succ)) L.push(`body.pb-look .dice-roll .dice-total.success{color:${c.succ}}`)
   if (cssColor(c.fail)) L.push(`body.pb-look .dice-roll .dice-total.failure{color:${c.fail}}`)
@@ -104,7 +118,16 @@ function buildCss(look) {
     L.push(`body.pb-look #pause.pb-look{background:linear-gradient(${shade}, ${shade}), url("${route(p.bandImage)}") center / cover no-repeat}`)
     if (p.bandFade !== false) L.push(`body.pb-look #pause.pb-look{-webkit-mask-image:linear-gradient(to right, transparent 0%, #000 22%, #000 78%, transparent 100%);mask-image:linear-gradient(to right, transparent 0%, #000 22%, #000 78%, transparent 100%)}`)
   }
-  const pc = p.color === "accent" && acc ? acc : p.color === "light" ? "var(--color-light-1)" : null
+  // Band blend: its own layer (added in renderGamePause), faded at the ends like Foundry's band.
+  const bandG = blendCss(p.bandBlend)
+  if (bandG) {
+    const amt = Math.max(0.1, Math.min(0.9, (Number(p.bandBlend.amt) || 35) / 100))
+    L.push(`body.pb-look #pause.pb-look .pb-pause-blend{position:absolute;inset:0;pointer-events:none;background:${bandG};opacity:${amt};-webkit-mask-image:linear-gradient(to right, transparent 0%, #000 30%, #000 70%, transparent 100%);mask-image:linear-gradient(to right, transparent 0%, #000 30%, #000 70%, transparent 100%)}`,
+      `body.pb-look #pause.pb-look > :not(.pb-pause-blend){position:relative;z-index:1}`)
+  }
+  const textG = blendCss(p.textBlend)
+  if (textG) L.push(`body.pb-look #pause.pb-look figcaption, body.pb-look #pause.pb-look .pb-pause-sub{${gradientText(textG)}}`)
+  const pc = textG ? null : p.color === "accent" && acc ? acc : p.color === "light" ? "var(--color-light-1)" : null
   if (pc) L.push(`body.pb-look #pause.pb-look figcaption, body.pb-look #pause.pb-look .pb-pause-sub{color:${pc}}`)
   if (fp) L.push(`body.pb-look #pause.pb-look figcaption, body.pb-look #pause.pb-look .pb-pause-sub{font-family:${fp}, var(--font-serif)}`)
   if (p.motion === "gentle") L.push(`body.pb-look #pause.pb-look{animation-duration:6s} body.pb-look #pause.pb-look img.fa-spin{--fa-animation-duration:40s}`)
@@ -135,7 +158,7 @@ function captureConfig() {
   try {
     ORIG.cursors = foundry.utils.deepClone(CONFIG.cursors || {})
     ORIG.sounds = { dice: CONFIG.sounds?.dice, notification: CONFIG.sounds?.notification }
-    ORIG.text = { fontFamily: CONFIG.canvasTextStyle?.fontFamily, fill: CONFIG.canvasTextStyle?.fill }
+    ORIG.text = { fontFamily: CONFIG.canvasTextStyle?.fontFamily, fill: CONFIG.canvasTextStyle?.fill, fillGradientType: CONFIG.canvasTextStyle?.fillGradientType }
     ORIG.bar1 = CONFIG.Token?.barConfig?.bar1?.colors ? { ...CONFIG.Token.barConfig.bar1.colors } : null
   } catch (e) { console.warn(`${MOD} | look capture failed`, e) }
 }
@@ -160,8 +183,16 @@ function applyConfig(look) {
     const ts = CONFIG.canvasTextStyle
     if (ts) {
       const fam = look?.names?.font ? `${look.names.font}, Signika` : ORIG.text?.fontFamily
-      const fill = look?.names?.color || ORIG.text?.fill
-      if (ts.fontFamily !== fam || ts.fill !== fill) { ts.fontFamily = fam; ts.fill = fill; redraw = true }
+      // A blend becomes a PIXI gradient fill (array of colours; 0 = top→bottom, 1 = left→right).
+      const nb = look?.names?.blend
+      const stops = nb && Array.isArray(nb.stops) ? nb.stops.filter(x => cssColor(x)).slice(0, 3) : []
+      const fill = stops.length >= 2 ? stops : (look?.names?.color || ORIG.text?.fill)
+      const gType = stops.length >= 2 ? (nb.dir === "across" ? 1 : 0) : ORIG.text?.fillGradientType
+      if (ts.fontFamily !== fam || JSON.stringify(ts.fill) !== JSON.stringify(fill) || ts.fillGradientType !== gType) {
+        ts.fontFamily = fam; ts.fill = fill
+        if (gType !== undefined) ts.fillGradientType = gType
+        redraw = true
+      }
     }
     // token bar 1
     const bc = CONFIG.Token?.barConfig?.bar1
@@ -258,6 +289,11 @@ Hooks.on("renderGamePause", (app, el) => {
   root.classList.toggle("pb-look", !!current)
   if (!current) return
   const p = current.pause || {}
+  if (p.bandBlend) {
+    const layer = document.createElement("div")
+    layer.className = "pb-pause-blend"
+    root.prepend(layer)
+  }
   const img = root.querySelector("img")
   if (img && p.icon) img.src = p.icon.startsWith("data:") ? p.icon : route(p.icon)
   if (img) img.classList.toggle("fa-spin", p.spin !== false)
