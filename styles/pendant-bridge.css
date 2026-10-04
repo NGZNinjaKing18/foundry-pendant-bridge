@@ -473,27 +473,28 @@
 .pb-dial .pb-dial-time { font-family: var(--font-body, var(--font-sans)); font-size: 13px; fill: var(--color-text-primary, #efe6d8); }
 .pb-dial .pb-moon-dark, .pb-phases .pb-moon-dark { fill: #26222c; stroke: #000; stroke-width: .4; }
 
-/* Its own panel (the chat log behind it is busy, bare text didn't read).
-   #chat is a flex column with align-items:flex-end + padding:4px 0 (V14 core), so
-   the bar stretches itself across and pulls up over that 4px to sit flush on top. */
+/* The date bar on top of chat. Its background is Foundry's own sidebar variable
+   (--sidebar-background → the panel colour, parchment in light mode), so a campaign
+   look that recolours Foundry's panels recolours this too. #chat is a flex column
+   with align-items:flex-end + padding:4px 0 (V14 core): stretch across, pull up 4px. */
 .pb-chatclock {
   flex: 0 0 auto; align-self: stretch; width: auto; box-sizing: border-box;
   display: flex; align-items: center; gap: 10px;
-  padding: 10px 14px; margin: -4px 0 0; border-radius: 0 0 8px 8px;
-  background: var(--color-cool-5-90, rgba(11, 10, 19, .9));
-  border: 1px solid var(--color-cool-4, #302831); border-top: none;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, .45);
+  padding: 8px 12px 8px 14px; margin: -4px 0 0;
+  background: var(--sidebar-background, var(--color-cool-5-90, rgba(11, 10, 19, .9)));
+  border-bottom: 1px solid var(--color-cool-4, #302831);
 }
-.theme-light .pb-chatclock, body.theme-light .pb-chatclock {
-  background: var(--color-light-1, #f7f3e8); border-color: var(--color-light-5, #9f9275); box-shadow: none;
-}
-.pb-chatclock-text { flex: 1; min-width: 0; }
+.pb-chatclock-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .pb-chatclock-wd {
-  font-size: var(--font-size-12, 0.75rem); letter-spacing: .12em; text-transform: uppercase;
-  color: var(--pb-accent, var(--color-warm-1)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: var(--font-size-11, 0.6875rem); letter-spacing: .14em; text-transform: uppercase; line-height: 1.2;
+  color: var(--pb-accent, var(--color-warm-1));
 }
 .pb-chatclock-date {
-  font-family: var(--font-h4, var(--font-body)); font-size: var(--font-size-20, 1.25rem); font-weight: 600; line-height: 1.25;
-  color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-family: var(--font-h4, var(--font-body)); font-size: var(--font-size-18, 1.125rem); font-weight: 600; line-height: 1.2;
+  color: var(--color-text-primary); overflow-wrap: anywhere;
 }
-.pb-chatclock .pb-phases { flex: 0 0 auto; height: 34px; width: auto; }
+.pb-chatclock-year {
+  font-size: var(--font-size-11, 0.6875rem); letter-spacing: .06em; line-height: 1.2;
+  color: var(--color-text-secondary); overflow-wrap: anywhere;
+}
+.pb-chatclock .pb-phases { flex: 0 0 auto; height: 26px; width: auto; align-self: center; }

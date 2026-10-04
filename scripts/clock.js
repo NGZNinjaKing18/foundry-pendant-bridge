@@ -89,9 +89,12 @@ function clockHtml(c, gm) {
 }
 
 function chatBarHtml(c) {
-  const top = [c.weekday, c.dateDay ? c.dateYear : ""].filter(Boolean).join(" · ")
-  return `<div class="pb-chatclock-text">${top ? `<div class="pb-chatclock-wd">${esc(top)}</div>` : ""}` +
-    `<div class="pb-chatclock-date" title="${esc(c.date)} · ${esc(c.part)} · ${esc(c.time)}">${esc(c.dateDay || c.date)}</div></div>${phasesSvg(c)}`
+  // Three short lines that each fit the sidebar, instead of one crammed line:
+  // weekday (accent) · the day ("13th of MistMorn") · the year and age.
+  const day = c.dateDay || c.date, year = c.dateDay ? c.dateYear : ""
+  return `<div class="pb-chatclock-text">${c.weekday ? `<div class="pb-chatclock-wd">${esc(c.weekday)}</div>` : ""}` +
+    `<div class="pb-chatclock-date" title="${esc(c.date)} · ${esc(c.part)} · ${esc(c.time)}">${esc(day)}</div>` +
+    `${year ? `<div class="pb-chatclock-year">${esc(year)}</div>` : ""}</div>${phasesSvg(c)}`
 }
 
 // ── placing ───────────────────────────────────────────────────
