@@ -21,6 +21,7 @@ import {
 } from "./file-sort.js"
 import { setLook, previewLook, currentLook } from "./look.js"
 import { setClock, currentClock, setClockSender } from "./clock.js"
+import { syncParty, partyMovedHook } from "./party.js"
 
 const MOD = "pendant-bridge"
 const FS_LEDGER = "fileSortLedger"
@@ -524,6 +525,8 @@ const bridge = {
       if (!doc.parent?.active) return
       this.send({ type: "scene.token", sceneId: doc.parent.id, token: serializeToken(doc) })
     })
+    // RealmScreen's party token dragged by hand → RealmScreen suggests a journey (scripts/party.js).
+    reg("updateToken", partyMovedHook((m) => this.send(m)))
     reg("deleteToken", (doc) => {
       if (!doc.parent?.active) return
       this.send({ type: "scene.token.delete", sceneId: doc.parent.id, id: doc.id })
@@ -3491,6 +3494,13 @@ async function handleCommand(msg) {
     case "clock.set": {
       const r = await setClock(msg.clock || null)
       return bridge.reply(msg.reqId, { type: "clock.set", ...r })
+    }
+    // ── RealmScreen campaign party on the overland scene (scripts/party.js) ──
+    // { sceneId, tokens: [{ key, campaignId, name, nx, ny, src, hidden }] } — the
+    // FULL list; party tokens not in it are removed. Drags come back as `party.moved`.
+    case "party.sync": {
+      const r = await syncParty(msg)
+      return bridge.reply(msg.reqId, { type: "party.sync", ok: true, ...r })
     }
     case "clock.get": {
       return bridge.reply(msg.reqId, { type: "clock.get", clock: currentClock() })
