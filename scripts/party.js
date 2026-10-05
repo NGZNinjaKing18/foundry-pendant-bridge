@@ -131,7 +131,10 @@ export async function syncParty(msg) {
   if (stale.length) await scene.deleteEmbeddedDocuments("Token", stale, { [SYNC]: true })
   if (release.length) await scene.updateEmbeddedDocuments("Token", release.map(id => ({ _id: id, [`flags.${MOD}.-=party`]: null })), { [SYNC]: true })
   if (creates.length) await scene.createEmbeddedDocuments("Token", creates, { [SYNC]: true })
-  if (updates.length) await scene.updateEmbeddedDocuments("Token", updates, { [SYNC]: true })
+  // Placed, not walked: an instant move (no slide). An animated move across the map was refused —
+  // the token said "updated" but stayed put (found in the GM's world 2026-10-05, likely walls in the
+  // way); the bridge's own token.update, which never animates, moved it fine.
+  if (updates.length) await scene.updateEmbeddedDocuments("Token", updates, { [SYNC]: true, animate: false, animation: { duration: 0 }, teleport: true })
   return { created: creates.length, updated: updates.length, removed: stale.length, released: release.length }
 }
 
