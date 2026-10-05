@@ -70,6 +70,17 @@ function buildCss(look) {
     vars.push(`--color-cool-5-75:color-mix(in srgb, ${acc} ${tint}%, ${b75})`,
       `--color-cool-5-90:color-mix(in srgb, ${acc} ${Math.round(tint * 0.7)}%, ${b90})`)
   }
+  // Panel opacity dial: every see-through panel layer (and the sidebar) times the dial.
+  const op = look.opacity || {}
+  const oPanels = Number.isFinite(op.panels) ? Math.max(0.1, Math.min(1, op.panels)) : 1
+  if (oPanels < 1) {
+    const base = bg || "#0b0a13"
+    const pct = (n) => Math.round(n * oPanels)
+    const v75 = acc && tint ? `color-mix(in srgb, ${acc} ${tint}%, color-mix(in srgb, ${base} ${pct(75)}%, transparent))` : `color-mix(in srgb, ${base} ${pct(75)}%, transparent)`
+    const v90 = acc && tint ? `color-mix(in srgb, ${acc} ${Math.round(tint * 0.7)}%, color-mix(in srgb, ${base} ${pct(90)}%, transparent))` : `color-mix(in srgb, ${base} ${pct(90)}%, transparent)`
+    vars.push(`--color-cool-5-25:color-mix(in srgb, ${base} ${pct(25)}%, transparent)`, `--color-cool-5-50:color-mix(in srgb, ${base} ${pct(50)}%, transparent)`,
+      `--color-cool-5-75:${v75}`, `--color-cool-5-90:${v90}`, `--sidebar-background:color-mix(in srgb, ${base} ${pct(100)}%, transparent)`)
+  }
   const fb = cssFont(look.fonts?.body), fh = cssFont(look.fonts?.head), fp = cssFont(look.fonts?.pause)
   if (fb) vars.push(`--font-body:${fb}, var(--font-sans)`, `--font-sans:${fb}, "Signika", ui-sans-serif, sans-serif`)
   if (fh) for (const n of [1, 2, 3, 4]) vars.push(`--font-h${n}:${fh}, var(--font-serif)`)
@@ -165,6 +176,13 @@ function buildCss(look) {
       : `drop-shadow(0 0 ${r(s / 2)}px ${gl.color}) drop-shadow(0 0 ${r(s)}px ${gl.color})`
     L.push(`body.pb-look #pause.pb-look figcaption, body.pb-look #pause.pb-look .pb-pause-sub{filter:${f}}`)
   }
+  // Pause opacity dials: band (its dark layer + blend), icon, each line.
+  const o01 = (v) => (Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : null)
+  const oBand = o01(op.band), oIcon = o01(op.icon), oL1 = o01(op.line1), oL2 = o01(op.line2)
+  if (oBand !== null) L.push(`body.pb-look #pause.pb-look{--color-cool-5-50:color-mix(in srgb, ${bg || "#0b0a13"} ${Math.round(50 * oBand)}%, transparent)} body.pb-look #pause.pb-look .pb-pause-blend{filter:opacity(${oBand})}`)
+  if (oIcon !== null) L.push(`body.pb-look #pause.pb-look img{opacity:${oIcon}}`)
+  if (oL1 !== null) L.push(`body.pb-look #pause.pb-look figcaption{opacity:${oL1}}`)
+  if (oL2 !== null) L.push(`body.pb-look #pause.pb-look .pb-pause-sub{opacity:${Math.round(oL2 * 80) / 100}}`)
   if (p.motion === "gentle") L.push(`body.pb-look #pause.pb-look{animation-duration:6s} body.pb-look #pause.pb-look img.fa-spin{--fa-animation-duration:40s}`)
   if (p.motion === "still") L.push(`body.pb-look #pause.pb-look{animation:none} body.pb-look #pause.pb-look img{animation:none}`)
   L.push(`@media (prefers-reduced-motion: reduce){body.pb-look #pause.pb-look, body.pb-look #pause.pb-look img{animation:none}}`)
