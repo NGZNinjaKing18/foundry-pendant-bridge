@@ -429,6 +429,12 @@
   padding-bottom: 4px; margin-bottom: 4px; border-bottom: 1px solid var(--color-cool-4);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* the DM's own pause icon keeps its shape (Foundry sizes the img square) */
+#pause.pb-look img { object-fit: contain; }
+/* RealmScreen: dims the map (not the interface) behind the pause band — colour/amount from the look */
+#pb-pause-dim { position: fixed; inset: 0; pointer-events: none; z-index: var(--z-index-canvas, 0); opacity: 0; transition: opacity .5s ease; }
+#pb-pause-dim.is-on { opacity: var(--pb-dim, 0); }
+@media (prefers-reduced-motion: reduce) { #pb-pause-dim { transition: none; } }
 #pause .pb-pause-sub {
   margin-top: -0.75rem; font-family: var(--font-serif); font-size: var(--font-size-16); line-height: 1rem;
   letter-spacing: .24em; text-transform: uppercase; color: #ada7b8; opacity: .8;

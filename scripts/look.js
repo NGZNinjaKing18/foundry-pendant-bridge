@@ -133,9 +133,28 @@ function buildCss(look) {
   const p = look.pause || {}
   const band = Math.max(0, Math.min(12, Number(p.band) || 0))
   if (band && acc) {
-    L.push(`body.pb-look #pause.pb-look{background:linear-gradient(to right, transparent 0%, color-mix(in srgb, ${acc} ${band}%, var(--color-cool-5-50)) 40%, color-mix(in srgb, ${acc} ${band}%, var(--color-cool-5-50)) 60%, transparent 100%)}`,
-      `body.pb-look #pause.pb-look::before, body.pb-look #pause.pb-look::after{content:"";position:absolute;left:22%;right:22%;height:1px;background:color-mix(in srgb, ${acc} 45%, transparent)}`,
-      `body.pb-look #pause.pb-look::before{top:0} body.pb-look #pause.pb-look::after{bottom:0}`)
+    L.push(`body.pb-look #pause.pb-look{background:linear-gradient(to right, transparent 0%, color-mix(in srgb, ${acc} ${band}%, var(--color-cool-5-50)) 40%, color-mix(in srgb, ${acc} ${band}%, var(--color-cool-5-50)) 60%, transparent 100%)}`)
+  }
+  // Frame lines above / below the band — the DM's colour, thickness, length, style.
+  const fl = p.lines
+  if (fl && typeof fl === "object") {
+    const lc = cssColor(fl.color) || (acc ? `color-mix(in srgb, ${acc} 45%, transparent)` : "var(--color-cool-3)")
+    const w = Math.max(1, Math.min(12, Number(fl.width) || 1))
+    const side = (100 - Math.max(10, Math.min(100, Number(fl.len) || 56))) / 2
+    const inset = Math.max(0, Math.min(60, Number(fl.inset) || 0))
+    const st = ["dashed", "dotted", "double"].includes(fl.style) ? fl.style : null
+    const paint = fl.style === "fade" ? `height:${w}px;background:linear-gradient(to right, transparent, ${lc} 20%, ${lc} 80%, transparent)`
+      : st ? `height:0;border-top:${st === "double" ? Math.max(3, w) : w}px ${st} ${lc}` : `height:${w}px;background:${lc}`
+    L.push(`body.pb-look #pause.pb-look::before, body.pb-look #pause.pb-look::after{content:"";position:absolute;left:${side}%;right:${side}%;${paint}}`,
+      `body.pb-look #pause.pb-look::before{top:${inset}px} body.pb-look #pause.pb-look::after{bottom:${inset}px}`)
+    if (fl.where === "top") L.push(`body.pb-look #pause.pb-look::after{display:none}`)
+    if (fl.where === "bottom") L.push(`body.pb-look #pause.pb-look::before{display:none}`)
+  }
+  // Dim the map behind the pause band (an element under #pause, shown while paused).
+  const dm = p.dim
+  if (dm && typeof dm === "object") {
+    const a = Math.max(0, Math.min(0.9, Number(dm.amount) || 0))
+    L.push(`#pb-pause-dim{background:${cssColor(dm.color) || "#000000"};--pb-dim:${a}}`)
   }
   // The DM's own picture behind the band; the tint (or Foundry's dark) sits on top so text stays readable.
   if (p.bandImage) {
@@ -272,6 +291,7 @@ export async function applyLook(look) {
     document.head.appendChild(el)
   }
   applyConfig(show)
+  updateDim()
   try { ui.pause?.render() } catch { /* not rendered yet */ }
   try { ui.players?.render() } catch { /* not rendered yet */ }
 }
@@ -336,6 +356,17 @@ Hooks.once("setup", captureConfig)
 Hooks.once("ready", () => { applyLook(readSetting()) })
 
 // Pause screen: decorate Foundry's own <figure id="pause"> on every render.
+// ── dimming the map while paused ─────────────────────────────
+function updateDim() {
+  let el = document.getElementById("pb-pause-dim")
+  const want = !!(current?.pause?.dim && game.paused && !clientOptedOut(current))
+  if (!el && !want) return
+  if (!el) { el = document.createElement("div"); el.id = "pb-pause-dim"; document.body.appendChild(el) }
+  el.classList.toggle("is-on", want)
+}
+Hooks.on("pauseGame", () => updateDim())
+Hooks.on("renderGamePause", () => updateDim())
+
 Hooks.on("renderGamePause", (app, el) => {
   const root = el instanceof HTMLElement ? el : el?.[0]
   if (!root) return
