@@ -20,6 +20,7 @@ import {
   hashBytes53, stubText, isStubBytes,
 } from "./file-sort.js"
 import { setLook, previewLook, currentLook } from "./look.js"
+import { beginStats, collectStats } from "./boxscore.js"
 import { setClock, currentClock, setClockSender } from "./clock.js"
 import { syncParty, syncTrails, partyMovedHook, setPartySender, partySwitch } from "./party.js"
 
@@ -3484,6 +3485,16 @@ async function handleCommand(msg) {
     case "look.preview": {
       await previewLook(msg.look || null, Number(msg.seconds) || 120)
       return bridge.reply(msg.reqId, { type: "look.preview", ok: true })
+    }
+    // ── RealmScreen box score (scripts/boxscore.js) ──────────────
+    // stats.begin { campaignId } stamps the session start; stats.collect
+    // { campaignId } tallies the rolls since then for the end-of-session card.
+    case "stats.begin": {
+      const r = await beginStats(msg.campaignId || null)
+      return bridge.reply(msg.reqId, { type: "stats.begin", ...r })
+    }
+    case "stats.collect": {
+      return bridge.reply(msg.reqId, { type: "stats.collect", ...collectStats({ campaignId: msg.campaignId || null, since: msg.since || 0 }) })
     }
     case "look.get": {
       return bridge.reply(msg.reqId, { type: "look.get", look: currentLook() })

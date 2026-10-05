@@ -436,6 +436,12 @@
 .chat-message .pb-session-card h3 { margin: 0 0 2px; font-family: var(--font-h3, var(--font-serif)); border: none; }
 .chat-message .pb-session-card p { margin: 0; color: var(--color-dark-4); }
 .chat-message .message-metadata .pb-worldtime { white-space: nowrap; }
+/* RealmScreen chat moments (holiday cards, box score) — inherit Foundry's chat colours */
+.chat-message .pb-boxscore table { width: 100%; border-collapse: collapse; margin: 4px 0; font-size: var(--font-size-12, 0.75rem); background: none; border: none; }
+.chat-message .pb-boxscore th, .chat-message .pb-boxscore td { padding: 2px 4px; text-align: center; border-bottom: 1px solid color-mix(in srgb, currentColor 18%, transparent); background: none; }
+.chat-message .pb-boxscore td:first-child, .chat-message .pb-boxscore th:first-child { text-align: left; }
+.chat-message .pb-boxscore thead { color: var(--color-dark-4, #444); }
+.chat-message .pb-box-season, .chat-message .pb-ann-note { font-size: var(--font-size-12, 0.75rem); font-style: italic; }
 
 /* ── RealmScreen campaign clock (scripts/clock.js) ────────────────
    The sky dial in the Players area and the date bar on top of chat. Colours are
