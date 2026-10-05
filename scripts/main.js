@@ -658,6 +658,27 @@ function sceneDimensions(scene) {
   }
 }
 
+// ── Fit-to-screen scenes (RealmScreen's broadcast backdrop) ────────────────
+// A scene flagged `fitView` is a picture, not a map: on every client, whenever
+// it's drawn or the window resizes, zoom so the WHOLE image fits the screen,
+// centred (black letterbox from the scene's background colour). Foundry clamps
+// the zoom to its own limits — the app sizes the scene so that rarely bites.
+function fitViewToScene() {
+  try {
+    const scene = canvas?.scene
+    if (!scene?.getFlag?.(MOD, "fitView") || !canvas.ready) return
+    const r = canvas.dimensions?.sceneRect
+    const sw = canvas.screenDimensions?.[0] || window.innerWidth, sh = canvas.screenDimensions?.[1] || window.innerHeight
+    if (!r?.width || !r?.height) return
+    canvas.pan({ x: r.x + r.width / 2, y: r.y + r.height / 2, scale: Math.min(sw / r.width, sh / r.height) })
+  } catch (e) { console.warn("[pendant-bridge] fit view failed:", e) }
+}
+Hooks.on("canvasReady", () => setTimeout(fitViewToScene, 0))
+{
+  let t = 0
+  window.addEventListener("resize", () => { clearTimeout(t); t = setTimeout(fitViewToScene, 150) })
+}
+
 // ── Scene document data (shared by scene.create + scene.update) ───────────
 // `msg.config` carries Map Studio's Scene-Config groups: basics / grid /
 // lighting / ambience (see the app's MapStudio/scene/sceneSchema.js).
@@ -2664,6 +2685,7 @@ async function handleCommand(msg) {
       // is only in the GM's console / notification.
       if (!scene) throw new Error("Foundry rejected the new scene's data (see the Foundry console for which field)")
       await finishSceneImage(scene, msg, true)
+      if (msg.fitView != null) await scene.setFlag(MOD, "fitView", !!msg.fitView)
       return bridge.reply(msg.reqId, {
         type: "scene.created",
         id: scene.id, name: scene.name, dimensions: sceneDimensions(scene)
@@ -3711,6 +3733,7 @@ async function handleCommand(msg) {
         if (msg.imgPath || b.initial || b.foreground !== undefined) await finishSceneImage(s, msg, false)
       } else if (typeof msg.name === "string" && msg.name.trim()) await s.update({ name: msg.name.trim() })
       if (Array.isArray(msg.tags)) await s.setFlag(MOD, "tags", msg.tags.map(t => String(t).trim()).filter(Boolean))
+      if (msg.fitView != null && !!s.getFlag(MOD, "fitView") !== !!msg.fitView) await s.setFlag(MOD, "fitView", !!msg.fitView)
       let tags = []
       try { tags = s.getFlag(MOD, "tags") || [] } catch {}
       return bridge.reply(msg.reqId, { type: "scene.updated", id: s.id, name: s.name, tags, ...(full ? { dimensions: sceneDimensions(s) } : {}) })
