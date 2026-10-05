@@ -88,19 +88,33 @@ export async function syncParty(msg) {
   const want = new Map()
   for (const t of (Array.isArray(msg.tokens) ? msg.tokens : [])) if (t && t.key) want.set(String(t.key), t)
   const have = new Map()
-  const stale = []
+  const stale = [], release = []
   for (const doc of scene.tokens) {
     const f = partyFlag(doc)
     if (!f) continue
     const t = want.get(f.key)
-    // Gone from the list, a duplicate, or now (un)linked to a different actor → replace.
-    if (!t || have.has(f.key) || (doc.actorId || null) !== (t.actorId && game.actors.get(t.actorId) ? t.actorId : null)) stale.push(doc.id)
+    // Gone from the list, a duplicate, or now (un)linked to a different actor → replace. A token
+    // the GM placed (adopted) is never deleted: it is only let go, left where it stands.
+    if (!t || have.has(f.key) || (doc.actorId || null) !== (t.actorId && game.actors.get(t.actorId) ? t.actorId : null)) (f.adopted ? release : stale).push(doc.id)
     else have.set(f.key, doc)
   }
   const creates = [], updates = []
+  // A character whose actor ALREADY has a token here (one the GM placed by hand) gets THAT token,
+  // moved and flagged — never a second copy beside it.
+  const adopted = new Set()
+  const adoptable = (actorId) => scene.tokens.find(d => d.actorId === actorId && (!partyFlag(d) || release.includes(d.id)) && !adopted.has(d.id) && !stale.includes(d.id))
   for (const [key, t] of want) {
     const doc = have.get(key)
-    if (!doc) { creates.push(await newTokenData(scene, t, key)); continue }
+    if (!doc) {
+      const own = t.actorId && game.actors.get(t.actorId) ? adoptable(t.actorId) : null
+      if (own) {
+        adopted.add(own.id)
+        updates.push({ _id: own.id, ...topLeft(scene, t, own.width || 1, own.height || 1), hidden: !!t.hidden,
+          [`flags.${MOD}.party`]: { key, campaignId: String(t.campaignId || ""), adopted: true } })
+        continue
+      }
+      creates.push(await newTokenData(scene, t, key)); continue
+    }
     const pos = topLeft(scene, t, doc.width || 1, doc.height || 1)
     const hidden = !!t.hidden
     const u = { _id: doc.id }
@@ -115,9 +129,10 @@ export async function syncParty(msg) {
     if (Object.keys(u).length > 1) updates.push(u)
   }
   if (stale.length) await scene.deleteEmbeddedDocuments("Token", stale, { [SYNC]: true })
+  if (release.length) await scene.updateEmbeddedDocuments("Token", release.map(id => ({ _id: id, [`flags.${MOD}.-=party`]: null })), { [SYNC]: true })
   if (creates.length) await scene.createEmbeddedDocuments("Token", creates, { [SYNC]: true })
   if (updates.length) await scene.updateEmbeddedDocuments("Token", updates, { [SYNC]: true })
-  return { created: creates.length, updated: updates.length, removed: stale.length }
+  return { created: creates.length, updated: updates.length, removed: stale.length, released: release.length }
 }
 
 // ── trails ────────────────────────────────────────────────────
