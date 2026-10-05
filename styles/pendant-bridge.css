@@ -510,3 +510,7 @@
   color: var(--color-text-secondary); overflow-wrap: anywhere;
 }
 .pb-chatclock .pb-phases { flex: 0 0 auto; height: 26px; width: auto; align-self: center; }
+
+/* Campaign look: own cursors for the window corner + table column (look.js EXTRA_CURSORS). */
+body.pb-look .application .window-resize-handle { cursor: var(--cursor-nwse-resize, nwse-resize); }
+body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-resize); }

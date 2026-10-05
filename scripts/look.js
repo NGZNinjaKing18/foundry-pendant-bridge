@@ -235,17 +235,41 @@ function captureConfig() {
   } catch (e) { console.warn(`${MOD} | look capture failed`, e) }
 }
 const CURSOR_FILES = { quill: "modules/pendant-bridge/assets/cursors/quill.svg", gauntlet: "modules/pendant-bridge/assets/cursors/gauntlet.svg" }
+// The two other cursors Foundry shows (window corner, table column). They are not
+// CONFIG.cursors states, so they get their own --cursor-* variable, read by
+// scoped rules in styles/pendant-bridge.css (unset = the browser's own).
+const EXTRA_CURSORS = ["nwse-resize", "ew-resize"]
+let extraCursors = {}
+function setExtraCursors() {
+  const root = document.documentElement.style
+  for (const k of EXTRA_CURSORS) {
+    const c = extraCursors[k]
+    if (c?.url) root.setProperty(`--cursor-${k}`, `url("${route(c.url)}") ${Number(c.x) || 0} ${Number(c.y) || 0}, ${k}`)
+    else root.removeProperty(`--cursor-${k}`)
+  }
+}
 function applyConfig(look) {
   let redraw = false
   try {
-    // cursors
-    const cur = look?.cursor ? (CURSOR_FILES[look.cursor] || look.cursor) : null
+    // cursors: a built-in name, or the campaign's own set { states: { [state]: { url, x, y } } }
     CONFIG.cursors = foundry.utils.deepClone(ORIG.cursors || {})
-    if (cur) {
-      const hot = look.cursor === "quill" ? { x: 2, y: 26 } : { x: 3, y: 3 }
-      for (const k of ["default", "default-down", "pointer", "pointer-down"]) CONFIG.cursors[k] = { url: route(cur), ...hot }
+    extraCursors = {}
+    const own = look?.cursor && typeof look.cursor === "object" ? look.cursor.states : null
+    if (own) {
+      for (const [k, c] of Object.entries(own)) {
+        if (!c?.url) continue
+        if (EXTRA_CURSORS.includes(k)) extraCursors[k] = c
+        else if (k in (CONST.CURSOR_STYLES || {})) CONFIG.cursors[k] = { url: route(c.url), x: Number(c.x) || 0, y: Number(c.y) || 0 }
+      }
+    } else {
+      const cur = typeof look?.cursor === "string" ? (CURSOR_FILES[look.cursor] || look.cursor) : null
+      if (cur) {
+        const hot = look.cursor === "quill" ? { x: 2, y: 26 } : { x: 3, y: 3 }
+        for (const k of ["default", "default-down", "pointer", "pointer-down"]) CONFIG.cursors[k] = { url: route(cur), ...hot }
+      }
     }
-    game.configureCursors?.()
+    game.configureCursors?.()   // rewrites every --cursor-* variable, so the extras go on after
+    setExtraCursors()
     // sounds
     if (CONFIG.sounds) {
       CONFIG.sounds.dice = look?.sounds?.dice || ORIG.sounds?.dice
