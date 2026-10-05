@@ -706,6 +706,7 @@ function buildSceneData(msg, create) {
     data.background = { src: msg.imgPath }
     data.width  = Number(msg.width)  || 4000
     data.height = Number(msg.height) || 3000
+    if (msg.folder && game.folders?.get(msg.folder)?.type === "Scene") data.folder = msg.folder
   } else {
     const name = [msg.name, cfg.basics?.name].find(n => typeof n === "string" && n.trim())
     if (name) data.name = name.trim()
