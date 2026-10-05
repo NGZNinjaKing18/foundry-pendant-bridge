@@ -21,7 +21,7 @@ import {
 } from "./file-sort.js"
 import { setLook, previewLook, currentLook } from "./look.js"
 import { setClock, currentClock, setClockSender } from "./clock.js"
-import { syncParty, partyMovedHook } from "./party.js"
+import { syncParty, syncTrails, partyMovedHook, setPartySender } from "./party.js"
 
 const MOD = "pendant-bridge"
 const FS_LEDGER = "fileSortLedger"
@@ -588,6 +588,7 @@ const bridge = {
   }
 }
 setClockSender((m) => bridge.send(m))
+setPartySender((m) => bridge.send(m))
 
 // ──────────────────────────────────────────────────────────────
 // Snapshot / serialization helpers
@@ -3501,6 +3502,11 @@ async function handleCommand(msg) {
     case "party.sync": {
       const r = await syncParty(msg)
       return bridge.reply(msg.reqId, { type: "party.sync", ok: true, ...r })
+    }
+    // { sceneId, trails: [{ key, points, marks, hidden }] } — the road walked + a mark per day, as Drawings.
+    case "party.trails": {
+      const r = await syncTrails(msg)
+      return bridge.reply(msg.reqId, { type: "party.trails", ok: true, ...r })
     }
     case "clock.get": {
       return bridge.reply(msg.reqId, { type: "clock.get", clock: currentClock() })
