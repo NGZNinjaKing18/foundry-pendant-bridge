@@ -743,11 +743,22 @@ function sceneLightingData(data, l, create) {
 
 // Ambience group → environment cycle/base/dark (merged into the same
 // `environment` object lighting writes) + weather (v11–13 top-level effect id).
+// Foundry's environment hue is a HueField — a NUMBER 0..1, not a colour string
+// (v14 rejects "#000000" and the whole Scene.create silently returns nothing).
+// The app sends a colour picker's "#rrggbb"; take its hue.
+function sceneHue(v) {
+  if (typeof v === "number" && isFinite(v)) return ((v % 1) + 1) % 1
+  if (typeof v === "string" && v.trim()) {
+    try { const C = foundry.utils?.Color ?? globalThis.Color; const h = C?.from(v)?.hsv?.[0]; if (isFinite(h)) return h } catch {}
+  }
+  return 0
+}
+
 function sceneAmbienceData(data, am, create) {
   data.environment = { ...data.environment,
     cycle: !!am.blend,
-    base: { hue: am.base?.hue || "#000000", intensity: sceneNum(am.base?.intensity, 0), luminosity: sceneNum(am.base?.luminosity, 0), saturation: sceneNum(am.base?.saturation, 0), shadows: sceneNum(am.base?.shadows, 0) },
-    dark: { hue: am.dark?.hue || "#000000", intensity: sceneNum(am.dark?.intensity, 0), luminosity: sceneNum(am.dark?.luminosity, -0.25), saturation: sceneNum(am.dark?.saturation, 0), shadows: sceneNum(am.dark?.shadows, 0) },
+    base: { hue: sceneHue(am.base?.hue), intensity: sceneNum(am.base?.intensity, 0), luminosity: sceneNum(am.base?.luminosity, 0), saturation: sceneNum(am.base?.saturation, 0), shadows: sceneNum(am.base?.shadows, 0) },
+    dark: { hue: sceneHue(am.dark?.hue), intensity: sceneNum(am.dark?.intensity, 0), luminosity: sceneNum(am.dark?.luminosity, -0.25), saturation: sceneNum(am.dark?.saturation, 0), shadows: sceneNum(am.dark?.shadows, 0) },
   }
   if (am.weather) data.weather = String(am.weather)
   else if (!create && am.weather !== undefined) data.weather = ""   // '' = none
@@ -2649,6 +2660,9 @@ async function handleCommand(msg) {
     // ── Create scene from an uploaded image ───────────────────
     case "scene.create": {
       const scene = await Scene.create(buildSceneData(msg, true))
+      // Foundry skips (doesn't throw on) data that fails validation — the reason
+      // is only in the GM's console / notification.
+      if (!scene) throw new Error("Foundry rejected the new scene's data (see the Foundry console for which field)")
       await finishSceneImage(scene, msg, true)
       return bridge.reply(msg.reqId, {
         type: "scene.created",
