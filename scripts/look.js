@@ -153,8 +153,8 @@ function buildCss(look) {
     const caps = ty.caps === false ? "none" : "uppercase"
     L.push(`body.pb-look #pause.pb-look{height:${h}px;top:calc(50vh - ${Math.round(h / 2 + 10)}px);gap:${Math.round(n(ty.gap, 0, 80, 24) * k)}px}`,
       `body.pb-look #pause.pb-look img{width:${icon}px;height:${icon}px}`,
-      `body.pb-look #pause.pb-look figcaption{font-size:${Math.round(n(ty.size1, 12, 96, 24) * k)}px;line-height:1.1;letter-spacing:${n(ty.track1, 0, 0.8, 0.3)}em;font-weight:${ty.bold1 === false ? "normal" : "bold"};text-transform:${caps}}`,
-      `body.pb-look #pause.pb-look .pb-pause-sub{font-size:${Math.round(n(ty.size2, 10, 64, 16) * k)}px;line-height:1.1;margin-top:0;letter-spacing:${n(ty.track2, 0, 0.8, 0.24)}em;font-weight:${ty.bold2 ? "bold" : "normal"};text-transform:${caps}}`)
+      `body.pb-look #pause.pb-look figcaption{font-size:${Math.round(n(ty.size1, 12, 96, 24) * k)}px;line-height:1.1;letter-spacing:${n(ty.track1, 0, 0.8, 0.3)}em;font-weight:${ty.bold1 === false ? "normal" : "bold"};text-transform:${caps};transform:translate(${Math.round(n(ty.x1, -600, 600, 0) * k)}px, ${Math.round(n(ty.y1, -300, 300, 0) * k)}px)}`,
+      `body.pb-look #pause.pb-look .pb-pause-sub{font-size:${Math.round(n(ty.size2, 10, 64, 16) * k)}px;line-height:1.1;margin-top:0;letter-spacing:${n(ty.track2, 0, 0.8, 0.24)}em;font-weight:${ty.bold2 ? "bold" : "normal"};text-transform:${caps};transform:translate(${Math.round(n(ty.x2, -600, 600, 0) * k)}px, ${Math.round(n(ty.y2, -300, 300, 0) * k)}px)}`)
   }
   // Glow / shadow behind the words (filter, so it also works on blended text).
   const gl = p.glow
