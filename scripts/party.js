@@ -208,7 +208,9 @@ Hooks.once("init", () => {
     scope: "world", config: false, type: Boolean, default: true,
     onChange: (on) => {
       try { ui.controls?.render?.() } catch { /* */ }
-      // Back on → RealmScreen puts everyone back where it has them.
+      // RealmScreen shows the switch's state (Settings › Connections); back on → it puts everyone
+      // back where it has them.
+      sender?.({ type: "party.switched", on: !!on, by: game.user?.name || null })
       if (on && game.user?.isGM) sender?.({ type: "party.resync" })
     },
   })
@@ -235,3 +237,9 @@ Hooks.on("getSceneControlButtons", (controls) => {
   if (!tokens) return
   tokens.tools.push({ name: TOOL, title, icon, toggle: true, active: castSyncOn(), onClick: (active) => onToggle(active) })
 })
+
+/** `party.switch { on? }` — read the GM's pause switch, or set it from RealmScreen. → { on } */
+export async function partySwitch(msg) {
+  if (typeof msg.on === "boolean" && game.user?.isGM) await game.settings.set(MOD, "castSync", msg.on)
+  return { on: castSyncOn() }
+}

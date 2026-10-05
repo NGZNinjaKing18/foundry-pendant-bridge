@@ -21,7 +21,7 @@ import {
 } from "./file-sort.js"
 import { setLook, previewLook, currentLook } from "./look.js"
 import { setClock, currentClock, setClockSender } from "./clock.js"
-import { syncParty, syncTrails, partyMovedHook, setPartySender } from "./party.js"
+import { syncParty, syncTrails, partyMovedHook, setPartySender, partySwitch } from "./party.js"
 
 const MOD = "pendant-bridge"
 const FS_LEDGER = "fileSortLedger"
@@ -3504,6 +3504,11 @@ async function handleCommand(msg) {
       return bridge.reply(msg.reqId, { type: "party.sync", ok: true, ...r })
     }
     // { sceneId, trails: [{ key, points, marks, hidden }] } — the road walked + a mark per day, as Drawings.
+    // { on? } — the GM's "RealmScreen moves people" switch: read it, or set it from RealmScreen.
+    case "party.switch": {
+      const r = await partySwitch(msg)
+      return bridge.reply(msg.reqId, { type: "party.switch", ok: true, ...r })
+    }
     case "party.trails": {
       const r = await syncTrails(msg)
       return bridge.reply(msg.reqId, { type: "party.trails", ok: true, ...r })
