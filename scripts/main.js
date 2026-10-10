@@ -21,7 +21,7 @@ import {
 } from "./file-sort.js"
 import { setLook, previewLook, currentLook } from "./look.js"
 import { beginStats, collectStats } from "./boxscore.js"
-import { setClock, currentClock, setClockSender } from "./clock.js"
+import { setClock, currentClock, setClockSender, setClockLive } from "./clock.js"
 import { syncParty, syncTrails, partyMovedHook, setPartySender, partySwitch } from "./party.js"
 
 const MOD = "pendant-bridge"
@@ -349,6 +349,7 @@ const bridge = {
       )
       this.open = false
       updateIndicator(false)
+      setClockLive(false)
       this.teardownHooks()
       this.stopHeartbeat()
       this.scheduleReconnect()
@@ -363,6 +364,7 @@ const bridge = {
   disconnect() {
     this.open = false
     updateIndicator(false)
+    setClockLive(false)
     clearTimeout(this.reconnectTimer); this.reconnectTimer = null
     this.stopHeartbeat()
     this.teardownHooks()
@@ -413,6 +415,7 @@ const bridge = {
         this.gotHelloOk = true
         this.open = true
         updateIndicator(true)
+        setClockLive(true)
         this.setupHooks()
         this.startHeartbeat()
         ui.notifications?.info(game.i18n.localize("PENDANT-BRIDGE.notif.connected"))

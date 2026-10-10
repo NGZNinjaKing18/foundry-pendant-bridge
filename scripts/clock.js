@@ -9,7 +9,8 @@
 //   • a sky dial in the Players area (bottom left) — the upper half is the sky,
 //     the sun and every moon (true relative size, real phase) travel round it.
 //     Players see the dial INSTEAD of the player list; the GM sees it ABOVE the
-//     list, with −1d −1h +1h +1d buttons (no session = they move the world date);
+//     list, with −1d −1h +1h +1d buttons (no session = they move the world date).
+//     Only while RealmScreen is connected — otherwise the stock player list;
 //   • a date bar at the top of chat — weekday over the date, moon phases.
 //
 // The buttons never change the date here: they send `clock.step` to
@@ -106,12 +107,34 @@ function onStepClick(ev) {
   if (!sender || !sender(msg)) ui.notifications?.warn("RealmScreen isn’t connected, so the date can’t move from here.")
 }
 
+// The dial only shows while RealmScreen is connected: the GM's client keeps the
+// world setting `clockLive` in step with its link, and a player also needs a GM
+// logged in (a GM who closed the tab can't clear the setting). Otherwise the
+// Players area is stock Foundry. The chat date bar stays — it is only a date.
+function readLive() { try { return !!game.settings.get(MOD, "clockLive") } catch { return false } }
+function anyActiveGM() { try { return game.users.some(u => u.active && u.isGM) } catch { return false } }
+const dialOn = () => !!clock && readLive() && anyActiveGM()
+
+const LIVE_GRACE_MS = 5000   // a dropped link retries every second — don't blink the dial
+let liveOffT = 0
+/** main.js calls this as the GM's link to RealmScreen comes and goes. */
+export function setClockLive(on, { now = false } = {}) {
+  if (!game.user?.isGM) return
+  const write = () => {
+    liveOffT = 0
+    try { if (readLive() !== on) Promise.resolve(game.settings.set(MOD, "clockLive", on)).catch(() => {}) } catch { /* settings not ready */ }
+  }
+  if (on || now) { clearTimeout(liveOffT); write(); return }
+  if (!liveOffT) liveOffT = setTimeout(write, LIVE_GRACE_MS)
+}
+
 function placePlayers(root) {
   if (!root) return
   let box = root.querySelector(":scope > .pb-clock")
-  root.classList.toggle("pb-clock-player", !!clock && !game.user?.isGM)
-  root.classList.toggle("pb-has-clock", !!clock)
-  if (!clock) { box?.remove(); return }
+  const on = dialOn()
+  root.classList.toggle("pb-clock-player", on && !game.user?.isGM)
+  root.classList.toggle("pb-has-clock", on)
+  if (!on) { box?.remove(); return }
   if (!box) {
     box = document.createElement("section")
     box.className = "pb-clock"
@@ -161,8 +184,14 @@ export async function setClock(c) {
 // ── hooks ─────────────────────────────────────────────────────
 Hooks.once("init", () => {
   game.settings.register(MOD, "clock", { scope: "world", config: false, type: Object, default: null, onChange: (v) => applyClock(v) })
+  game.settings.register(MOD, "clockLive", { scope: "world", config: false, type: Boolean, default: false, onChange: () => redraw() })
 })
-Hooks.once("ready", () => { applyClock(readSetting()) })
+Hooks.once("ready", () => {
+  // A GM arriving starts from "not connected"; the handshake (a moment later) turns it on.
+  setClockLive(false, { now: true })
+  applyClock(readSetting())
+})
+Hooks.on("userConnected", () => redraw())
 
 const rootOf = (el) => (el instanceof HTMLElement ? el : el?.[0] || null)
 Hooks.on("renderPlayers", (app, el) => { placePlayers(rootOf(el) || document.getElementById("players")) })
