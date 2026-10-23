@@ -23,6 +23,7 @@ import { setLook, previewLook, currentLook } from "./look.js"
 import { beginStats, collectStats } from "./boxscore.js"
 import { setClock, currentClock, setClockSender, setClockLive } from "./clock.js"
 import { syncParty, syncTrails, partyMovedHook, setPartySender, partySwitch } from "./party.js"
+import { timelineStatus, applyFromRealm, broadcastFromRealm, isTimelineWriter } from "./timeline.js"
 
 const MOD = "pendant-bridge"
 const FS_LEDGER = "fileSortLedger"
@@ -3566,6 +3567,24 @@ async function handleCommand(msg) {
     }
     case "clock.get": {
       return bridge.reply(msg.reqId, { type: "clock.get", clock: currentClock() })
+    }
+    // ── RealmScreen chronicle → Timeline Builder (scripts/timeline.js) ──
+    // The relay sends every command to every Foundry tab: only the one writing GM answers.
+    case "timeline.status": {
+      if (!isTimelineWriter()) return
+      return bridge.reply(msg.reqId, { type: "timeline.status", ...timelineStatus() })
+    }
+    // { timelines, known, remove } — RealmScreen's whole chronicle timelines; merged, one write.
+    case "timeline.apply": {
+      if (!isTimelineWriter()) return
+      const r = await applyFromRealm(msg)
+      return bridge.reply(msg.reqId, { type: "timeline.apply", ok: true, ...r })
+    }
+    // { feed, reveal } — open that timeline on every player's screen (reveal = make it visible first).
+    case "timeline.broadcast": {
+      if (!isTimelineWriter()) return
+      const r = await broadcastFromRealm(msg)
+      return bridge.reply(msg.reqId, { type: "timeline.broadcast", ...r })
     }
     case "antihammer.config.set": {
       const cur = AH.cfg()

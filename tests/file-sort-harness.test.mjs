@@ -165,7 +165,8 @@ function makeFoundry() {
 async function loadBridge(globals) {
   Object.assign(globalThis, globals)
   const src = readFileSync(join(here, "../scripts/main.js"), "utf8")
-    .replace(/from "\.\/file-sort\.js"/, `from ${JSON.stringify(pathToFileURL(join(here, "../scripts/file-sort.js")).href)}`)
+    // Every sibling module (file-sort, look, clock, party, timeline…) is loaded from scripts/.
+    .replace(/from "\.\/([\w-]+\.js)"/g, (_, f) => `from ${JSON.stringify(pathToFileURL(join(here, "../scripts", f)).href)}`)
   const dir = mkdtempSync(join(tmpdir(), "pb-harness-"))
   const file = join(dir, "main.mjs")
   writeFileSync(file, src + "\nexport { fsScan, fsProbe, fsMove, fsRunInflight, fsStatus, fsLedger, fsMarkLeftovers }\n")
