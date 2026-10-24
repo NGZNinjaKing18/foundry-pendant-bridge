@@ -113,7 +113,9 @@ function onStepClick(ev) {
 // Players area is stock Foundry. The chat date bar stays — it is only a date.
 function readLive() { try { return !!game.settings.get(MOD, "clockLive") } catch { return false } }
 function anyActiveGM() { try { return game.users.some(u => u.active && u.isGM) } catch { return false } }
-const dialOn = () => !!clock && readLive() && anyActiveGM()
+/** True while RealmScreen is linked through a logged-in GM (same rule on every client). */
+export const realmLive = () => readLive() && anyActiveGM()
+const dialOn = () => !!clock && realmLive()
 
 const LIVE_GRACE_MS = 5000   // a dropped link retries every second — don't blink the dial
 let liveOffT = 0
@@ -184,14 +186,14 @@ export async function setClock(c) {
 // ── hooks ─────────────────────────────────────────────────────
 Hooks.once("init", () => {
   game.settings.register(MOD, "clock", { scope: "world", config: false, type: Object, default: null, onChange: (v) => applyClock(v) })
-  game.settings.register(MOD, "clockLive", { scope: "world", config: false, type: Boolean, default: false, onChange: () => redraw() })
+  game.settings.register(MOD, "clockLive", { scope: "world", config: false, type: Boolean, default: false, onChange: () => { redraw(); Hooks.callAll("pendantBridgeLive", realmLive()) } })
 })
 Hooks.once("ready", () => {
   // A GM arriving starts from "not connected"; the handshake (a moment later) turns it on.
   setClockLive(false, { now: true })
   applyClock(readSetting())
 })
-Hooks.on("userConnected", () => redraw())
+Hooks.on("userConnected", () => { redraw(); Hooks.callAll("pendantBridgeLive", realmLive()) })
 
 const rootOf = (el) => (el instanceof HTMLElement ? el : el?.[0] || null)
 Hooks.on("renderPlayers", (app, el) => { placePlayers(rootOf(el) || document.getElementById("players")) })

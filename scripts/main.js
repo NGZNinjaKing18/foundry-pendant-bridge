@@ -22,6 +22,7 @@ import {
 import { setLook, previewLook, currentLook } from "./look.js"
 import { beginStats, collectStats } from "./boxscore.js"
 import { setClock, currentClock, setClockSender, setClockLive } from "./clock.js"
+import {} from "./sidebar-fold.js"   // folds some sidebar tabs for players
 import { syncParty, syncTrails, partyMovedHook, setPartySender, partySwitch } from "./party.js"
 import { timelineStatus, applyFromRealm, broadcastFromRealm, isTimelineWriter } from "./timeline.js"
 

@@ -514,3 +514,12 @@
 /* Campaign look: own cursors for the window corner + table column (look.js EXTRA_CURSORS). */
 body.pb-look .application .window-resize-handle { cursor: var(--cursor-nwse-resize, nwse-resize); }
 body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-resize); }
+
+/* Sidebar fold (sidebar-fold.js): players' folded tabs sit in a group under the
+   "More" button. The inner list stacks like the strip itself (same 8px gap). */
+#sidebar-tabs .pb-fold-group { list-style: none; }
+#sidebar-tabs .pb-fold-group[hidden] { display: none; }
+#sidebar-tabs .pb-fold-tabs {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  margin: 0; padding: 0; list-style: none;
+}
