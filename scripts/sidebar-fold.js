@@ -55,9 +55,19 @@ function stripTabs(menu) {
 }
 
 // ── placing ───────────────────────────────────────────────────
+// Each folded tab leaves a marker where it stood, so unfolding puts it back in
+// Foundry's own order (place() runs again on every render and tab change).
+const slots = new WeakMap()   // tab <li> → its marker comment
+
 function unfold(menu) {
-  const group = menu.querySelector(":scope > .pb-fold-group")
-  if (group) group.replaceWith(...group.children)   // tabs go back where the group was
+  for (const li of menu.querySelectorAll(":scope > .pb-fold-group li")) {
+    const slot = slots.get(li)
+    if (slot?.isConnected) slot.replaceWith(li)
+    else menu.insertBefore(li, menu.querySelector(":scope > .pb-fold"))
+    slots.delete(li)
+  }
+  for (const n of [...menu.childNodes]) if (n.nodeType === 8 && n.data === "pb-fold") n.remove()
+  menu.querySelector(":scope > .pb-fold-group")?.remove()
   menu.querySelector(":scope > .pb-fold")?.remove()
   menu.closest("#sidebar-tabs")?.classList.remove("pb-folding")
 }
@@ -94,6 +104,11 @@ function place() {
   inner.className = "pb-fold-tabs"
   group.append(inner)
   // The group holds Foundry's own <li>s; a wrapper <li> with a <menu> keeps the list valid.
+  for (const l of lis) {
+    const slot = document.createComment("pb-fold")
+    l.before(slot)
+    slots.set(l, slot)
+  }
   inner.append(...lis)
 
   menu.insertBefore(li, anchor)
