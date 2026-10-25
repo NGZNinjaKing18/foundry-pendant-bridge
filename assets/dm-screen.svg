@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <!-- DM screen silhouette: three folding panels, the side ones angled toward the viewer,
+       a d20 knocked out of the centre panel. Used as a mask, so only the shape matters. -->
+  <path fill-rule="evenodd" d="M8.4 5.5h7.2v13H8.4z M12 8.2l2.6 1.5v3l-2.6 1.5-2.6-1.5v-3z"/>
+  <path d="M1 7.6l6.4-2.1v13l-6.4 1.9z"/>
+  <path d="M23 7.6l-6.4-2.1v13l6.4 1.9z"/>
+</svg>

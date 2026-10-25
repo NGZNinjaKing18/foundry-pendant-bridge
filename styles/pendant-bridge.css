@@ -523,3 +523,12 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
   display: flex; flex-direction: column; align-items: center; gap: 8px;
   margin: 0; padding: 0; list-style: none;
 }
+
+/* RealmScreen scene control (scene-control.js): a DM-screen silhouette drawn in the
+   control's own text colour, so hover / active / light theme follow Foundry. */
+.pb-dm-screen::before {
+  content: ""; display: inline-block; width: 1.15em; height: 1.15em; vertical-align: middle;
+  background-color: currentColor;
+  -webkit-mask: url("../assets/dm-screen.svg") center / contain no-repeat;
+          mask: url("../assets/dm-screen.svg") center / contain no-repeat;
+}
