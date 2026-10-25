@@ -3836,13 +3836,14 @@ function ensureIndicator() {
   return el
 }
 
+// Only a GM ever sees it, and only while the link is down — no pill = linked.
 function updateIndicator(connected) {
   const enabled = game.settings.get(MOD, "enabled")
+  if (!enabled || connected || !game.user?.isGM) { document.getElementById("pendant-bridge-indicator")?.remove(); return }
   const el = ensureIndicator()
-  if (!enabled) { el.remove(); return }
-  el.classList.toggle("is-on",  connected)
-  el.classList.toggle("is-off", !connected)
-  el.textContent = connected ? "Pendant linked" : "Pendant offline"
+  el.classList.remove("is-on")
+  el.classList.add("is-off")
+  el.textContent = "Pendant offline"
 }
 
 // ──────────────────────────────────────────────────────────────
