@@ -72,9 +72,40 @@ function unfold(menu) {
   menu.closest("#sidebar-tabs")?.classList.remove("pb-folding")
 }
 
+// place() is safe to run any number of times. It runs on Foundry's render
+// hooks, when the link changes, and whenever anything else redraws or edits
+// the tab strip (another module, a late tab) — the watcher below.
+let busy = false
 function place() {
   const menu = document.querySelector("#sidebar-tabs > menu")
   if (!menu) return
+  busy = true
+  try { fold(menu) } catch (e) { console.warn("[pendant-bridge] sidebar fold failed", e) }
+  finally { watcher?.takeRecords(); busy = false }
+  watch()
+}
+
+let watcher = null, watched = null, queued = false
+function watch() {
+  const root = document.getElementById("sidebar")
+  if (!root || typeof MutationObserver === "undefined") return
+  if (watched === root) return
+  watcher?.disconnect()
+  watched = root
+  watcher = new MutationObserver((records) => {
+    if (busy || queued) return
+    // Only strip changes count: tab <li>s added/removed or the strip replaced.
+    // (Changes inside one tab, e.g. the chat pip, don't count.)
+    const strip = records.some(r => r.target.matches?.("#sidebar-tabs, #sidebar-tabs > menu") ||
+      [...r.addedNodes].some(n => n.id === "sidebar-tabs" || n.querySelector?.("#sidebar-tabs")))
+    if (!strip) return
+    queued = true
+    setTimeout(() => { queued = false; place() }, 0)   // not rAF: it pauses in background tabs
+  })
+  watcher.observe(root, { childList: true, subtree: true })
+}
+
+function fold(menu) {
   unfold(menu)
   if (game.user?.isGM || !realmLive()) return
 

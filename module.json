@@ -2,7 +2,7 @@
   "id": "pendant-bridge",
   "title": "Pendant Bridge",
   "description": "Relays Foundry actors, inventory, chat, and dice rolls to a pendant-home (COA) module over a local WebSocket. Adds the Anti-Hammer Space inventory (body paperdoll + hex storage + rules engine) to actor sheets.",
-  "version": "0.134.1",
+  "version": "0.135.0",
   "compatibility": {
     "minimum": "11",
     "verified": "14"
@@ -11,6 +11,7 @@
     { "name": "Pendant", "url": "" }
   ],
   "esmodules": ["scripts/main.js"],
+  "socket": true,
   "styles": ["styles/pendant-bridge.css"],
   "languages": [
     { "lang": "en", "name": "English", "path": "lang/en.json" }

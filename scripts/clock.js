@@ -22,6 +22,7 @@
 // ──────────────────────────────────────────────────────────────
 
 const MOD = "pendant-bridge"
+import { realmLive, setLinked } from "./live.js"
 
 let clock = null            // the clock being shown (null = none)
 let sender = null           // (msg) => bool — the bridge's WebSocket send
@@ -107,28 +108,14 @@ function onStepClick(ev) {
   if (!sender || !sender(msg)) ui.notifications?.warn("RealmScreen isn’t connected, so the date can’t move from here.")
 }
 
-// The dial only shows while RealmScreen is connected: the GM's client keeps the
-// world setting `clockLive` in step with its link, and a player also needs a GM
-// logged in (a GM who closed the tab can't clear the setting). Otherwise the
-// Players area is stock Foundry. The chat date bar stays — it is only a date.
-function readLive() { try { return !!game.settings.get(MOD, "clockLive") } catch { return false } }
-function anyActiveGM() { try { return game.users.some(u => u.active && u.isGM) } catch { return false } }
-/** True while RealmScreen is linked through a logged-in GM (same rule on every client). */
-export const realmLive = () => readLive() && anyActiveGM()
+// The dial only shows while RealmScreen is connected (live.js decides, the same
+// way on every client). Otherwise the Players area is stock Foundry. The chat
+// date bar stays — it is only a date.
+export { realmLive }
 const dialOn = () => !!clock && realmLive()
 
-const LIVE_GRACE_MS = 5000   // a dropped link retries every second — don't blink the dial
-let liveOffT = 0
-/** main.js calls this as the GM's link to RealmScreen comes and goes. */
-export function setClockLive(on, { now = false } = {}) {
-  if (!game.user?.isGM) return
-  const write = () => {
-    liveOffT = 0
-    try { if (readLive() !== on) Promise.resolve(game.settings.set(MOD, "clockLive", on)).catch(() => {}) } catch { /* settings not ready */ }
-  }
-  if (on || now) { clearTimeout(liveOffT); write(); return }
-  if (!liveOffT) liveOffT = setTimeout(write, LIVE_GRACE_MS)
-}
+/** main.js calls this as THIS window's link to RealmScreen comes and goes. */
+export function setClockLive(on) { setLinked(on) }
 
 function placePlayers(root) {
   if (!root) return
@@ -186,14 +173,11 @@ export async function setClock(c) {
 // ── hooks ─────────────────────────────────────────────────────
 Hooks.once("init", () => {
   game.settings.register(MOD, "clock", { scope: "world", config: false, type: Object, default: null, onChange: (v) => applyClock(v) })
-  game.settings.register(MOD, "clockLive", { scope: "world", config: false, type: Boolean, default: false, onChange: () => { redraw(); Hooks.callAll("pendantBridgeLive", realmLive()) } })
 })
 Hooks.once("ready", () => {
-  // A GM arriving starts from "not connected"; the handshake (a moment later) turns it on.
-  setClockLive(false, { now: true })
   applyClock(readSetting())
 })
-Hooks.on("userConnected", () => { redraw(); Hooks.callAll("pendantBridgeLive", realmLive()) })
+Hooks.on("pendantBridgeLive", () => redraw())
 
 const rootOf = (el) => (el instanceof HTMLElement ? el : el?.[0] || null)
 Hooks.on("renderPlayers", (app, el) => { placePlayers(rootOf(el) || document.getElementById("players")) })
