@@ -115,9 +115,8 @@ function fold(menu) {
   const shown = lis.filter(l => !l.hidden).length   // Foundry hides tabs a player can't use
   if (!shown) return
 
-  // Keep the group above the Compendium / Settings pair at the bottom.
-  const anchor = tabs.find(t => t.id === "compendium" && !folded.has(t.id))?.li
-    || tabs.find(t => t.id === "settings")?.li || null
+  // The button sits right under Settings, the group opens below it.
+  const settings = tabs.find(t => t.id === "settings")?.li
 
   const sample = menu.querySelector('[data-action="tab"]')
   const li = document.createElement("li")
@@ -142,8 +141,8 @@ function fold(menu) {
   }
   inner.append(...lis)
 
-  menu.insertBefore(li, anchor)
-  menu.insertBefore(group, anchor)
+  if (settings) settings.after(li, group)
+  else menu.append(li, group)
   menu.closest("#sidebar-tabs")?.classList.add("pb-folding")
 
   // A folded tab that is the open one keeps the group open.
