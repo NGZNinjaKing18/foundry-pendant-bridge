@@ -278,6 +278,17 @@ function sentVisible(doc) {
 
 function applyRule(obj) {
   if (sentVisible(obj?.document) === false) obj.visible = false
+  inkPin(obj)
+}
+
+// An ink marker (rs.art) is the drawing alone, like on RealmScreen's map: no dark square behind it and no
+// border except while it's hovered or picked. Foundry's ControlIcon redraws its `bg` and `border` but never
+// sets their `visible`, so this sticks between refreshes.
+function inkPin(obj) {
+  const icon = obj?.controlIcon
+  if (!icon || !rsOf(obj.document)?.art) return
+  if (icon.bg) icon.bg.visible = false
+  if (icon.border) icon.border.visible = !!(obj.hover || obj.controlled || obj.layer?.highlightObjects)
 }
 
 // Re-run every sent thing's refresh (the rule runs in its refresh hook).
