@@ -26,7 +26,7 @@ import {} from "./sidebar-fold.js"   // folds some sidebar tabs for players
 import {} from "./scene-control.js"  // the RealmScreen (DM screen) control set
 import { setCampaigns, noteCampaigns, setCampaignSender } from "./campaigns.js"
 import {} from "./group-stack.js"    // dnd5e group tokens: stacked art, pile order, pull-out fan
-import { syncParty, syncTrails, partyMovedHook, setPartySender, partySwitch } from "./party.js"
+import { syncParty, syncTrails, partyMovedHook, setPartySender, partySwitch, partyGroups } from "./party.js"
 import { timelineStatus, applyFromRealm, broadcastFromRealm, isTimelineWriter } from "./timeline.js"
 
 const MOD = "pendant-bridge"
@@ -3586,6 +3586,10 @@ async function handleCommand(msg) {
     case "party.switch": {
       const r = await partySwitch(msg)
       return bridge.reply(msg.reqId, { type: "party.switch", ok: true, ...r })
+    }
+    // {} → { groups } — party tokens can be dnd5e Group actors here (`party.sync` tokens with `group`).
+    case "party.groups": {
+      return bridge.reply(msg.reqId, { type: "party.groups", ok: true, ...partyGroups() })
     }
     case "party.trails": {
       const r = await syncTrails(msg)

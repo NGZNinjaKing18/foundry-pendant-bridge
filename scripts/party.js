@@ -9,6 +9,11 @@
 //                      reconciles the scene to the list: create / move / rename /
 //                      show / hide / remove. Only tokens it placed are touched
 //                      (`flags.pendant-bridge.party = { key, campaignId }`).
+//                      A token with `group` (a campaign's linked PCs standing together) is a
+//                      real dnd5e Group actor (`flags.pendant-bridge.partyGroup`), one per
+//                      spot, members kept to RealmScreen's list in the GM's own order.
+//                      Members added / removed on its sheet by hand are reported as
+//                      `party.groupEdited` (RealmScreen offers the change) and put back.
 //   • `party.trails` — the road already walked by travelling parties / PCs, with a
 //                      mark where each travel day ended, as Drawings
 //                      (`flags.pendant-bridge.trail = key`), visible to everyone.
@@ -80,6 +85,97 @@ async function newTokenData(scene, t, key) {
   }
 }
 
+// ── party Group actors ────────────────────────────────────────
+const groupFlag = (a) => a?.getFlag?.(MOD, "partyGroup") || null
+const groupsSupported = () => !!(CONFIG.Actor?.dataModels?.group || game.system?.documentTypes?.Actor?.group)
+const memberIds = (g) => (g.system?.toObject?.().members ?? []).map(m => m.actor).filter(Boolean)
+const FOLDER = "RealmScreen parties"
+
+async function partyFolder() {
+  const have = game.folders.find(f => f.type === "Actor" && f.getFlag?.(MOD, "partyFolder"))
+  if (have) return have.id
+  try { return (await Folder.create({ name: FOLDER, type: "Actor", flags: { [MOD]: { partyFolder: true } } }))?.id ?? null } catch { return null }
+}
+
+// Players who own a member can open the group (see its sheet, pull tokens out).
+function ownershipFor(ids) {
+  const own = { default: CONST.DOCUMENT_OWNERSHIP_LEVELS.NONE }
+  for (const id of ids) {
+    const a = game.actors.get(id)
+    for (const u of game.users) if (!u.isGM && a?.testUserPermission?.(u, "OWNER")) own[u.id] = CONST.DOCUMENT_OWNERSHIP_LEVELS.OBSERVER
+  }
+  return own
+}
+
+/**
+ * The Group actor a `group` token stands for: the one already holding this key, else another
+ * of this campaign's that this sync doesn't need, else a new one. Members are set to `want`,
+ * keeping the order the GM gave them (the pile order of the token art). → actor id, or null.
+ */
+async function ensureGroup(t, used) {
+  if (!groupsSupported()) return null
+  const cid = String(t.campaignId || "")
+  const want = (t.group.members || []).map(String).filter(id => game.actors.get(id))
+  if (!want.length) return null
+  const mine = game.actors.filter(a => a.type === "group" && groupFlag(a)?.campaignId === cid && !used.has(a.id))
+  let g = mine.find(a => groupFlag(a).key === t.key) || mine[0] || null
+  const name = String(t.name || "Party")
+  if (!g) {
+    g = await Actor.create({
+      name, type: "group", folder: await partyFolder(),
+      ...(t.group.img ? { img: String(t.group.img) } : {}),
+      ownership: ownershipFor(want),
+      prototypeToken: { actorLink: true, disposition: CONST.TOKEN_DISPOSITIONS.FRIENDLY, displayName: CONST.TOKEN_DISPLAY_MODES.HOVER, lockRotation: true },
+      system: { members: want.map(actor => ({ actor })) },
+      flags: { [MOD]: { partyGroup: { key: t.key, campaignId: cid, want } } },
+    }, { [SYNC]: true })
+    used.add(g.id)
+    return g.id
+  }
+  used.add(g.id)
+  const cur = memberIds(g)
+  const next = [...cur.filter(id => want.includes(id)), ...want.filter(id => !cur.includes(id))]
+  const f = groupFlag(g)
+  const u = {}
+  if (next.join() !== cur.join()) u["system.members"] = next.map(actor => ({ actor }))
+  if (g.name !== name) u.name = name
+  if (f.key !== t.key || (f.want || []).join() !== want.join()) u[`flags.${MOD}.partyGroup`] = { key: t.key, campaignId: cid, want }
+  const own = ownershipFor(want)
+  for (const [k, v] of Object.entries(own)) if (k !== "default" && (g.ownership?.[k] ?? 0) < v) u[`ownership.${k}`] = v
+  if (Object.keys(u).length) await g.update(u, { [SYNC]: true })
+  return g.id
+}
+
+// A party group's members changed on its sheet by hand (not by a sync): RealmScreen decides who
+// is in a campaign, so tell it what the GM did (it offers the change) and put the list back.
+// Reordering is the GM's own business and stays.
+Hooks.on("updateActor", (actor, change, options) => {
+  if (options?.[SYNC] || !foundry.utils.hasProperty(change, "system.members")) return
+  const f = groupFlag(actor)
+  if (!f || !game.user?.isGM || (game.users?.activeGM && !game.users.activeGM.isSelf)) return
+  const now = memberIds(actor), want = f.want || []
+  const added = now.filter(id => !want.includes(id)), removed = want.filter(id => !now.includes(id))
+  if (!added.length && !removed.length) return
+  sender?.({ type: "party.groupEdited", key: f.key, campaignId: f.campaignId, added, removed, by: game.user?.name || null })
+  const back = [...now.filter(id => want.includes(id)), ...removed]
+  actor.update({ "system.members": back.map(a => ({ actor: a })) }, { [SYNC]: true })
+  ui.notifications?.info(`${actor.name}: RealmScreen keeps who is in the party — the change is waiting there for you to accept.`)
+})
+
+/** dnd5e's travel pace for a party group → { pace: slow|normal|fast, slowed, vehicle: land|water|air|null }. */
+function travelOf(actor) {
+  if (actor?.type !== "group") return null
+  try {
+    const t = actor.system.getTravelPace?.()
+    const pace = t?.pace?.value ?? (typeof t?.pace === "string" ? t.pace : null) ?? actor.system.attributes?.travel?.pace ?? null
+    return {
+      pace: typeof pace === "string" ? pace : null,
+      slowed: !!t?.pace?.slowed,
+      vehicle: actor.system.primaryVehicle?.system?.details?.type ?? null,
+    }
+  } catch { return null }
+}
+
 /** { sceneId, tokens: [{ key, campaignId, name, nx, ny, src, hidden, actorId? }] } → reconcile. */
 export async function syncParty(msg) {
   if (!castSyncOn()) return { paused: true, created: 0, updated: 0, removed: 0 }
@@ -87,6 +183,13 @@ export async function syncParty(msg) {
   if (!scene) throw new Error("Scene not found: " + msg.sceneId)
   const want = new Map()
   for (const t of (Array.isArray(msg.tokens) ? msg.tokens : [])) if (t && t.key) want.set(String(t.key), t)
+  // Party groups first: each becomes (or reuses) a Group actor, and its token is that actor's.
+  const used = new Set()
+  for (const [key, t] of want) {
+    if (!t.group) continue
+    const id = await ensureGroup({ ...t, key }, used).catch(e => { console.warn(`[${MOD}] party group`, e); return null })
+    want.set(key, id ? { ...t, actorId: id } : { ...t, src: t.src || t.group.img })
+  }
   const have = new Map()
   const stale = [], release = []
   for (const doc of scene.tokens) {
@@ -201,7 +304,8 @@ export function partyMovedHook(send) {
     const scene = doc.parent
     if (!f || !scene) return
     const { nx, ny } = mapFraction(scene, { x: changes.x ?? doc.x, y: changes.y ?? doc.y, width: doc.width, height: doc.height })
-    send({ type: "party.moved", sceneId: scene.id, key: f.key, campaignId: f.campaignId, nx, ny })
+    const travel = travelOf(doc.actor)
+    send({ type: "party.moved", sceneId: scene.id, key: f.key, campaignId: f.campaignId, nx, ny, ...(travel ? { travel } : {}) })
   }
 }
 
@@ -246,3 +350,6 @@ export async function partySwitch(msg) {
   if (typeof msg.on === "boolean" && game.user?.isGM) await game.settings.set(MOD, "castSync", msg.on)
   return { on: castSyncOn() }
 }
+
+/** `party.groups` — can this world hold party Group actors? (dnd5e Group type present) → { groups } */
+export function partyGroups() { return { groups: groupsSupported() } }
