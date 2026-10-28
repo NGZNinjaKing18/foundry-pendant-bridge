@@ -280,8 +280,43 @@ function sentVisible(doc) {
 }
 
 function applyRule(obj) {
-  if (sentVisible(obj?.document) === false) obj.visible = false
+  if (sentVisible(obj?.document) === false || !inNameZoom(obj?.document)) obj.visible = false
   inkPin(obj)
+}
+
+// ── names that come and go with zoom, as on RealmScreen's map ──
+// A nation's name carries flags[MOD].nameZoom = { min, max } in RealmScreen's map zoom (1 = the whole map
+// fits the window). Foundry's equivalent: the canvas scale over the scale at which the scene fits the screen.
+// Same rule as pendant-home lib/zoomBand.mjs inZoomBand: from min, gone from max; 0.2 / 30 = no limit.
+const ZMIN = 0.2, ZMAX = 30
+function mapZoom() {
+  const d = canvas?.dimensions, scr = canvas?.app?.renderer?.screen
+  const scale = canvas?.stage?.scale?.x
+  if (!d?.sceneWidth || !scr?.width || !scale) return 1
+  return scale / Math.min(scr.width / d.sceneWidth, scr.height / d.sceneHeight)
+}
+function inNameZoom(doc, z = mapZoom()) {
+  let band = null
+  try { band = doc?.getFlag?.(MOD, "nameZoom") || null } catch { band = null }
+  if (!band) return true
+  const lo = Number.isFinite(band.min) ? band.min : ZMIN, hi = Number.isFinite(band.max) ? band.max : ZMAX
+  return z >= lo - 1e-6 && (hi >= ZMAX - 1e-6 || z < hi - 1e-6)
+}
+// On zoom: re-run the refresh of each name whose side of its band changed (Foundry works out its own
+// visibility first, then the rules above apply), so panning alone costs a comparison per name.
+const nameSide = new Map()
+function zoomNames() {
+  if (!canvas?.ready) return
+  const z = mapZoom()
+  for (const obj of canvas.drawings?.placeables || []) {
+    const doc = obj.document
+    if (!doc?.flags?.[MOD]?.nameZoom) continue
+    const inside = inNameZoom(doc, z)
+    if (nameSide.get(doc.id) === inside) continue
+    nameSide.set(doc.id, inside)
+    if (obj.renderFlags?.set) obj.renderFlags.set({ refreshState: true })
+    else { try { obj.refresh() } catch {} }
+  }
 }
 
 // An ink marker (rs.art) is the drawing alone, like on RealmScreen's map: no dark square behind it and no
@@ -315,7 +350,8 @@ Hooks.once("init", () => {
 Hooks.on("refreshDrawing", applyRule)
 Hooks.on("refreshNote", applyRule)
 Hooks.on("refreshTile", applyRule)
-Hooks.on("canvasReady", () => refreshSent())
+Hooks.on("canvasReady", () => { nameSide.clear(); refreshSent() })
+Hooks.on("canvasPan", () => zoomNames())
 Hooks.on("updateScene", (scene, changes) => {
   if (scene?.id !== canvas?.scene?.id) return
   if (changes?.flags?.[MOD] && "mapViews" in changes.flags[MOD]) refreshSent()

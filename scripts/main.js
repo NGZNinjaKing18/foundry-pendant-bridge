@@ -2598,7 +2598,9 @@ async function createNationDocs(scene, msg, tag = {}, hidden = false) {
       shape: "text", x: lx - w / 2, y: ly - fontSize / 2, width: w, height: fontSize + 4,
       text, fontSize, textColor: "#2a211c", textAlpha: 0.7, sort: -150, hidden
     })
-    t.flags = flags
+    // The zooms it shows at on RealmScreen's map (mapviews.js hides it outside them as Foundry zooms).
+    const z = msg.nameZoom && Number.isFinite(msg.nameZoom.min) && Number.isFinite(msg.nameZoom.max) ? { min: msg.nameZoom.min, max: msg.nameZoom.max } : null
+    t.flags = z ? { [MOD]: { ...flags[MOD], nameZoom: z } } : flags
     data.push(t)
   }
   if (!data.length) throw new Error("This nation has no border to send")
