@@ -158,7 +158,7 @@ function rerender() {
 }
 const ours = (doc) => !!doc?.flags?.["pendant-bridge"]?.rs
 Hooks.on("updateScene", (scene, changes) => { if (changes?.flags?.["pendant-bridge"] && "mapViews" in changes.flags["pendant-bridge"]) rerender() })
-for (const type of ["Drawing", "Note"]) {
+for (const type of ["Drawing", "Tile", "Note"]) {
   Hooks.on(`create${type}`, (doc) => { if (ours(doc)) rerender() })
   Hooks.on(`update${type}`, (doc) => { if (ours(doc)) rerender() })
   Hooks.on(`delete${type}`, (doc) => { if (ours(doc)) rerender() })

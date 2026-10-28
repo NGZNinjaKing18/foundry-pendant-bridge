@@ -8,7 +8,9 @@
 //   current "all"  every sent thing shows
 //   current <id>   only the things in that view; the rest are hidden for everyone (the GM too, unless
 //                  "Show me everything" is on — a client setting)
-// GM-only things are hidden from players always (Drawings natively, Notes by the render rule).
+// GM-only things are hidden from players always (Drawings and Tiles natively, older Notes by the render rule).
+// A town's picture marker is a Tile (ink drawing or its own icon); before v0.140.4 it was a Map Note — those
+// are still read, recoloured and replaced on the next send.
 // Ink markers carry two pictures (art.rs / art.more): a view with no borders shows "more" — more of the
 // nation's colour, so you can still tell whose town it is (the user's rule, 2026-10-28).
 // The view rules mirror pendant-home lib/foundryMapViews.mjs — keep the two in step.
@@ -17,7 +19,7 @@
 const MOD = "pendant-bridge"
 const ALL = "all", NONE = "none"
 const KINDS = ["settlement", "road", "river", "nation"]
-const DOC_TYPES = ["Drawing", "Note"]
+const DOC_TYPES = ["Drawing", "Tile", "Note"]
 
 // main.js hands over its scene-document builders (they share settlement.push / road.push's code).
 let B = null
@@ -26,7 +28,7 @@ export function setMapBuilders(builders) { B = builders }
 // ── reading ──────────────────────────────────────────────────
 
 const rsOf = doc => { try { return doc?.getFlag?.(MOD, "rs") || null } catch { return null } }
-const collection = (scene, type) => (type === "Note" ? scene.notes : scene.drawings)
+const collection = (scene, type) => (type === "Note" ? scene.notes : type === "Tile" ? scene.tiles : scene.drawings)
 
 export function viewsOf(scene) {
   const f = scene?.getFlag?.(MOD, "mapViews")
@@ -229,9 +231,10 @@ export async function mapReveal(msg) {
   const scene = sceneOf(msg)
   const list = sentDocs(scene, String(msg.id || ""))
   if (!list.length) throw new Error("That isn't on this scene")
-  const { type, doc } = list.find(d => d.type === "Note") || list[0]
-  const x = type === "Note" ? doc.x : doc.x + (doc.shape?.width || 0) / 2
-  const y = type === "Note" ? doc.y : doc.y + (doc.shape?.height || 0) / 2
+  // a town's marker first (its Tile, or an older Note), else the first of its drawings
+  const { type, doc } = list.find(d => d.type === "Tile" || d.type === "Note") || list[0]
+  const x = type === "Note" ? doc.x : type === "Tile" ? doc.x + (doc.width || 0) / 2 : doc.x + (doc.shape?.width || 0) / 2
+  const y = type === "Note" ? doc.y : type === "Tile" ? doc.y + (doc.height || 0) / 2 : doc.y + (doc.shape?.height || 0) / 2
   if (canvas?.scene?.id !== scene.id) await scene.view()
   try { await canvas.animatePan({ x, y }) } catch {}
   try { canvas.ping?.({ x, y }) } catch {}
@@ -240,20 +243,20 @@ export async function mapReveal(msg) {
 
 // ── marker colour ────────────────────────────────────────────
 
-// GM only (players can't update Notes). Borders in the view on screen → the RealmScreen colours,
-// none → "more". Only touches Notes whose picture would change.
+// GM only (players can't update the scene). Borders in the view on screen → the RealmScreen colours,
+// none → "more". Only touches markers (Tiles, older Notes) whose picture would change.
 async function applyMarkerArt(scene) {
   if (!game.user?.isGM) return
   const { current } = viewsOf(scene)
   const docs = sentDocs(scene)
   const borders = docs.some(d => d.rs.kind === "nation" && inView(d.rs, current))
-  const updates = []
+  const updates = { Tile: [], Note: [] }
   for (const { type, doc, rs } of docs) {
-    if (type !== "Note" || !rs.art) continue
+    if (!updates[type] || !rs.art) continue
     const want = borders ? rs.art.rs : rs.art.more
-    if (want && doc.texture?.src !== want) updates.push({ _id: doc.id, "texture.src": want })
+    if (want && doc.texture?.src !== want) updates[type].push({ _id: doc.id, "texture.src": want })
   }
-  if (updates.length) await scene.updateEmbeddedDocuments("Note", updates)
+  for (const [type, list] of Object.entries(updates)) if (list.length) await scene.updateEmbeddedDocuments(type, list)
 }
 
 // ── who sees what (every client) ─────────────────────────────
@@ -294,7 +297,7 @@ function inkPin(obj) {
 // Re-run every sent thing's refresh (the rule runs in its refresh hook).
 export function refreshSent() {
   if (!canvas?.ready) return
-  for (const layer of [canvas.drawings, canvas.notes]) {
+  for (const layer of [canvas.drawings, canvas.tiles, canvas.notes]) {
     for (const obj of layer?.placeables || []) {
       if (!rsOf(obj.document)) continue
       if (obj.renderFlags?.set) obj.renderFlags.set({ refreshState: true })
@@ -311,6 +314,7 @@ Hooks.once("init", () => {
 })
 Hooks.on("refreshDrawing", applyRule)
 Hooks.on("refreshNote", applyRule)
+Hooks.on("refreshTile", applyRule)
 Hooks.on("canvasReady", () => refreshSent())
 Hooks.on("updateScene", (scene, changes) => {
   if (scene?.id !== canvas?.scene?.id) return

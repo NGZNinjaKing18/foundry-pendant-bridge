@@ -2432,9 +2432,10 @@ function fsStatus() {
 // natively; Notes are hidden by mapviews' render rule).
 
 // { nx, ny (0..1 image-normalized), name, tier, population, iconSrc?, iconTint?, color, markerShape?,
-//   markerFilled?, style } → [ids]. Marker = a Note with the uploaded icon when one was supplied, else a
-// glyph Drawing. A second, ALWAYS-VISIBLE text Drawing carries the name/tier/population label (Note hover
-// labels are permission/hover-gated; this guarantees it's readable on the canvas without hovering).
+//   markerFilled?, style } → [ids]. Marker = a Tile showing the uploaded picture when one was supplied (an
+// ink drawing or the place's own icon), else a glyph Drawing. A Tile, not a Map Note: players can't see a
+// Note a GM placed without a journal page (Note#isVisible), a Tile has no dark box behind it, and it's one
+// light document. A second text Drawing carries the name/tier/population label.
 async function createSettlementDocs(scene, msg, tag = {}, hidden = false) {
   const dims = sceneDimensions(scene)
   const x = dims.sceneX + (Number(msg.nx) || 0) * dims.sceneWidth
@@ -2444,7 +2445,6 @@ async function createSettlementDocs(scene, msg, tag = {}, hidden = false) {
   const population = String(msg.population || "")
   const color = msg.color || "#f5e6c8"
   const subLine = [tier, population].filter(Boolean).join(" · ")
-  const hoverText = [name, subLine].filter(Boolean).join("\n")
   const flags = Object.keys(tag).length ? { [MOD]: { ...tag } } : undefined
 
   // Every VISUAL tunable (sizes/gaps/font/color) comes from the app via
@@ -2466,12 +2466,13 @@ async function createSettlementDocs(scene, msg, tag = {}, hidden = false) {
   if (msg.iconSrc) {
     markerHalf = markerHalfIcon
     // An ink marker comes already coloured (iconTint "#ffffff"); a custom icon is tinted by the place's colour.
-    const notes = await scene.createEmbeddedDocuments("Note", [{
-      x, y, text: hoverText, fontSize: 32, textAnchor: 1,
-      texture: { src: String(msg.iconSrc), tint: msg.iconTint || color }, iconSize: markerHalf * 2,
+    const tiles = await scene.createEmbeddedDocuments("Tile", [{
+      x: x - markerHalf, y: y - markerHalf, width: markerHalf * 2, height: markerHalf * 2,
+      texture: { src: String(msg.iconSrc), tint: msg.iconTint || color },
+      hidden: !!hidden, sort: 100, locked: true,
       flags
     }])
-    ids.push(...notes.map(doc => doc.id))
+    ids.push(...tiles.map(doc => doc.id))
   } else {
     markerHalf = markerHalfEllipse
     // Which glyph to draw — chosen by the app (matches its own tier
