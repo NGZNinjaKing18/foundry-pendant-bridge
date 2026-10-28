@@ -2441,6 +2441,17 @@ async function handleCommand(msg) {
         actors: game.actors.map(serializeActorLight)
       })
 
+    // The world's user accounts, so RealmScreen's Players page can say which one is whose.
+    case "user.list":
+      return bridge.reply(msg.reqId, {
+        type: "user.list",
+        users: game.users.map(u => ({
+          id: u.id, name: u.name, isGM: !!u.isGM, active: !!u.active,
+          color: u.color?.css || (u.color != null ? String(u.color) : null),
+          characterId: u.character?.id || null, characterName: u.character?.name || null,
+        })),
+      })
+
     case "actor.get": {
       const a = game.actors.get(msg.id)
       if (!a) throw new Error("Actor not found: " + msg.id)
