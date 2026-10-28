@@ -342,10 +342,10 @@ Hooks.on("renderActorSheetV2", async (app, html) => {
 // Other modules add their buttons in their own renderTokenHUD hooks, possibly
 // after ours, so the fold runs again on the next frame.
 
-// A group token keeps only visibility, elevation, sort, lock and settings in
+// A group token keeps only visibility, elevation, lock and settings in
 // view; every other HUD button (status effects, movement mode, target, combat,
 // other modules' buttons) folds behind one ⋯ button. Group tokens only.
-const KEEP = new Set(["visibility", "sort", "locked", "config"])
+const KEEP = new Set(["visibility", "locked", "config"])
 const foldable = (root) => [...root.querySelectorAll(".col.left .control-icon, .col.right .control-icon")]
   .filter(b => b.tagName !== "INPUT" && !b.closest(".elevation, .palette") && !b.classList.contains("pb-gfold-more") && !KEEP.has(b.dataset.action))
 let foldOpen = false
