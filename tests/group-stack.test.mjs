@@ -10,17 +10,32 @@ test("one member fills the picture", () => {
   assert.ok(p.d > 490 && p.d <= 512)
 })
 
-test("the first member is in front: biggest and lowest; every face stays inside", () => {
-  for (let n = 2; n <= 9; n++) {
+test("the first member is in front: lowest row, drawn on top; every face stays inside", () => {
+  for (let n = 2; n <= 10; n++) {
     const pts = stackLayout(n, 512)
-    assert.equal(pts.length, Math.min(n, 6))
-    for (const p of pts.slice(1)) { assert.ok(pts[0].d > p.d); assert.ok(pts[0].y > p.y) }
+    assert.equal(pts.length, Math.min(n, 8))
+    for (const p of pts.slice(1)) assert.ok(pts[0].y >= p.y && pts[0].d >= p.d)
     for (const p of pts) {
       assert.ok(p.x - p.d / 2 >= -1 && p.x + p.d / 2 <= 513, `x in bounds n=${n}`)
       assert.ok(p.y - p.d / 2 >= -1 && p.y + p.d / 2 <= 513, `y in bounds n=${n}`)
     }
   }
   assert.deepEqual(stackLayout(0), [])
+})
+
+test("no two tokens sit right on top of each other", () => {
+  for (let n = 2; n <= 8; n++) {
+    const pts = stackLayout(n, 512)
+    for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) {
+      const dist = Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y)
+      assert.ok(dist >= 0.3 * Math.min(pts[i].d, pts[j].d), `n=${n} ${i}/${j} too close`)
+    }
+  }
+})
+
+test("tokens stay big: two members get more than half the picture each", () => {
+  assert.ok(stackLayout(2, 512)[0].d > 300)
+  assert.ok(stackLayout(4, 512)[0].d > 240)
 })
 
 test("the signature follows order and art", () => {

@@ -2,8 +2,8 @@
 // dnd5e Group (and Encounter) actors as one stacked token.
 //
 //   • Stack art — the group's token picture is drawn from its members' own
-//     token art, piled on top of each other. The member list order is the pile
-//     order: the first member sits on top, in front. Redrawn whenever the
+//     token art, piled in staggered rows that show as much of each as fits. The
+//     member list order is the pile order: the first member sits on top, in front. Redrawn whenever the
 //     members, their order or their token art change. The active GM draws it,
 //     uploads it to worlds/<world>/group-tokens/, and points the prototype
 //     token (and every placed token still showing the old picture) at it.
@@ -24,32 +24,50 @@
 const MOD = "pendant-bridge"
 const FLAG = "groupStack"                 // actor flag { sig, file, off }
 const OURS = "pendantGroupStack"          // update option on our own writes
-const LAYOUT_V = 1                        // bump to redraw every stack
+const LAYOUT_V = 2                        // bump to redraw every stack
 const SIZE = 512
-const MAX_SHOWN = 6
+const MAX_SHOWN = 8
 
 const isGroup = (a) => a?.type === "group" || a?.type === "encounter"
 
 // ── pure helpers (tested) ─────────────────────────────────────
 
 /**
- * Where each member sits in the picture. Index 0 is the top of the pile (front,
- * centre); the rest step back left and right, a little higher and smaller.
+ * Where each member sits in the picture, laid out to show as much of everyone
+ * as fits: staggered rows that overlap only partly (back rows peek out above
+ * the front one, where faces usually are). Tries 1–3 rows and keeps whichever
+ * gives the biggest tokens. Index 0 is the top of the pile (front row, centre),
+ * then the rest of the front row centre-out, then the rows behind.
  * Returns centres and diameters in pixels of a `size` square.
  */
+const STEP = 0.62      // side-by-side spacing, in token widths (0.38 overlap)
+const ROW = 0.5        // each row back sits this much higher
 export function stackLayout(n, size = SIZE) {
   const k = Math.min(Math.max(0, n | 0), MAX_SHOWN)
   if (!k) return []
-  const pts = []
-  for (let i = 0; i < k; i++) {
-    const r = Math.ceil(i / 2)
-    const side = i === 0 ? 0 : (i % 2 ? -1 : 1)
-    pts.push({ x: side * r * 0.2, y: -r * 0.09, s: 1 - r * 0.1 })
+  let best = null
+  for (let rows = 1; rows <= Math.min(3, k); rows++) {
+    const counts = []
+    let left = k
+    for (let r = 0; r < rows; r++) { const c = Math.round(left / (rows - r)); counts.push(c); left -= c }
+    counts.sort((x, y) => x - y)                     // fewest in front
+    const pts = []
+    counts.forEach((c, r) => {
+      const s = 1 - r * 0.08
+      // Same-parity rows would hide heads exactly behind heads: nudge them half a step.
+      const shift = r && (c - counts[0]) % 2 === 0 ? (STEP * s / 2) * (r % 2 ? 1 : -1) : 0
+      for (let j = 0; j < c; j++) {
+        const off = j - (c - 1) / 2
+        pts.push({ x: off * STEP * s + shift, y: -r * ROW, s, r, o: Math.abs(off) })
+      }
+    })
+    const minX = Math.min(...pts.map(p => p.x - p.s / 2)), maxX = Math.max(...pts.map(p => p.x + p.s / 2))
+    const minY = Math.min(...pts.map(p => p.y - p.s / 2)), maxY = Math.max(...pts.map(p => p.y + p.s / 2))
+    const scale = 0.98 / Math.max(maxX - minX, maxY - minY)
+    if (!best || scale > best.scale + 1e-9) best = { pts, scale, cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 }
   }
-  const minX = Math.min(...pts.map(p => p.x - p.s / 2)), maxX = Math.max(...pts.map(p => p.x + p.s / 2))
-  const minY = Math.min(...pts.map(p => p.y - p.s / 2)), maxY = Math.max(...pts.map(p => p.y + p.s / 2))
-  const scale = 0.98 / Math.max(maxX - minX, maxY - minY)
-  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2
+  const { pts, scale, cx, cy } = best
+  pts.sort((p, q) => p.r - q.r || p.o - q.o || p.x - q.x)
   return pts.map(p => ({
     x: Math.round((p.x - cx) * scale * size + size / 2),
     y: Math.round((p.y - cy) * scale * size + size / 2),
@@ -116,6 +134,23 @@ async function loadBitmap(src) {
   return createImageBitmap(await res.blob())
 }
 
+/** The part of a picture that isn't see-through, so the figure fills its spot. */
+function contentBox(bmp) {
+  const w = bmp.width, h = bmp.height
+  const k = Math.min(1, 256 / Math.max(w, h))      // scan a small copy
+  const sw = Math.max(1, Math.round(w * k)), sh = Math.max(1, Math.round(h * k))
+  const cv = document.createElement("canvas"); cv.width = sw; cv.height = sh
+  const g = cv.getContext("2d", { willReadFrequently: true })
+  g.drawImage(bmp, 0, 0, sw, sh)
+  const px = g.getImageData(0, 0, sw, sh).data
+  let x0 = sw, y0 = sh, x1 = -1, y1 = -1
+  for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) {
+    if (px[(y * sw + x) * 4 + 3] > 12) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y }
+  }
+  if (x1 < 0) return { sx: 0, sy: 0, sw: w, sh: h }
+  return { sx: x0 / k, sy: y0 / k, sw: (x1 - x0 + 1) / k, sh: (y1 - y0 + 1) / k }
+}
+
 async function drawStack(arts, total) {
   const cv = document.createElement("canvas")
   cv.width = cv.height = SIZE
@@ -127,12 +162,13 @@ async function drawStack(arts, total) {
     const art = arts[i]
     let bmp
     try { bmp = await loadBitmap(art.src) } catch { continue }
-    const k = Math.min(d / bmp.width, d / bmp.height)
-    const w = bmp.width * k, h = bmp.height * k
+    const box = art.ring ? { sx: 0, sy: 0, sw: bmp.width, sh: bmp.height } : contentBox(bmp)
+    const k = Math.min(d / box.sw, d / box.sh)
+    const w = box.sw * k, h = box.sh * k
     g.save()
     if (art.ring) { g.beginPath(); g.arc(x, y, d / 2, 0, Math.PI * 2); g.clip() }
     g.shadowColor = "rgba(0,0,0,0.45)"; g.shadowBlur = SIZE * 0.025; g.shadowOffsetY = SIZE * 0.008
-    g.drawImage(bmp, x - w / 2, y - h / 2, w, h)
+    g.drawImage(bmp, box.sx, box.sy, box.sw, box.sh, x - w / 2, y - h / 2, w, h)
     g.restore()
     bmp.close?.()
   }
