@@ -2546,8 +2546,11 @@ async function createRouteDocs(scene, msg, tag = {}, hidden = false) {
   return created.map(doc => doc.id)
 }
 
-// { parts:[{ points:[[nx,ny]…], closed }], color, name, label:[nx,ny]|null, fillAlpha } → [ids].
-// A filled polygon per closed part (holes are skipped), a line per open part, and the name as text.
+// { parts:[{ points:[[nx,ny]…], closed, holes?:[ring…], fill?:ring }], color, name, label:[nx,ny]|null,
+//   fillAlpha } → [ids]. A filled polygon per piece of land, a line per open part, and the name as text.
+// Land with holes (lakes, enclaves — pendant-home lib/foundryMapViews.mjs nationPayload): Drawings can't
+// have holes, so `fill` is one "keyhole" ring (the coast with each hole joined in by a hairline), filled
+// with NO outline so the hairline never shows; the coast and each hole are drawn as outlines on their own.
 async function createNationDocs(scene, msg, tag = {}, hidden = false) {
   const dims = sceneDimensions(scene)
   const toScene = p => [dims.sceneX + (Number(p[0]) || 0) * dims.sceneWidth, dims.sceneY + (Number(p[1]) || 0) * dims.sceneHeight]
@@ -2555,10 +2558,10 @@ async function createNationDocs(scene, msg, tag = {}, hidden = false) {
   const fillAlpha = msg.fillAlpha != null ? Number(msg.fillAlpha) : 0.25
   const flags = { [MOD]: { ...tag } }
   const data = []
-  for (const part of (Array.isArray(msg.parts) ? msg.parts : [])) {
-    const closed = part.closed !== false
-    const pts = (part.points || []).map(toScene)
-    if (pts.length < (closed ? 3 : 2)) continue
+  // ring: 0..1 points; fill / stroke: on or off for this one drawing
+  const shapeOf = (ring, closed, { fill, stroke }) => {
+    const pts = (ring || []).map(toScene)
+    if (pts.length < (closed ? 3 : 2)) return null
     if (closed) pts.push(pts[0])   // Foundry's polygon isn't closed by itself
     const xs = pts.map(p => p[0]), ys = pts.map(p => p[1])
     const x0 = Math.min(...xs), y0 = Math.min(...ys)
@@ -2566,13 +2569,25 @@ async function createNationDocs(scene, msg, tag = {}, hidden = false) {
       shape: closed ? "polygon" : "freehand", x: x0, y: y0,
       width: Math.max(1, Math.max(...xs) - x0), height: Math.max(1, Math.max(...ys) - y0),
       points: pts.map(p => [p[0] - x0, p[1] - y0]),
-      strokeColor: color, strokeWidth: 3, strokeAlpha: 0.9,
-      fillColor: closed ? color : undefined, fillAlpha: closed ? fillAlpha : 0, hidden,
-      sort: -200   // under roads and towns
+      strokeColor: color, strokeWidth: stroke ? 3 : 0, strokeAlpha: stroke ? 0.9 : 0,
+      fillColor: fill ? color : undefined, fillAlpha: fill ? fillAlpha : 0, hidden,
+      sort: fill ? -200 : -190   // under roads and towns; outlines over the fills
     })
     d.flags = flags
-    data.push(d)
+    return d
   }
+  for (const part of (Array.isArray(msg.parts) ? msg.parts : [])) {
+    const closed = part.closed !== false
+    const holes = closed && Array.isArray(part.holes) ? part.holes.filter(h => Array.isArray(h) && h.length >= 3) : []
+    if (holes.length && Array.isArray(part.fill)) {
+      data.push(shapeOf(part.fill, true, { fill: true, stroke: false }))
+      data.push(shapeOf(part.points, true, { fill: false, stroke: true }))
+      for (const h of holes) data.push(shapeOf(h, true, { fill: false, stroke: true }))
+    } else {
+      data.push(shapeOf(part.points, closed, { fill: closed, stroke: true }))
+    }
+  }
+  for (let i = data.length - 1; i >= 0; i--) if (!data[i]) data.splice(i, 1)
   if (msg.name && Array.isArray(msg.label)) {
     const [lx, ly] = toScene(msg.label)
     const fontSize = Math.max(18, Math.round(dims.sceneWidth / 90))
