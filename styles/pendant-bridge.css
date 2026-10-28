@@ -582,70 +582,73 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
 /* Campaigns list (campaigns.js): one campaign per row instead of a crowded button row. */
 .application.pb-campaigns .form-footer { flex-direction: column; align-items: stretch; }
 
-/* ── The campaign page (scripts/campaign-page.js) — Foundry's own colours, light + dark ── */
-.pb-campaign-page .window-content { padding: 0; container-type: inline-size; }
-.pb-campaign-page .pb-cp { display: flex; flex-direction: column; min-height: 100%; }
-.pb-campaign-page .pb-cp > .hint { padding: 1rem; }
-.pb-campaign-page .pb-cp-hero { display: flex; align-items: flex-end; gap: 1rem; padding: 0.75rem 1rem; border-bottom: 1px solid var(--color-border, #7a7971); }
-.pb-campaign-page .pb-cp-hero h2 { margin: 0; border: 0; font-size: var(--font-size-24, 1.5rem); }
-.pb-campaign-page .pb-cp-sub { color: var(--color-text-secondary, #7a7971); font-size: var(--font-size-12, 0.8rem); }
-.pb-campaign-page .pb-cp-live { color: var(--color-level-success, #3a9b4a); margin-left: 0.25rem; }
-.pb-campaign-page .pb-cp-live::before { content: "●"; margin-right: 0.2rem; }
-.pb-campaign-page .pb-cp-date { margin-left: auto; text-align: right; font-size: var(--font-size-12, 0.8rem); color: var(--color-text-secondary, #7a7971); }
-.pb-campaign-page .pb-cp-date strong { display: block; font-size: var(--font-size-16, 1rem); color: var(--color-text-primary, inherit); }
-.pb-campaign-page .pb-cp-tabs { padding: 0 0.75rem; border-bottom: 1px solid var(--color-border, #7a7971); justify-content: flex-start; gap: 0.25rem; }
-.pb-campaign-page .pb-cp-tabs .item { position: relative; padding: 0.4rem 0.75rem; }
-.pb-campaign-page .pb-cp-dot { position: absolute; top: 0.3rem; right: 0.15rem; width: 0.45rem; height: 0.45rem; border-radius: 50%; background: var(--color-warm-2, #ee9b3a); }
-.pb-campaign-page .pb-cp-body { padding: 0.75rem 1rem 1rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 0.6rem; }
-.pb-campaign-page .pb-cp-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; }
+/* ── The campaign page (scripts/campaign-page.js) ──
+   On theme = only Foundry's own theme variables (.theme-dark / .theme-light set them, and a
+   RealmScreen campaign look overrides the same ones), and Foundry's own tabs / fieldsets / buttons /
+   window padding. The one accent is the campaign look's, else Foundry's highlight. */
+.pb-campaign-page { --pb-cp-accent: var(--pb-accent, var(--color-warm-2)); --pb-cp-well: var(--table-row-color-even); }
+.pb-campaign-page .window-content { container-type: inline-size; }
+.pb-campaign-page .pb-cp { display: flex; flex-direction: column; gap: 0.5rem; min-height: 100%; }
+.pb-campaign-page .pb-cp-hero { display: flex; align-items: flex-end; gap: 1rem; }
+.pb-campaign-page .pb-cp-hero h2 { margin: 0; border: 0; color: var(--color-text-emphatic); }
+.pb-campaign-page .pb-cp-sub { color: var(--color-text-secondary); font-size: var(--font-size-12); }
+.pb-campaign-page .pb-cp-live { color: var(--color-level-success); margin-left: 0.25rem; }
+.pb-campaign-page .pb-cp-live::before { content: "\25CF"; margin-right: 0.2rem; }
+.pb-campaign-page .pb-cp-date { margin-left: auto; text-align: right; font-size: var(--font-size-12); color: var(--color-text-secondary); }
+.pb-campaign-page .pb-cp-date strong { display: block; font-size: var(--font-size-16); color: var(--color-text-emphatic); }
+.pb-campaign-page .pb-cp-tabs .item { position: relative; }
+.pb-campaign-page .pb-cp-dot { position: absolute; top: 0.35rem; right: -0.5rem; width: 0.45rem; height: 0.45rem; border-radius: 50%; background: var(--pb-cp-accent); }
+.pb-campaign-page .pb-cp-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem; }
+.pb-campaign-page .pb-cp-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
 @container (max-width: 480px) { .pb-campaign-page .pb-cp-grid { grid-template-columns: 1fr; } }
 .pb-campaign-page .pb-cp-blk { margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 0.35rem; }
 .pb-campaign-page .pb-cp-blk.wide { grid-column: 1 / -1; }
 .pb-campaign-page .pb-cp-blk p { margin: 0; }
-.pb-campaign-page .pb-cp-r { margin-left: auto; color: var(--color-text-secondary, #7a7971); font-size: var(--font-size-12, 0.8rem); white-space: nowrap; font-weight: normal; }
+.pb-campaign-page .pb-cp-r { margin-left: auto; color: var(--color-text-subtle); font-size: var(--font-size-12); white-space: nowrap; font-weight: normal; }
 .pb-campaign-page .pb-cp-row { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
 .pb-campaign-page .pb-cp-row.end { justify-content: flex-end; }
 .pb-campaign-page .pb-cp-row > button { flex: 0 0 auto; width: auto; }
 .pb-campaign-page .pb-cp-row > input[type=text] { flex: 1; }
 .pb-campaign-page .pb-cp-threads { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 0.2rem; }
 .pb-campaign-page .pb-cp-threads li { display: flex; align-items: center; gap: 0.35rem; }
-.pb-campaign-page .pb-cp-threads li.done { color: var(--color-text-secondary, #7a7971); text-decoration: line-through; }
+.pb-campaign-page .pb-cp-threads li.done { color: var(--color-text-subtle); text-decoration: line-through; }
 .pb-campaign-page .pb-cp-party { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: 0.4rem; }
-.pb-campaign-page .pb-cp-person { display: flex; align-items: center; gap: 0.5rem; border: 1px solid var(--color-border, #7a7971); border-radius: 4px; padding: 0.3rem; }
+.pb-campaign-page .pb-cp-person { display: flex; align-items: center; gap: 0.5rem; background: var(--pb-cp-well); border: 1px solid var(--color-border); border-radius: 4px; padding: 0.3rem; }
 .pb-campaign-page .pb-cp-person.away { opacity: 0.6; }
-.pb-campaign-page .pb-cp-person img, .pb-campaign-page .pb-cp-ini { width: 2.5rem; height: 2.5rem; border-radius: 3px; object-fit: cover; border: 1px solid var(--color-border, #7a7971); flex: none; }
-.pb-campaign-page .pb-cp-ini { display: grid; place-items: center; font-weight: bold; background: var(--color-cool-4, rgba(0,0,0,.15)); }
-.pb-campaign-page .pb-cp-ini.sm, .pb-campaign-page .pb-cp-av { width: 1.6rem; height: 1.6rem; border-radius: 3px; object-fit: cover; flex: none; }
-.pb-campaign-page .pb-cp-person small { display: block; color: var(--color-text-secondary, #7a7971); }
+.pb-campaign-page .pb-cp-person small { display: block; color: var(--color-text-secondary); }
+.pb-campaign-page .pb-cp-person img, .pb-campaign-page .pb-cp-ini { width: 2.5rem; height: 2.5rem; border-radius: 3px; object-fit: cover; border: 1px solid var(--color-border); flex: none; }
+.pb-campaign-page .pb-cp-ini { display: grid; place-items: center; font-weight: bold; color: var(--color-text-emphatic); background: var(--pb-cp-well); }
+.pb-campaign-page .pb-cp-ini.sm, .pb-campaign-page .pb-cp-av { width: 1.6rem; height: 1.6rem; border-radius: 3px; object-fit: cover; flex: none; border: 1px solid var(--color-border); }
 .pb-campaign-page .pb-cp-secs { display: flex; flex-direction: column; gap: 0.5rem; }
-.pb-campaign-page .pb-cp-sec { display: flex; gap: 0.6rem; border: 1px solid var(--color-border, #7a7971); border-left: 3px solid var(--color-warm-2, #ee9b3a); border-radius: 4px; padding: 0.5rem 0.6rem; }
-.pb-campaign-page .pb-cp-sec.waiting { border-left-color: var(--color-text-secondary, #7a7971); opacity: 0.85; }
-.pb-campaign-page .pb-cp-sec.shared { border-left-color: var(--color-level-success, #3a9b4a); }
-.pb-campaign-page .pb-cp-kind { width: 1.5rem; text-align: center; margin-top: 0.15rem; color: var(--color-text-secondary, #7a7971); }
+.pb-campaign-page .pb-cp-sec { display: flex; gap: 0.6rem; background: var(--pb-cp-well); border: 1px solid var(--color-border); border-left: 3px solid var(--pb-cp-accent); border-radius: 4px; padding: 0.5rem 0.6rem; }
+.pb-campaign-page .pb-cp-sec.waiting { border-left-color: var(--color-text-subtle); background: none; }
+.pb-campaign-page .pb-cp-sec.shared { border-left-color: var(--color-level-success); }
+.pb-campaign-page .pb-cp-kind { width: 1.5rem; text-align: center; margin-top: 0.15rem; color: var(--color-text-secondary); }
 .pb-campaign-page .pb-cp-secm { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.3rem; }
 .pb-campaign-page .pb-cp-secm p { margin: 0; }
-.pb-campaign-page .pb-cp-sect { font-weight: bold; display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
-.pb-campaign-page .pb-cp-meta { display: flex; flex-wrap: wrap; gap: 0.3rem 0.8rem; font-size: var(--font-size-12, 0.8rem); color: var(--color-text-secondary, #7a7971); }
-.pb-campaign-page .pb-cp-new { font-size: var(--font-size-10, 0.65rem); text-transform: uppercase; letter-spacing: 0.04em; padding: 0 0.3rem; border-radius: 2px; background: var(--color-warm-2, #ee9b3a); color: #111; }
-.pb-campaign-page .pb-cp-tag { font-size: var(--font-size-11, 0.7rem); font-weight: normal; padding: 0 0.3rem; border: 1px solid var(--color-border, #7a7971); border-radius: 2px; }
-.pb-campaign-page .pb-cp-seen { color: var(--color-level-success, #3a9b4a); }
+.pb-campaign-page .pb-cp-sect { font-weight: bold; color: var(--color-text-emphatic); display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
+.pb-campaign-page .pb-cp-meta { display: flex; flex-wrap: wrap; gap: 0.3rem 0.8rem; font-size: var(--font-size-12); color: var(--color-text-secondary); }
+.pb-campaign-page .pb-cp-new { font-size: var(--font-size-10); font-weight: bold; text-transform: uppercase; letter-spacing: 0.04em; padding: 0 0.3rem; border: 1px solid var(--pb-cp-accent); border-radius: 2px; color: var(--pb-cp-accent); }
+.pb-campaign-page .pb-cp-tag { font-size: var(--font-size-11); font-weight: normal; color: var(--color-text-secondary); padding: 0 0.3rem; border: 1px solid var(--color-border); border-radius: 2px; }
+.pb-campaign-page .pb-cp-seen { color: var(--color-level-success); }
+.pb-campaign-page .pb-cp-unseen { color: var(--color-text-subtle); }
 .pb-campaign-page .pb-cp-wait { font-style: italic; }
-.pb-campaign-page .pb-cp-handout { max-width: 100%; max-height: 16rem; object-fit: contain; align-self: flex-start; border: 1px solid var(--color-border, #7a7971); border-radius: 3px; }
+.pb-campaign-page .pb-cp-handout { max-width: 100%; max-height: 16rem; object-fit: contain; align-self: flex-start; border: 1px solid var(--color-border); border-radius: 3px; }
 .pb-campaign-page .pb-cp-pagesec { display: flex; gap: 0.6rem; align-items: flex-start; }
-.pb-campaign-page .pb-cp-pagesec img { width: 4rem; height: 4rem; object-fit: cover; border-radius: 3px; border: 1px solid var(--color-border, #7a7971); }
-.pb-campaign-page .pb-cp-ask { display: flex; flex-direction: column; gap: 0.3rem; padding-bottom: 0.4rem; border-bottom: 1px dashed var(--color-border, #7a7971); }
+.pb-campaign-page .pb-cp-pagesec img { width: 4rem; height: 4rem; object-fit: cover; border-radius: 3px; border: 1px solid var(--color-border); }
+.pb-campaign-page .pb-cp-ask { display: flex; flex-direction: column; gap: 0.3rem; padding-bottom: 0.4rem; border-bottom: 1px dashed var(--color-border); }
 .pb-campaign-page .pb-cp-ask:last-child { border-bottom: 0; }
 .pb-campaign-page .pb-cp-push { margin-left: auto; }
 .pb-campaign-page .pb-cp-opts { display: flex; flex-wrap: wrap; gap: 0.3rem; flex: 2; }
 .pb-campaign-page .pb-cp-opts.col { flex-direction: column; gap: 0.2rem; }
 .pb-campaign-page .pb-cp-opts > button { flex: 0 0 auto; width: auto; }
-.pb-campaign-page .pb-cp-opts > button.active { border-color: var(--color-warm-2, #ee9b3a); box-shadow: 0 0 4px var(--color-warm-2, #ee9b3a); }
+.pb-campaign-page .pb-cp-opts > button.active { border-color: var(--pb-cp-accent); color: var(--color-text-emphatic); box-shadow: 0 0 4px var(--pb-cp-accent); }
 .pb-campaign-page .pb-cp-opt { display: flex; align-items: center; gap: 0.35rem; }
 .pb-campaign-page .pb-cp-in { width: 9rem; flex: none; }
 .pb-campaign-page .pb-cp-in.num { width: 3.5rem; }
 .pb-campaign-page .pb-cp-comp textarea { width: 100%; }
-.pb-secret-card { cursor: pointer; }
-.pb-secret-card h3 { margin: 0 0 0.25rem; font-size: var(--font-size-14, 0.9rem); border: 0; }
+.pb-secret-card { cursor: pointer; border-left: 3px solid var(--pb-accent, var(--color-warm-2)); padding-left: 0.5rem; }
+.pb-secret-card h3 { margin: 0 0 0.25rem; font-size: var(--font-size-14); border: 0; }
 .pb-secret-card p { margin: 0; }
 
 /* ── Map views (scripts/mapviews-ui.js): the GM's Map views + Sent from RealmScreen windows ── */

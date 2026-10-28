@@ -233,7 +233,7 @@ function pageClass() {
     async _renderHTML() {
       this.#keep()
       const el = document.createElement("div")
-      el.className = "pb-cp"
+      el.className = "pb-cp standard-form"
       const p = this.page
       if (!p) { el.innerHTML = `<p class="hint">RealmScreen hasn’t sent this campaign’s page yet. It does while it’s connected.</p>`; return el }
       const gm = !!game.user?.isGM, me = game.user?.id
@@ -247,7 +247,7 @@ function pageClass() {
           <div><h2>${esc(o.name || this.title)}</h2><div class="pb-cp-sub">${sub} · ${sess}</div></div>
           ${o.date ? `<div class="pb-cp-date"><span>${esc(o.name || "")}’s date</span><strong>${esc(o.date)}</strong></div>` : ""}
         </header>
-        <nav class="tabs pb-cp-tabs">
+        <nav class="sheet-tabs tabs pb-cp-tabs">
           <a class="item ${this.tab === "over" ? "active" : ""}" data-action="tab" data-tab="over"><i class="fa-solid fa-house"></i> Overview</a>
           <a class="item ${this.tab === "sec" ? "active" : ""}" data-action="tab" data-tab="sec"><i class="fa-solid fa-key"></i> Secrets (${vis.length})${dot ? `<span class="pb-cp-dot"></span>` : ""}</a>
         </nav>
