@@ -3,14 +3,15 @@
 //
 // While RealmScreen is connected (live.js), every user gets one more control
 // set under Foundry's own (Tokens, Drawings, …), drawn as a DM screen. Its
-// tools are RealmScreen's player tools; for now one button, "Plan a trip",
-// which does nothing yet. Not connected = the control isn't there at all.
+// tools are RealmScreen's player tools: "Plan a trip" (does nothing yet) and
+// "Campaigns" (scripts/campaigns.js). Not connected = the control isn't there at all.
 //
 // Native-first: added through `getSceneControlButtons`, re-prepared with
 // `ui.controls.render({ reset: true })` when the link comes or goes.
 // ──────────────────────────────────────────────────────────────
 
 import { realmLive } from "./live.js"
+import { openCampaigns } from "./campaigns.js"
 
 const NAME = "realmscreen"
 
@@ -29,6 +30,14 @@ export function realmControl() {
         icon: "fa-solid fa-route",
         button: true,
         onChange: () => {},           // coming later
+      },
+      campaigns: {
+        name: "campaigns",
+        order: 1,
+        title: "Campaigns",
+        icon: "fa-solid fa-flag",
+        button: true,
+        onChange: () => { openCampaigns() },   // scripts/campaigns.js
       },
     },
   }

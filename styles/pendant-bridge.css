@@ -578,3 +578,6 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
 /* Group tokens: effects / movement / target / combat fold behind a ⋯ button. */
 #token-hud:not(.pb-gfold-open) .control-icon.pb-gfold { display: none; }
 #token-hud.pb-gfold-open .pb-gfold-more { --control-bg-color: var(--control-active-bg-color); --control-border-color: var(--control-active-border-color); }
+
+/* Campaigns list (campaigns.js): one campaign per row instead of a crowded button row. */
+.application.pb-campaigns .form-footer { flex-direction: column; align-items: stretch; }

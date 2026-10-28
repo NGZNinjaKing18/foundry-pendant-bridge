@@ -43,6 +43,9 @@ export function liveFrom({ linkedHere, peers, at, socketHeard, setting, isActive
   return !!setting && anyGM
 }
 
+/** This window holds the RealmScreen link. */
+export const linkedHere = () => linked
+
 export function realmLive() {
   return liveFrom({
     linkedHere: linked, peers, at: now(), socketHeard,

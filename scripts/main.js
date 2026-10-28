@@ -24,6 +24,7 @@ import { beginStats, collectStats } from "./boxscore.js"
 import { setClock, currentClock, setClockSender, setClockLive } from "./clock.js"
 import {} from "./sidebar-fold.js"   // folds some sidebar tabs for players
 import {} from "./scene-control.js"  // the RealmScreen (DM screen) control set
+import { setCampaigns, noteCampaigns, setCampaignSender } from "./campaigns.js"
 import {} from "./group-stack.js"    // dnd5e group tokens: stacked art, pile order, pull-out fan
 import { syncParty, syncTrails, partyMovedHook, setPartySender, partySwitch } from "./party.js"
 import { timelineStatus, applyFromRealm, broadcastFromRealm, isTimelineWriter } from "./timeline.js"
@@ -596,6 +597,7 @@ const bridge = {
   }
 }
 setClockSender((m) => bridge.send(m))
+setCampaignSender((m) => bridge.send(m))
 setPartySender((m) => bridge.send(m))
 
 // ──────────────────────────────────────────────────────────────
@@ -3558,6 +3560,16 @@ async function handleCommand(msg) {
     // { clock: payload|null } → the world setting every client draws (sky dial +
     // chat date bar) and Foundry's world time. The GM's ±day/±hour buttons send
     // `clock.step` back; RealmScreen moves its canon date and re-sends.
+    // ── RealmScreen campaigns for the Campaigns button (scripts/campaigns.js) ──
+    // { roster: { active, campaigns: [{ id, name, users }] } } · { userId, text, level }
+    case "campaigns.set": {
+      const r = await setCampaigns(msg.roster || null)
+      return bridge.reply(msg.reqId, { type: "campaigns.set", ...r })
+    }
+    case "campaigns.note": {
+      const r = noteCampaigns(msg)
+      return bridge.reply(msg.reqId, { type: "campaigns.note", ...r })
+    }
     case "clock.set": {
       const r = await setClock(msg.clock || null)
       return bridge.reply(msg.reqId, { type: "clock.set", ...r })
