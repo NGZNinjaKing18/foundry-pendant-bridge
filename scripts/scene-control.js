@@ -12,6 +12,7 @@
 
 import { realmLive } from "./live.js"
 import { openCampaigns } from "./campaigns.js"
+import { openMapViews, openSentList } from "./mapviews-ui.js"
 
 const NAME = "realmscreen"
 
@@ -38,6 +39,25 @@ export function realmControl() {
         icon: "fa-solid fa-flag",
         button: true,
         onChange: () => { openCampaigns() },   // scripts/campaigns.js
+      },
+      // The GM's: which of the World Map views players see, and what RealmScreen sent (scripts/mapviews-ui.js).
+      mapViews: {
+        name: "mapViews",
+        order: 2,
+        title: "Map views",
+        icon: "fa-solid fa-layer-group",
+        button: true,
+        visible: !!game.user?.isGM,
+        onChange: () => { openMapViews() },
+      },
+      mapSent: {
+        name: "mapSent",
+        order: 3,
+        title: "Sent from RealmScreen",
+        icon: "fa-solid fa-list",
+        button: true,
+        visible: !!game.user?.isGM,
+        onChange: () => { openSentList() },
       },
     },
   }

@@ -20,10 +20,12 @@
 // RealmScreen decides (it checks again) and answers with `campaigns.note`,
 // which comes back to that one user as a notification.
 //
-// The campaign page itself is still to be built — for now a small window.
+// The page itself is scripts/campaign-page.js. When a session starts, its players get it
+// opened for them (the roster's `active` changing to a campaign they're in).
 // ──────────────────────────────────────────────────────────────
 
 import { linkedHere } from "./live.js"
+import { openPage } from "./campaign-page.js"
 
 const MOD = "pendant-bridge"
 const KEY = "campaigns"
@@ -90,6 +92,19 @@ function passOn(campaignId, userId) {
   return sender({ type: "campaign.start", campaignId, userId, userName: u.name, isGM: !!u.isGM })
 }
 
+/** What the campaign page does goes to RealmScreen the same way (only these types). */
+const RELAYED = new Set(["campaign.page"])
+function passMsg(type, data, userId) {
+  const u = game.users?.get(userId)
+  if (!u || !sender || !RELAYED.has(type)) return false
+  return sender({ ...(data && typeof data === "object" ? data : {}), type, userId: u.id, userName: u.character?.name || u.name, isGM: !!u.isGM })
+}
+export function relay(type, data) {
+  if (linkedHere() && passMsg(type, data, game.user.id)) return true
+  try { game.socket?.emit(CHANNEL, { t: "camp.relay", type, data, user: game.user.id }) } catch { /* no socket */ }
+  return true
+}
+
 function askStart(campaign) {
   if (linkedHere() && passOn(campaign.id, game.user.id)) return ui.notifications?.info(`Asking RealmScreen to start ${campaign.name}…`)
   try { game.socket?.emit(CHANNEL, { t: "camp.start", campaignId: campaign.id, user: game.user.id }) } catch { /* no socket */ }
@@ -101,34 +116,11 @@ function onSocket(m, senderId) {
   if (m.t === "camp.note") return showNote(m)
   // Only the window holding the link passes a request on. Foundry names the sender when it can.
   if (m.t === "camp.start" && linkedHere()) passOn(str(m.campaignId), str(senderId) || str(m.user))
+  if (m.t === "camp.relay" && linkedHere()) passMsg(str(m.type), m.data, str(senderId) || str(m.user))
 }
 
 // ── the windows ───────────────────────────────────────────────
 const DialogV2 = () => foundry?.applications?.api?.DialogV2 || null
-
-let PageClass = null
-function openPage(campaign) {
-  const AppV2 = foundry?.applications?.api?.ApplicationV2
-  if (!AppV2) return ui.notifications?.info(campaign.name)
-  PageClass ??= class CampaignPage extends AppV2 {
-    static DEFAULT_OPTIONS = {
-      id: "pendant-bridge-campaign",
-      classes: ["pb-campaign-page"],
-      window: { icon: "fa-solid fa-flag", resizable: true },
-      position: { width: 420, height: "auto" },
-    }
-    get title() { return this.options.campaign?.name || "Campaign" }
-    async _renderHTML() {
-      const el = document.createElement("div")
-      el.innerHTML = `<p class="hint">The campaign page is coming soon.</p>`
-      return el
-    }
-    _replaceHTML(result, content) { content.replaceChildren(...result.children) }
-  }
-  const open = foundry.applications.instances?.get?.("pendant-bridge-campaign")
-  if (open) { open.options.campaign = campaign; open.render({ force: true, window: { title: campaign.name } }); return open.bringToFront?.() }
-  new PageClass({ campaign }).render({ force: true })
-}
 
 async function chooseCampaign(list) {
   const D = DialogV2()
@@ -169,10 +161,23 @@ export async function openCampaigns() {
   if (c) await startOrView(c)
 }
 
+// A session starting opens its page for its players (not the GM: they started it).
+let wasActive
+function onRoster(v) {
+  const r = cleanRoster(v)
+  const now = r.active?.id || null
+  if (wasActive !== undefined && now && now !== wasActive && !game.user?.isGM) {
+    const b = buttonFor(r, game.user?.id, false)
+    if (b.kind === "page") openPage(b.campaign)
+  }
+  wasActive = now
+}
+
 // ── hooks ─────────────────────────────────────────────────────
 Hooks.once("init", () => {
-  game.settings.register(MOD, KEY, { scope: "world", config: false, type: Object, default: null })
+  game.settings.register(MOD, KEY, { scope: "world", config: false, type: Object, default: null, onChange: onRoster })
 })
 Hooks.once("ready", () => {
+  wasActive = cleanRoster(readRoster()).active?.id || null
   try { game.socket?.on(CHANNEL, onSocket) } catch { /* no socket */ }
 })

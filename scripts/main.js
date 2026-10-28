@@ -25,9 +25,11 @@ import { setClock, currentClock, setClockSender, setClockLive } from "./clock.js
 import {} from "./sidebar-fold.js"   // folds some sidebar tabs for players
 import {} from "./scene-control.js"  // the RealmScreen (DM screen) control set
 import { setCampaigns, noteCampaigns, setCampaignSender } from "./campaigns.js"
+import { setPages, whisperCampaign } from "./campaign-page.js"
 import {} from "./group-stack.js"    // dnd5e group tokens: stacked art, pile order, pull-out fan
 import { syncParty, syncTrails, partyMovedHook, setPartySender, partySwitch, partyGroups } from "./party.js"
 import { timelineStatus, applyFromRealm, broadcastFromRealm, isTimelineWriter } from "./timeline.js"
+import { setMapBuilders, mapViewsState, mapViewsSet, mapSend, mapViewsEdit, mapRemove, mapReveal } from "./mapviews.js"
 
 const MOD = "pendant-bridge"
 const FS_LEDGER = "fileSortLedger"
@@ -2424,6 +2426,172 @@ function fsStatus() {
   }
 }
 
+// ── World Map things → scene documents ────────────────────────
+// Shared by settlement.push / road.push and map.send (scripts/mapviews.js). `tag` = the flags every
+// document gets under MOD (e.g. { settlementId } or { rs: {…} }); `hidden` = GM-only (Drawings hide
+// natively; Notes are hidden by mapviews' render rule).
+
+// { nx, ny (0..1 image-normalized), name, tier, population, iconSrc?, iconTint?, color, markerShape?,
+//   markerFilled?, style } → [ids]. Marker = a Note with the uploaded icon when one was supplied, else a
+// glyph Drawing. A second, ALWAYS-VISIBLE text Drawing carries the name/tier/population label (Note hover
+// labels are permission/hover-gated; this guarantees it's readable on the canvas without hovering).
+async function createSettlementDocs(scene, msg, tag = {}, hidden = false) {
+  const dims = sceneDimensions(scene)
+  const x = dims.sceneX + (Number(msg.nx) || 0) * dims.sceneWidth
+  const y = dims.sceneY + (Number(msg.ny) || 0) * dims.sceneHeight
+  const name = String(msg.name || "Settlement")
+  const tier = String(msg.tier || "")
+  const population = String(msg.population || "")
+  const color = msg.color || "#f5e6c8"
+  const subLine = [tier, population].filter(Boolean).join(" · ")
+  const hoverText = [name, subLine].filter(Boolean).join("\n")
+  const flags = Object.keys(tag).length ? { [MOD]: { ...tag } } : undefined
+
+  // Every VISUAL tunable (sizes/gaps/font/color) comes from the app via
+  // msg.style, so future style tweaks are an app-side change + rebuild —
+  // NOT a bridge release. Defaults here only cover callers that omit it
+  // (older app builds, or another script sending this command directly).
+  const style = msg.style || {}
+  const fontSize = Number(style.fontSize) || 10
+  const gap = style.gap != null ? Number(style.gap) : 1
+  const charW = style.charWidthFactor != null ? Number(style.charWidthFactor) : 0.58
+  const padW = style.labelPadding != null ? Number(style.labelPadding) : 6
+  const lineH = style.lineHeight != null ? Number(style.lineHeight) : 12
+  const textColor = style.textColor || "#ffffff"
+  const markerHalfIcon = style.markerHalfIcon != null ? Number(style.markerHalfIcon) : 20
+  const markerHalfEllipse = style.markerHalfEllipse != null ? Number(style.markerHalfEllipse) : 16
+
+  const ids = []
+  let markerHalf = markerHalfEllipse
+  if (msg.iconSrc) {
+    markerHalf = markerHalfIcon
+    // An ink marker comes already coloured (iconTint "#ffffff"); a custom icon is tinted by the place's colour.
+    const notes = await scene.createEmbeddedDocuments("Note", [{
+      x, y, text: hoverText, fontSize: 32, textAnchor: 1,
+      texture: { src: String(msg.iconSrc), tint: msg.iconTint || color }, iconSize: markerHalf * 2,
+      flags
+    }])
+    ids.push(...notes.map(doc => doc.id))
+  } else {
+    markerHalf = markerHalfEllipse
+    // Which glyph to draw — chosen by the app (matches its own tier
+    // glyphs: ★ capital / ◆ city / ● town / ○ village) so this stays a
+    // dumb executor, not a place that hardcodes tier→shape knowledge.
+    const markerShape = msg.markerShape || "circle"
+    const markerFilled = msg.markerFilled !== false
+    const markerData = tierMarkerData(markerShape, x, y, markerHalf, color, markerFilled)
+    markerData.sort = 100   // always render ABOVE pushed roads/rivers (sort -100)
+    markerData.hidden = !!hidden
+    if (flags) markerData.flags = flags
+    const marker = await scene.createEmbeddedDocuments("Drawing", [markerData])
+    ids.push(...marker.map(doc => doc.id))
+  }
+  // ONE single-line label per settlement (name + tier·population combined
+  // into one string) — single-line text is the one thing that's rendered
+  // predictably through all of this; two separate line-Drawings doubled
+  // the flagged rects the collision check has to weigh and made things
+  // worse, and a two-line string in ONE Drawing had its own bad multi-line
+  // spacing. Small, tight against the marker, and stacked below any
+  // already-pushed settlement label it would otherwise overlap (own
+  // labels are flagged so we can find them again; older labels predating
+  // a flag format aren't checked against).
+  const oneLine = subLine ? (name + '  ·  ' + subLine) : name
+  const lblW = Math.max(20, Math.ceil(measureTextWidth(oneLine, fontSize, "Signika", charW))) + padW
+  const lblH = lineH + 1
+  const baseX = x + markerHalf + gap, baseY = y - lblH / 2
+  const existingLabels = scene.drawings
+    .filter(d => d.getFlag(MOD, "settlementLabel") === true)
+    .map(d => ({ x: d.x, y: d.y, width: (d.shape && d.shape.width) || 0, height: (d.shape && d.shape.height) || 0 }))
+  const overlaps = (a, b) => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
+  let lx = baseX, ly = baseY
+  const step = lblH + 4
+  for (let i = 0; i < 20; i++) {
+    const cand = { x: baseX, y: baseY + i * step, width: lblW, height: lblH }
+    if (!existingLabels.some(e => overlaps(cand, e))) { ly = cand.y; break }
+    ly = baseY + i * step   // last-tried position if every slot collides
+  }
+  const labelData = buildDrawingData({
+    shape: "text", x: lx, y: ly, width: lblW, height: lblH,
+    text: oneLine, fontSize, textColor, sort: 200, hidden
+  })
+  labelData.flags = { [MOD]: { settlementLabel: true, ...tag } }
+  const label = await scene.createEmbeddedDocuments("Drawing", [labelData])
+  ids.push(...label.map(doc => doc.id))
+  return ids
+}
+
+// { points:[[nx,ny],...] (0..1 image-normalized), color, width, opacity } → [ids]. Converts to padded
+// scene-space pixels, then to a Drawing-relative point set (Foundry's shape.points are relative to the
+// Drawing's own x/y top-left). No fill — a road is a line, not an area.
+async function createRouteDocs(scene, msg, tag = {}, hidden = false) {
+  const pts = Array.isArray(msg.points) ? msg.points : []
+  if (pts.length < 2) throw new Error("A road needs at least 2 points")
+  const dims = sceneDimensions(scene)
+  const scenePts = pts.map(p => [
+    dims.sceneX + (Number(p[0]) || 0) * dims.sceneWidth,
+    dims.sceneY + (Number(p[1]) || 0) * dims.sceneHeight
+  ])
+  const xs = scenePts.map(p => p[0]), ys = scenePts.map(p => p[1])
+  const x0 = Math.min(...xs), y0 = Math.min(...ys)
+  const w = Math.max(...xs) - x0, h = Math.max(...ys) - y0
+  const rel = scenePts.map(p => [p[0] - x0, p[1] - y0])
+  const data = buildDrawingData({
+    shape: "freehand", x: x0, y: y0, width: Math.max(1, w), height: Math.max(1, h), points: rel,
+    strokeColor: msg.color || "#b0a080", strokeWidth: Number(msg.width) || 2.5,
+    strokeAlpha: msg.opacity != null ? Number(msg.opacity) : 1, bezierFactor: 0, hidden,
+    sort: -100   // always render BELOW pushed settlement markers/labels (which sort higher)
+  })
+  if (Object.keys(tag).length) data.flags = { [MOD]: { ...tag } }
+  const created = await scene.createEmbeddedDocuments("Drawing", [data])
+  return created.map(doc => doc.id)
+}
+
+// { parts:[{ points:[[nx,ny]…], closed }], color, name, label:[nx,ny]|null, fillAlpha } → [ids].
+// A filled polygon per closed part (holes are skipped), a line per open part, and the name as text.
+async function createNationDocs(scene, msg, tag = {}, hidden = false) {
+  const dims = sceneDimensions(scene)
+  const toScene = p => [dims.sceneX + (Number(p[0]) || 0) * dims.sceneWidth, dims.sceneY + (Number(p[1]) || 0) * dims.sceneHeight]
+  const color = msg.color || "#c0606e"
+  const fillAlpha = msg.fillAlpha != null ? Number(msg.fillAlpha) : 0.25
+  const flags = { [MOD]: { ...tag } }
+  const data = []
+  for (const part of (Array.isArray(msg.parts) ? msg.parts : [])) {
+    const closed = part.closed !== false
+    const pts = (part.points || []).map(toScene)
+    if (pts.length < (closed ? 3 : 2)) continue
+    if (closed) pts.push(pts[0])   // Foundry's polygon isn't closed by itself
+    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1])
+    const x0 = Math.min(...xs), y0 = Math.min(...ys)
+    const d = buildDrawingData({
+      shape: closed ? "polygon" : "freehand", x: x0, y: y0,
+      width: Math.max(1, Math.max(...xs) - x0), height: Math.max(1, Math.max(...ys) - y0),
+      points: pts.map(p => [p[0] - x0, p[1] - y0]),
+      strokeColor: color, strokeWidth: 3, strokeAlpha: 0.9,
+      fillColor: closed ? color : undefined, fillAlpha: closed ? fillAlpha : 0, hidden,
+      sort: -200   // under roads and towns
+    })
+    d.flags = flags
+    data.push(d)
+  }
+  if (msg.name && Array.isArray(msg.label)) {
+    const [lx, ly] = toScene(msg.label)
+    const fontSize = Math.max(18, Math.round(dims.sceneWidth / 90))
+    const text = String(msg.name).toUpperCase()
+    const w = Math.ceil(measureTextWidth(text, fontSize, "Signika", 0.62)) + 12
+    const t = buildDrawingData({
+      shape: "text", x: lx - w / 2, y: ly - fontSize / 2, width: w, height: fontSize + 4,
+      text, fontSize, textColor: "#2a211c", textAlpha: 0.7, sort: -150, hidden
+    })
+    t.flags = flags
+    data.push(t)
+  }
+  if (!data.length) throw new Error("This nation has no border to send")
+  const created = await scene.createEmbeddedDocuments("Drawing", data)
+  return created.map(doc => doc.id)
+}
+
+setMapBuilders({ settlement: createSettlementDocs, route: createRouteDocs, nation: createNationDocs })
+
 // ──────────────────────────────────────────────────────────────
 // Inbound command handler
 // ──────────────────────────────────────────────────────────────
@@ -2824,8 +2992,6 @@ async function handleCommand(msg) {
     case "road.push": {
       const scene = msg.sceneId ? game.scenes.get(msg.sceneId) : game.scenes.active
       if (!scene) throw new Error("Scene not found: " + (msg.sceneId || "(no active scene)"))
-      const pts = Array.isArray(msg.points) ? msg.points : []
-      if (pts.length < 2) throw new Error("A road needs at least 2 points")
       const routeId = msg.routeId != null ? String(msg.routeId) : null
       // Same replace-on-repush as settlement.push — without this, every test
       // push left a stale duplicate underneath the new one (which is very
@@ -2835,24 +3001,8 @@ async function handleCommand(msg) {
         const stale = scene.drawings.filter(d => d.getFlag(MOD, "routeId") === routeId).map(d => d.id)
         if (stale.length) await scene.deleteEmbeddedDocuments("Drawing", stale)
       }
-      const dims = sceneDimensions(scene)
-      const scenePts = pts.map(p => [
-        dims.sceneX + (Number(p[0]) || 0) * dims.sceneWidth,
-        dims.sceneY + (Number(p[1]) || 0) * dims.sceneHeight
-      ])
-      const xs = scenePts.map(p => p[0]), ys = scenePts.map(p => p[1])
-      const x0 = Math.min(...xs), y0 = Math.min(...ys)
-      const w = Math.max(...xs) - x0, h = Math.max(...ys) - y0
-      const rel = scenePts.map(p => [p[0] - x0, p[1] - y0])
-      const data = buildDrawingData({
-        shape: "freehand", x: x0, y: y0, width: Math.max(1, w), height: Math.max(1, h), points: rel,
-        strokeColor: msg.color || "#b0a080", strokeWidth: Number(msg.width) || 2.5,
-        strokeAlpha: msg.opacity != null ? Number(msg.opacity) : 1, bezierFactor: 0,
-        sort: -100   // always render BELOW pushed settlement markers/labels (which sort higher)
-      })
-      if (routeId) data.flags = { [MOD]: { routeId } }
-      const created = await scene.createEmbeddedDocuments("Drawing", [data])
-      return bridge.reply(msg.reqId, { type: "road.pushed", sceneId: scene.id, ids: created.map(doc => doc.id) })
+      const ids = await createRouteDocs(scene, msg, routeId ? { routeId } : {})
+      return bridge.reply(msg.reqId, { type: "road.pushed", sceneId: scene.id, ids })
     }
 
     // ── Read existing tiles + drawings on a scene ─────────────
@@ -3066,31 +3216,7 @@ async function handleCommand(msg) {
     case "settlement.push": {
       const scene = msg.sceneId ? game.scenes.get(msg.sceneId) : game.scenes.active
       if (!scene) throw new Error("Scene not found: " + (msg.sceneId || "(no active scene)"))
-      const dims = sceneDimensions(scene)
-      const x = dims.sceneX + (Number(msg.nx) || 0) * dims.sceneWidth
-      const y = dims.sceneY + (Number(msg.ny) || 0) * dims.sceneHeight
-      const name = String(msg.name || "Settlement")
-      const tier = String(msg.tier || "")
-      const population = String(msg.population || "")
-      const color = msg.color || "#f5e6c8"
-      const subLine = [tier, population].filter(Boolean).join(" · ")
-      const hoverText = [name, subLine].filter(Boolean).join("\n")
       const settlementId = msg.settlementId != null ? String(msg.settlementId) : null
-
-      // Every VISUAL tunable (sizes/gaps/font/color) comes from the app via
-      // msg.style, so future style tweaks are an app-side change + rebuild —
-      // NOT a bridge release. Defaults here only cover callers that omit it
-      // (older app builds, or another script sending this command directly).
-      const style = msg.style || {}
-      const fontSize = Number(style.fontSize) || 10
-      const gap = style.gap != null ? Number(style.gap) : 1
-      const charW = style.charWidthFactor != null ? Number(style.charWidthFactor) : 0.58
-      const padW = style.labelPadding != null ? Number(style.labelPadding) : 6
-      const lineH = style.lineHeight != null ? Number(style.lineHeight) : 12
-      const textColor = style.textColor || "#ffffff"
-      const markerHalfIcon = style.markerHalfIcon != null ? Number(style.markerHalfIcon) : 20
-      const markerHalfEllipse = style.markerHalfEllipse != null ? Number(style.markerHalfEllipse) : 16
-
       // Re-pushing the SAME settlement must REPLACE its previous marker+label,
       // not stack a new copy on top of the old one (that's what was causing
       // the marker/label to appear overlapping — old + new pushes piling up).
@@ -3100,61 +3226,7 @@ async function handleCommand(msg) {
         if (staleNotes.length) await scene.deleteEmbeddedDocuments("Note", staleNotes)
         if (staleDrawings.length) await scene.deleteEmbeddedDocuments("Drawing", staleDrawings)
       }
-
-      const ids = []
-      let markerHalf = markerHalfEllipse
-      if (msg.iconSrc) {
-        markerHalf = markerHalfIcon
-        const notes = await scene.createEmbeddedDocuments("Note", [{
-          x, y, text: hoverText, fontSize: 32, textAnchor: 1,
-          texture: { src: String(msg.iconSrc), tint: color }, iconSize: markerHalf * 2,
-          flags: settlementId ? { [MOD]: { settlementId } } : undefined
-        }])
-        ids.push(...notes.map(doc => doc.id))
-      } else {
-        markerHalf = markerHalfEllipse
-        // Which glyph to draw — chosen by the app (matches its own tier
-        // glyphs: ★ capital / ◆ city / ● town / ○ village) so this stays a
-        // dumb executor, not a place that hardcodes tier→shape knowledge.
-        const markerShape = msg.markerShape || "circle"
-        const markerFilled = msg.markerFilled !== false
-        const markerData = tierMarkerData(markerShape, x, y, markerHalf, color, markerFilled)
-        markerData.sort = 100   // always render ABOVE pushed roads/rivers (sort -100)
-        if (settlementId) markerData.flags = { [MOD]: { settlementId } }
-        const marker = await scene.createEmbeddedDocuments("Drawing", [markerData])
-        ids.push(...marker.map(doc => doc.id))
-      }
-      // ONE single-line label per settlement (name + tier·population combined
-      // into one string) — single-line text is the one thing that's rendered
-      // predictably through all of this; two separate line-Drawings doubled
-      // the flagged rects the collision check has to weigh and made things
-      // worse, and a two-line string in ONE Drawing had its own bad multi-line
-      // spacing. Small, tight against the marker, and stacked below any
-      // already-pushed settlement label it would otherwise overlap (own
-      // labels are flagged so we can find them again; older labels predating
-      // a flag format aren't checked against).
-      const oneLine = subLine ? (name + '  ·  ' + subLine) : name
-      const lblW = Math.max(20, Math.ceil(measureTextWidth(oneLine, fontSize, "Signika", charW))) + padW
-      const lblH = lineH + 1
-      const baseX = x + markerHalf + gap, baseY = y - lblH / 2
-      const existingLabels = scene.drawings
-        .filter(d => d.getFlag(MOD, "settlementLabel") === true)
-        .map(d => ({ x: d.x, y: d.y, width: (d.shape && d.shape.width) || 0, height: (d.shape && d.shape.height) || 0 }))
-      const overlaps = (a, b) => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
-      let lx = baseX, ly = baseY
-      const step = lblH + 4
-      for (let i = 0; i < 20; i++) {
-        const cand = { x: baseX, y: baseY + i * step, width: lblW, height: lblH }
-        if (!existingLabels.some(e => overlaps(cand, e))) { ly = cand.y; break }
-        ly = baseY + i * step   // last-tried position if every slot collides
-      }
-      const labelData = buildDrawingData({
-        shape: "text", x: lx, y: ly, width: lblW, height: lblH,
-        text: oneLine, fontSize, textColor, sort: 200
-      })
-      labelData.flags = { [MOD]: { settlementLabel: true, ...(settlementId ? { settlementId } : {}) } }
-      const label = await scene.createEmbeddedDocuments("Drawing", [labelData])
-      ids.push(...label.map(doc => doc.id))
+      const ids = await createSettlementDocs(scene, msg, settlementId ? { settlementId } : {})
       return bridge.reply(msg.reqId, { type: "settlement.pushed", sceneId: scene.id, ids })
     }
 
@@ -3570,6 +3642,17 @@ async function handleCommand(msg) {
       const r = noteCampaigns(msg)
       return bridge.reply(msg.reqId, { type: "campaigns.note", ...r })
     }
+    // ── The campaign page (scripts/campaign-page.js) ──
+    // { pages: { [campaignId]: { overview, users, secrets, asks, threads, lastTime } } }
+    // · { to: [userId], title, text, campaignId } → a whisper card (GMs get it too)
+    case "campaigns.pages": {
+      const r = await setPages(msg.pages || null)
+      return bridge.reply(msg.reqId, { type: "campaigns.pages", ...r })
+    }
+    case "campaigns.whisper": {
+      const r = await whisperCampaign(msg)
+      return bridge.reply(msg.reqId, { type: "campaigns.whisper", ...r })
+    }
     case "clock.set": {
       const r = await setClock(msg.clock || null)
       return bridge.reply(msg.reqId, { type: "clock.set", ...r })
@@ -3595,6 +3678,20 @@ async function handleCommand(msg) {
       const r = await syncTrails(msg)
       return bridge.reply(msg.reqId, { type: "party.trails", ok: true, ...r })
     }
+
+    // ── World Map things "into views" (scripts/mapviews.js) ───
+    case "mapviews.state":
+      return bridge.reply(msg.reqId, { type: "mapviews.state", ok: true, ...mapViewsState(msg) })
+    case "mapviews.set":
+      return bridge.reply(msg.reqId, { type: "mapviews.set", ok: true, ...(await mapViewsSet(msg)) })
+    case "map.send":
+      return bridge.reply(msg.reqId, { type: "map.sent", ok: true, ...(await mapSend(msg)) })
+    case "map.views":
+      return bridge.reply(msg.reqId, { type: "map.views", ok: true, ...(await mapViewsEdit(msg)) })
+    case "map.remove":
+      return bridge.reply(msg.reqId, { type: "map.removed", ok: true, ...(await mapRemove(msg)) })
+    case "map.reveal":
+      return bridge.reply(msg.reqId, { type: "map.revealed", ok: true, ...(await mapReveal(msg)) })
     case "clock.get": {
       return bridge.reply(msg.reqId, { type: "clock.get", clock: currentClock() })
     }
