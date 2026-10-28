@@ -303,14 +303,19 @@ Hooks.on("renderActorSheetV2", async (app, html) => {
 })
 
 // ── Token HUD: fan the members out, drag one onto the map ─────
+// Other modules add their buttons in their own renderTokenHUD hooks, possibly
+// after ours, so the fold runs again on the next frame.
 
-// A group has no use for status effects, movement mode, targeting or combat on
-// its own token: those buttons fold behind one ⋯ button (group tokens only).
-const FOLDED = '.control-icon[data-palette="effects"], .control-icon[data-palette="movementActions"], .control-icon[data-action="target"], .control-icon[data-action="combat"]'
+// A group token keeps only visibility, elevation, sort, lock and settings in
+// view; every other HUD button (status effects, movement mode, target, combat,
+// other modules' buttons) folds behind one ⋯ button. Group tokens only.
+const KEEP = new Set(["visibility", "sort", "locked", "config"])
+const foldable = (root) => [...root.querySelectorAll(".col.left .control-icon, .col.right .control-icon")]
+  .filter(b => b.tagName !== "INPUT" && !b.closest(".elevation, .palette") && !b.classList.contains("pb-gfold-more") && !KEEP.has(b.dataset.action))
 let foldOpen = false
 
 function foldButtons(root) {
-  const hidden = [...root.querySelectorAll(FOLDED)]
+  const hidden = foldable(root)
   if (!hidden.length) return
   hidden.forEach(b => b.classList.add("pb-gfold"))
   const more = el("button", "control-icon pb-gfold-more", { type: "button", "data-tooltip": "More", "aria-label": "More buttons" })
@@ -329,6 +334,7 @@ Hooks.on("renderTokenHUD", async (hud, html) => {
   root?.classList?.remove("pb-gfold-open")
   if (!root || !isGroup(actor)) return
   foldButtons(root)
+  requestAnimationFrame(() => { const late = foldable(root).filter(b => !b.classList.contains("pb-gfold")); late.forEach(b => b.classList.add("pb-gfold")); if (late.length && !root.querySelector(".pb-gfold-more")) foldButtons(root) })
   const members = await membersOf(actor)
   if (!members.length) return
 
