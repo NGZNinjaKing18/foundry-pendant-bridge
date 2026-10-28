@@ -304,11 +304,31 @@ Hooks.on("renderActorSheetV2", async (app, html) => {
 
 // ── Token HUD: fan the members out, drag one onto the map ─────
 
+// A group has no use for status effects, movement mode, targeting or combat on
+// its own token: those buttons fold behind one ⋯ button (group tokens only).
+const FOLDED = '.control-icon[data-palette="effects"], .control-icon[data-palette="movementActions"], .control-icon[data-action="target"], .control-icon[data-action="combat"]'
+let foldOpen = false
+
+function foldButtons(root) {
+  const hidden = [...root.querySelectorAll(FOLDED)]
+  if (!hidden.length) return
+  hidden.forEach(b => b.classList.add("pb-gfold"))
+  const more = el("button", "control-icon pb-gfold-more", { type: "button", "data-tooltip": "More", "aria-label": "More buttons" })
+  more.innerHTML = '<i class="fa-solid fa-ellipsis" inert></i>'
+  const set = (open) => { foldOpen = open; root.classList.toggle("pb-gfold-open", open); more.setAttribute("aria-expanded", String(open)) }
+  more.addEventListener("click", (ev) => { ev.preventDefault(); ev.stopPropagation(); set(!foldOpen) })
+  ;(root.querySelector(".col.right") || hidden[0].parentElement).append(more)
+  set(foldOpen || hidden.some(b => b.classList.contains("active") && b.dataset.palette))
+}
+
 Hooks.on("renderTokenHUD", async (hud, html) => {
   const root = html instanceof HTMLElement ? html : html?.[0]
   const actor = hud.document?.actor ?? hud.object?.actor
   root?.querySelector?.(".pb-gfan")?.remove()
+  root?.querySelector?.(".pb-gfold-more")?.remove()
+  root?.classList?.remove("pb-gfold-open")
   if (!root || !isGroup(actor)) return
+  foldButtons(root)
   const members = await membersOf(actor)
   if (!members.length) return
 
