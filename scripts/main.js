@@ -24,6 +24,7 @@ import { beginStats, collectStats } from "./boxscore.js"
 import { setClock, currentClock, setClockSender, setClockLive } from "./clock.js"
 import {} from "./sidebar-fold.js"   // folds some sidebar tabs for players
 import {} from "./scene-control.js"  // the RealmScreen (DM screen) control set
+import {} from "./group-stack.js"    // dnd5e group tokens: stacked art, pile order, pull-out fan
 import { syncParty, syncTrails, partyMovedHook, setPartySender, partySwitch } from "./party.js"
 import { timelineStatus, applyFromRealm, broadcastFromRealm, isTimelineWriter } from "./timeline.js"
 

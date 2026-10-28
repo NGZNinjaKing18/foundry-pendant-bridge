@@ -532,3 +532,46 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
   -webkit-mask: url("../assets/dm-screen.svg") center / contain no-repeat;
           mask: url("../assets/dm-screen.svg") center / contain no-repeat;
 }
+
+/* Group stack (group-stack.js) — the "Token stack" strip on a dnd5e Group /
+   Encounter sheet's Members tab. Uses the sheet's own dnd5e variables. */
+.pb-gstack { display: flex; flex-direction: column; gap: 6px; padding: 12px 16px 4px; }
+.pb-gstack-head { display: flex; align-items: baseline; gap: 8px; }
+.pb-gstack-title {
+  font-family: var(--dnd5e-font-roboto-slab, var(--font-h4, var(--font-body))); font-weight: 700;
+  font-size: var(--font-size-13, 0.8125rem); color: var(--color-text-primary);
+}
+.pb-gstack-hint { flex: 1; font-size: var(--font-size-11, 0.6875rem); color: var(--color-text-secondary); }
+.pb-gstack-toggle { display: flex; align-items: center; gap: 4px; font-size: var(--font-size-12, 0.75rem); white-space: nowrap; }
+.pb-gstack-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.pb-gstack-face {
+  position: relative; width: 40px; height: 40px; cursor: grab;
+  border: 1px solid var(--dnd5e-color-gold, var(--color-border)); border-radius: 4px;
+  background: var(--dnd5e-background-5, transparent);
+}
+.pb-gstack-face img { width: 100%; height: 100%; object-fit: contain; border: none; pointer-events: none; }
+.pb-gstack-face:first-child { outline: 2px solid var(--dnd5e-color-gold, var(--color-border-highlight)); outline-offset: 1px; }
+.pb-gstack-face.dragging { opacity: .4; }
+.pb-gstack-face.drop-before::before, .pb-gstack-face.drop-after::after {
+  content: ""; position: absolute; top: -2px; bottom: -2px; width: 2px;
+  background: var(--color-border-highlight, var(--dnd5e-color-gold));
+}
+.pb-gstack-face.drop-before::before { left: -5px; }
+.pb-gstack-face.drop-after::after { right: -5px; }
+
+/* Group stack — right-click a group token: its members fan out on a ring just
+   outside the token (Foundry's own HUD control look). Drag one onto the map. */
+#token-hud .pb-gfan { position: absolute; inset: 0; pointer-events: none; }
+#token-hud .pb-gfan-face {
+  --pb-r-x: calc(50% + 60px + var(--pb-ring, 0) * 52px); --pb-r-y: calc(50% + 60px + var(--pb-ring, 0) * 52px);
+  position: absolute; width: 44px; height: 44px; padding: 2px; margin: -22px 0 0 -22px;
+  left: calc(50% + var(--pb-cos) * var(--pb-r-x)); top: calc(50% + var(--pb-sin) * var(--pb-r-y));
+  display: flex; cursor: grab; pointer-events: all;
+  opacity: 0; transform: translate(calc(var(--pb-cos) * -48px), calc(var(--pb-sin) * -48px)) scale(.4);
+  transition: opacity .16s ease-out var(--pb-delay, 0ms), transform .2s ease-out var(--pb-delay, 0ms), border .25s;
+}
+#token-hud .pb-gfan.open .pb-gfan-face { opacity: 1; transform: none; }
+#token-hud .pb-gfan-face img { width: 100%; height: 100%; object-fit: contain; border: none; pointer-events: none; }
+#token-hud .pb-gfan.open .pb-gfan-face.placed { opacity: .45; }
+#token-hud .pb-gfan-face:active { cursor: grabbing; }
+@media (prefers-reduced-motion: reduce) { #token-hud .pb-gfan-face { transition: none; } }
