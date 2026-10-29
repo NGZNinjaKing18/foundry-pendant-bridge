@@ -282,6 +282,30 @@ function sentVisible(doc) {
 function applyRule(obj) {
   if (sentVisible(obj?.document) === false || !inNameZoom(obj?.document)) obj.visible = false
   inkPin(obj)
+  labelLook(obj)
+}
+
+// Town and nation names styled like RealmScreen's map, not Foundry's default text (an outline that turns WHITE on
+// dark text, plus a blurred drop shadow). flags[MOD].labelStyle = { weight, italic, letterSpacing, stroke,
+// strokeRatio, shadow }. Foundry rebuilds the text style on every refresh (Drawing#_refreshText), and this
+// runs in the refresh hook right after, so it holds.
+function labelLook(obj) {
+  const t = obj?.text
+  let ls = null
+  try { ls = obj?.document?.getFlag?.(MOD, "labelStyle") || null } catch { ls = null }
+  if (!t?.style || !ls) return
+  const s = t.style
+  const fs = Number(obj.document.fontSize) || s.fontSize || 24
+  s.fontWeight = String(ls.weight ?? 700)
+  s.fontStyle = ls.italic ? "italic" : "normal"
+  s.letterSpacing = Number(ls.letterSpacing) || 0
+  s.stroke = ls.stroke || "rgba(0,0,0,0.7)"
+  s.strokeThickness = Math.max(1, fs * (Number(ls.strokeRatio) || 0.12))
+  s.lineJoin = "round"
+  if (ls.shadow) {
+    s.dropShadow = true; s.dropShadowColor = "#000000"; s.dropShadowAlpha = 0.9
+    s.dropShadowBlur = Math.max(1, fs * 0.18); s.dropShadowDistance = Math.max(0.5, fs * 0.06); s.dropShadowAngle = Math.PI / 2
+  } else s.dropShadow = false
 }
 
 // ── names that come and go with zoom, as on RealmScreen's map ──

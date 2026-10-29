@@ -2461,10 +2461,15 @@ async function createSettlementDocs(scene, msg, tag = {}, hidden = false) {
   const markerHalfIcon = style.markerHalfIcon != null ? Number(style.markerHalfIcon) : 20
   const markerHalfEllipse = style.markerHalfEllipse != null ? Number(style.markerHalfEllipse) : 16
 
+  // Newer RealmScreen sends sizes as its map draws them at 1× (style.fitPx = that map's width on screen):
+  // scale them by scene width ÷ fitPx, so this scene fitting the screen looks like RealmScreen's map at 1×.
+  const fitPx = Number(style.fitPx) > 0 ? Number(style.fitPx) : 0
+  const k = fitPx ? dims.sceneWidth / fitPx : 1
   const ids = []
   let markerHalf = markerHalfEllipse
+  if (fitPx && Number(style.markerPx) > 0) markerHalf = Number(style.markerPx) * k / 2
   if (msg.iconSrc) {
-    markerHalf = markerHalfIcon
+    if (!fitPx) markerHalf = markerHalfIcon
     // An ink marker comes already coloured (iconTint "#ffffff"); a custom icon is tinted by the place's colour.
     const tiles = await scene.createEmbeddedDocuments("Tile", [{
       x: x - markerHalf, y: y - markerHalf, width: markerHalf * 2, height: markerHalf * 2,
@@ -2474,7 +2479,7 @@ async function createSettlementDocs(scene, msg, tag = {}, hidden = false) {
     }])
     ids.push(...tiles.map(doc => doc.id))
   } else {
-    markerHalf = markerHalfEllipse
+    if (!fitPx) markerHalf = markerHalfEllipse
     // Which glyph to draw — chosen by the app (matches its own tier
     // glyphs: ★ capital / ◆ city / ● town / ○ village) so this stays a
     // dumb executor, not a place that hardcodes tier→shape knowledge.
@@ -2487,7 +2492,31 @@ async function createSettlementDocs(scene, msg, tag = {}, hidden = false) {
     const marker = await scene.createEmbeddedDocuments("Drawing", [markerData])
     ids.push(...marker.map(doc => doc.id))
   }
-  // ONE single-line label per settlement (name + tier·population combined
+  if (fitPx) {
+    // Its name only, placed the way RealmScreen's map places it (MarkerName): from the marker's centre out by
+    // its offset, then pushed half its own size the same way, so the near edge of the text meets the offset.
+    if (style.showName === false || !msg.name) return ids
+    const fs = Math.max(6, Math.round(Number(style.fontPx || 12) * k))
+    const text = String(msg.name)
+    const W = Math.ceil(measureTextWidth(text, fs, "Signika", 0.62) * 1.15) + fs   // roomy: Foundry wraps text at the box width
+    const H = Math.ceil(fs * 1.5)
+    const ox = Number(style.nameDx || 0) * k, oy = Number(style.nameDy || 0) * k
+    const r = Math.hypot(ox, oy) || 1
+    const cx = x + ox + (ox / r) * W / 2, cy = y + oy + (oy / r) * H / 2
+    const labelData = buildDrawingData({
+      shape: "text", x: cx - W / 2, y: cy - H / 2, width: W, height: H,
+      text, fontSize: fs, textColor: "#ffffff", sort: 200, hidden
+    })
+    const nz = style.nameZoom && Number.isFinite(style.nameZoom.min) && Number.isFinite(style.nameZoom.max) ? { min: style.nameZoom.min, max: style.nameZoom.max } : null
+    labelData.flags = { [MOD]: { settlementLabel: true, ...tag,
+      // mapviews.js restyles it like the map's names (white, thin dark outline, soft shadow) and hides it outside nameZoom
+      labelStyle: { weight: style.bold ? 800 : 600, strokeRatio: 1 / 9, stroke: "rgba(0,0,0,0.72)", shadow: true },
+      ...(nz ? { nameZoom: nz } : {}) } }
+    const label = await scene.createEmbeddedDocuments("Drawing", [labelData])
+    ids.push(...label.map(doc => doc.id))
+    return ids
+  }
+  // (older RealmScreen) ONE single-line label per settlement (name + tier·population combined
   // into one string) — single-line text is the one thing that's rendered
   // predictably through all of this; two separate line-Drawings doubled
   // the flagged rects the collision check has to weigh and made things
@@ -2589,7 +2618,29 @@ async function createNationDocs(scene, msg, tag = {}, hidden = false) {
     }
   }
   for (let i = data.length - 1; i >= 0; i--) if (!data[i]) data.splice(i, 1)
-  if (msg.name && Array.isArray(msg.label)) {
+  const nz = msg.nameZoom && Number.isFinite(msg.nameZoom.min) && Number.isFinite(msg.nameZoom.max) ? { min: msg.nameZoom.min, max: msg.nameZoom.max } : null
+  if (Array.isArray(msg.labels) && Number(msg.fitPx) > 0) {
+    // Newer RealmScreen: its labels exactly as its map draws them (text, spot, size, colour, weight,
+    // italic, letter spacing) in px at 1× on a map fitPx wide — scaled by scene width ÷ fitPx, centred on the spot.
+    const k = dims.sceneWidth / Number(msg.fitPx)
+    for (const l of msg.labels) {
+      if (!l?.text || !Array.isArray(l.at)) continue
+      const [lx, ly] = toScene(l.at)
+      const fs = Math.max(6, Math.round(Number(l.fontPx || 13) * k))
+      const ls = Number(l.letterSpacing || 0) * k
+      const text = String(l.text)
+      const W = Math.ceil(measureTextWidth(text, fs, "Signika", 0.62) * 1.2 + ls * text.length) + fs
+      const H = Math.ceil(fs * 1.5)
+      const t = buildDrawingData({
+        shape: "text", x: lx - W / 2, y: ly - H / 2, width: W, height: H,
+        text, fontSize: fs, textColor: l.color || "#ffffff", sort: -150, hidden
+      })
+      t.flags = { [MOD]: { ...flags[MOD],
+        labelStyle: { weight: l.weight ?? 700, italic: !!l.italic, letterSpacing: ls, strokeRatio: 0.27, stroke: "rgba(0,0,0,0.7)", shadow: false },
+        ...(nz ? { nameZoom: nz } : {}) } }
+      data.push(t)
+    }
+  } else if (msg.name && Array.isArray(msg.label)) {
     const [lx, ly] = toScene(msg.label)
     const fontSize = Math.max(18, Math.round(dims.sceneWidth / 90))
     const text = String(msg.name).toUpperCase()
@@ -2599,8 +2650,7 @@ async function createNationDocs(scene, msg, tag = {}, hidden = false) {
       text, fontSize, textColor: "#2a211c", textAlpha: 0.7, sort: -150, hidden
     })
     // The zooms it shows at on RealmScreen's map (mapviews.js hides it outside them as Foundry zooms).
-    const z = msg.nameZoom && Number.isFinite(msg.nameZoom.min) && Number.isFinite(msg.nameZoom.max) ? { min: msg.nameZoom.min, max: msg.nameZoom.max } : null
-    t.flags = z ? { [MOD]: { ...flags[MOD], nameZoom: z } } : flags
+    t.flags = nz ? { [MOD]: { ...flags[MOD], nameZoom: nz } } : flags
     data.push(t)
   }
   if (!data.length) throw new Error("This nation has no border to send")
