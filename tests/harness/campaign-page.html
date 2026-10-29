@@ -13,23 +13,28 @@
    RealmScreen model (pendant-home lib/campaignPageModel.mjs applyOp). Serve the Downloads folder
    (launch config "campaign-page-harness") and open /foundry-pendant-bridge/tests/harness/campaign-page.html.
    Colours below stand in for Foundry's dark theme + dnd5e's variables. */
-:root, .theme-dark {
-  --color-text-emphatic: #f0f0e0; --color-text-primary: #e7e1d4; --color-text-secondary: #b5aea0; --color-text-subtle: #8a847a;
-  --color-border: #4a4842; --color-warm-2: #ee9b3a; --color-warm-3: #5d142b; --color-level-success: #3ba55d; --color-level-error: #d65a4a;
-  --color-cool-5: #1c1b20; --color-cool-5-50: rgba(28,27,32,.5); --color-cool-5-90: rgba(28,27,32,.9); --color-light-1: #fff;
-  --table-row-color-even: rgba(255,255,255,.05);
-  --dnd5e-color-maroon: #741b2b; --dnd5e-color-gold: #c9a95e; --dnd5e-color-hp-2: #3ba55d; --dnd5e-color-hd-2: #741b2b;
-  --dnd5e-font-roboto-slab: "Roboto Slab", serif; --dnd5e-font-modesto: "Palatino Linotype", serif;
-  --font-primary: "Signika", sans-serif; --font-size-10: 10px; --font-size-11: 11px; --font-size-12: 12px; --font-size-13: 13px; --font-size-14: 14px; --font-size-16: 16px; --font-size-32: 30px;
-  color-scheme: dark;
+/* Foundry's palette (fixed) + its two theme tiers, approximated from foundry2.css (V14). */
+:root {
+  --color-warm-2: #ee9b3a; --color-level-success: #3ba55d; --color-level-error: #d65a4a; --color-light-1: #fff; --color-light-3: #d0ccc0;
+  --color-cool-5: #0b0a13; --color-cool-5-90: rgba(11,10,19,.9); --color-cool-4: #302831;
+  --font-primary: "Signika", sans-serif; --font-body: "Signika", sans-serif; --font-h1: "Palatino Linotype", serif; --font-h4: "Roboto Slab", serif;
+  --font-size-10: 10px; --font-size-11: 11px; --font-size-12: 12px; --font-size-13: 13px; --font-size-14: 14px; --font-size-16: 16px; --font-size-32: 30px;
 }
+.theme-dark { --color-text-emphatic: #f0f0e0; --color-text-primary: #e7e1d4; --color-text-secondary: #b5aea0; --color-text-subtle: #8a847a;
+  --color-border: #4a4842; --table-row-color-even: rgba(255,255,255,.06); --background: #1c1b22; color: var(--color-text-primary); color-scheme: dark; }
+.theme-light { --color-text-emphatic: #191813; --color-text-primary: #2b2a24; --color-text-secondary: #4b4a44; --color-text-subtle: #6e6c62;
+  --color-border: #7a7971; --table-row-color-even: rgba(0,0,0,.08); --background: #e9dfc9; color: var(--color-text-primary); color-scheme: light; }
+/* A RealmScreen campaign look, as look.js writes it (body.pb-look overrides Foundry's variables). */
+body.pb-look { --pb-accent: #4aa3d8; --color-warm-2: color-mix(in srgb, #4aa3d8 55%, #000); --color-border-highlight: #4aa3d8;
+  --color-cool-5: #0e1d2a; --color-cool-5-90: rgba(14,29,42,.9); --font-h1: Georgia, serif; --font-h4: Georgia, serif; --font-body: "Trebuchet MS", sans-serif; }
+body.pb-look .theme-dark { --color-text-emphatic: #e6f3ff; --color-text-secondary: #a9c0d3; }
 body { margin: 0; background: #0d100c; color: var(--color-text-primary); font: 14px/1.4 var(--font-primary); }
 #bar { display: flex; gap: 10px; align-items: center; padding: 8px 12px; background: #151515; border-bottom: 1px solid #333; flex-wrap: wrap; }
 #bar button, #bar select { background: #2a2a2a; color: #ddd; border: 1px solid #444; border-radius: 3px; padding: 3px 9px; font: inherit; cursor: pointer; }
 #bar .on { border-color: var(--color-warm-2); color: #fff; }
 #log { margin-left: auto; font: 12px monospace; color: #9c9; max-width: 50vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #stage { position: relative; padding: 16px; }
-.application { background: var(--color-cool-5); border: 1px solid #000; border-radius: 6px; box-shadow: 0 0 20px #000; display: flex; flex-direction: column; margin: 0 auto 16px; overflow: hidden; }
+.application { background: var(--background); border: 1px solid #000; border-radius: 6px; box-shadow: 0 0 20px #000; display: flex; flex-direction: column; margin: 0 auto 16px; overflow: hidden; }
 .window-header { background: #0e0d13; padding: 6px 10px; display: flex; gap: 8px; align-items: center; border-bottom: 1px solid #333; }
 .window-header .t { flex: 1; }
 .window-content { padding: 12px 16px; overflow: auto; flex: 1; }
@@ -41,7 +46,7 @@ input[type=text], input[type=number], textarea, select { background: rgba(0,0,0,
 .hint { color: var(--color-text-subtle); font-size: 12px; margin: 0; }
 fieldset { border: 1px solid var(--color-border); border-radius: 4px; padding: 6px 10px; } legend { font-weight: bold; }
 .dlg-back { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: grid; place-items: center; z-index: 50; }
-.dlg { width: 440px; background: var(--color-cool-5); border: 1px solid #000; border-radius: 6px; box-shadow: 0 0 20px #000; }
+.dlg { width: 440px; background: var(--background); color: var(--color-text-primary); border: 1px solid #000; border-radius: 6px; box-shadow: 0 0 20px #000; }
 .dlg form { padding: 10px 14px; } .dlg footer { display: flex; gap: 6px; justify-content: flex-end; padding: 8px 14px; border-top: 1px solid #333; }
 .toast { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: #222; border: 1px solid var(--color-warm-2); padding: 6px 12px; border-radius: 4px; z-index: 60; font-size: 13px; }
 .toast.warn { border-color: #d65a4a; }
@@ -51,6 +56,8 @@ fieldset { border: 1px solid var(--color-border); border-radius: 4px; padding: 6
 <div id="bar">
   <strong>Campaign page harness</strong>
   <span>Viewing as</span><select id="who"></select>
+  <span>Theme</span><select id="theme"><option>dark</option><option>light</option></select>
+  <label><input type="checkbox" id="look"> Campaign look</label>
   <button id="reset">Reset data</button>
   <span id="log"></span>
 </div>
@@ -86,7 +93,7 @@ const actors = Coll.from([
 ])
 const group = { id: "grp", name: "The Red Company", img: face("#741b2b", "⚑"), type: "group", documentName: "Actor", uuid: "Actor.grp", system: { members: [{ actor: actors[0] }, { actor: actors[1] }] }, ...own([]), sheet: { render: () => toast("(group sheet)") } }
 actors.push(group)
-const store = new Map()
+const store = new Map([["uiConfig", { colorScheme: { applications: "dark", interface: "dark" } }]])
 let me = users[0]
 globalThis.game = {
   get user() { return me }, users, actors, scenes: Coll.from([]), journal: Coll.from([]), folders: Coll.from([]),
@@ -115,7 +122,7 @@ class ApplicationV2 {
   async render() {
     if (!this.element) {
       const el = document.createElement("div")
-      el.className = ["application", "theme-dark", ...(this.options.classes || [])].join(" ")
+      el.className = ["application", ...(this.options.classes || [])].join(" ")
       el.style.width = (this.options.position?.width || 600) + "px"
       el.style.height = (this.options.position?.height || 600) + "px"
       el.innerHTML = `<header class="window-header"><i class="${this.options.window?.icon || ""}"></i><span class="t"></span><a data-close>✕</a></header><section class="window-content"></section>`
@@ -143,7 +150,7 @@ const DialogV2 = {
   show({ title, content, buttons }) {
     return new Promise((res) => {
       const back = document.createElement("div"); back.className = "dlg-back"
-      back.innerHTML = `<div class="dlg ${"pb-cp-dialog"}"><header class="window-header"><span class="t">${title}</span></header><form>${content}</form><footer></footer></div>`
+      back.innerHTML = `<div class="dlg pb-cp-dialog themed theme-${store.get("uiConfig").colorScheme.applications}"><header class="window-header"><span class="t">${title}</span></header><form>${content}</form><footer></footer></div>`
       const form = back.querySelector("form"), foot = back.querySelector("footer")
       for (const b of buttons) {
         const el = document.createElement("button"); el.type = "button"; el.textContent = b.label; el.dataset.dlg = b.action
@@ -222,6 +229,8 @@ await publish()
 $("#who").innerHTML = users.map(u => `<option value="${u.id}">${u.name}${u.isGM ? " (GM)" : ""}</option>`).join("")
 $("#who").onchange = (e) => { me = users.get(e.target.value); for (const a of instances.values()) { a.element.remove() } instances.clear(); page.openPage({ id: CID, name: "Ashfall" }) }
 $("#reset").onclick = () => { resetData(); publish() }
+$("#theme").onchange = (e) => { store.set("uiConfig", { colorScheme: { applications: e.target.value, interface: e.target.value } }); Hooks.callAll("clientSettingChanged", "core.uiConfig") }
+$("#look").onchange = (e) => document.body.classList.toggle("pb-look", e.target.checked)
 page.openPage({ id: CID, name: "Ashfall" })
 window.H = { page, model, get rs() { return rs }, get ledger() { return ledger }, group, actors, users, setUser: (id) => { $("#who").value = id; $("#who").onchange({ target: $("#who") }) } }
 </script>

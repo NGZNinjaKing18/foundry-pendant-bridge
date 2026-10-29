@@ -220,6 +220,27 @@ function reportGroups(pages = readPages()) {
 let reportT = 0
 const scheduleReport = () => { clearTimeout(reportT); reportT = setTimeout(() => reportGroups(), 600) }
 
+// ── the theme ─────────────────────────────────────────────────
+// Foundry themes windows with `.themed.theme-dark|light` (Settings › Core › Applications colour
+// scheme). If this window wasn't given one, take the setting's, so its variables are the right
+// tier; a campaign look (body.pb-look) then overrides those same variables. Empty setting = follow
+// the browser, which Foundry handles on body — nothing to add.
+function themeOf() {
+  try { const c = game.settings.get("core", "uiConfig")?.colorScheme; return c?.applications || c?.interface || "" } catch { return "" }
+}
+export function applyTheme(el) {
+  if (!el || [...el.classList].some(c => c.startsWith("theme-") && el.classList.contains("themed"))) return
+  const t = themeOf()
+  if (t === "dark" || t === "light") el.classList.add("themed", `theme-${t}`)
+}
+Hooks.on("clientSettingChanged", (key) => {
+  if (key !== "core.uiConfig") return
+  const app = foundry?.applications?.instances?.get?.(APP_ID)
+  if (!app?.element) return
+  app.element.classList.remove("theme-dark", "theme-light")
+  applyTheme(app.element)
+})
+
 // ── the window ────────────────────────────────────────────────
 const userName = (id) => { const u = game.users?.get(id); return u ? (u.character?.name || u.name) : "a player" }
 const DialogV2 = () => foundry.applications.api.DialogV2
@@ -368,6 +389,7 @@ function pageClass() {
     _replaceHTML(result, content) { content.replaceChildren(result) }
 
     _onRender() {
+      applyTheme(this.element)
       const p = this.page
       // Opening the Secrets tab is reading them.
       if (this.tab === "sec" && p && !game.user?.isGM) {

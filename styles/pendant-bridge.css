@@ -583,17 +583,21 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
 .application.pb-campaigns .form-footer { flex-direction: column; align-items: stretch; }
 
 /* ── The campaign page (scripts/campaign-page.js) ──
-   Laid out like the dnd5e group sheet. Colours/fonts: dnd5e's own variables when the world runs
-   dnd5e (maroon card heads, gold, HP/HD bars, Roboto Slab), else Foundry's theme variables — so it
-   follows light/dark and a RealmScreen campaign look (which overrides the same Foundry ones). */
+   Laid out like the dnd5e group sheet, but EVERY colour and font is a Foundry theme variable — the
+   ones .theme-dark / .theme-light set and a RealmScreen campaign look (look.js, body.pb-look)
+   overrides: --pb-accent / --color-warm-2 (accent), --color-cool-5 (panels), --color-border,
+   --color-text-*, --font-h* / --font-body. Switch Foundry's theme or start a campaign with a look
+   and the page follows — no colour of its own. */
 .pb-campaign-page {
-  --pb-cp-accent: var(--pb-accent, var(--dnd5e-color-gold, var(--color-warm-2)));
-  --pb-cp-head: var(--dnd5e-color-maroon, var(--color-warm-3));
+  --pb-cp-accent: var(--pb-accent, var(--color-warm-2));
+  --pb-cp-head: color-mix(in srgb, var(--pb-cp-accent) 45%, var(--color-cool-5));
+  --pb-cp-head-ink: var(--color-light-1);
   --pb-cp-well: var(--table-row-color-even);
-  --pb-cp-hp: var(--dnd5e-color-hp-2, var(--color-level-success));
-  --pb-cp-hd: var(--dnd5e-color-hd-2, var(--color-level-error));
-  --pb-cp-slab: var(--dnd5e-font-roboto-slab, var(--font-primary));
-  --pb-cp-title: var(--dnd5e-font-modesto, var(--font-primary));
+  --pb-cp-track: color-mix(in srgb, var(--color-cool-5) 55%, transparent);
+  --pb-cp-hp: var(--color-level-success);
+  --pb-cp-hd: var(--pb-cp-head);
+  --pb-cp-slab: var(--font-h4, var(--font-body, var(--font-primary)));
+  --pb-cp-title: var(--font-h1, var(--font-primary));
 }
 .pb-campaign-page .window-content { container-type: inline-size; }
 .pb-campaign-page .pb-cp { display: flex; flex-direction: column; gap: 0.5rem; min-height: 100%; }
@@ -612,7 +616,7 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
 .pb-campaign-page .pb-cp-live::before { content: "\25CF"; margin-right: 0.2rem; }
 .pb-campaign-page .pb-cp-cards { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .pb-campaign-page .pb-cp-card { flex: 1 1 10rem; max-width: 15rem; border: 1px solid var(--color-border); border-radius: 4px; overflow: hidden; background: var(--pb-cp-well); display: flex; flex-direction: column; }
-.pb-campaign-page .pb-cp-card h4 { margin: 0; padding: 0.25rem 0.5rem; background: var(--pb-cp-head); color: var(--color-light-1, #fff); font-family: var(--pb-cp-slab); font-size: var(--font-size-12); border: 0; }
+.pb-campaign-page .pb-cp-card h4 { margin: 0; padding: 0.25rem 0.5rem; background: var(--pb-cp-head); color: var(--pb-cp-head-ink); font-family: var(--pb-cp-slab); font-size: var(--font-size-12); border: 0; }
 .pb-campaign-page .pb-cp-card strong { padding: 0.3rem 0.5rem 0; color: var(--color-text-emphatic); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pb-campaign-page .pb-cp-card small { padding: 0 0.5rem 0.3rem; color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pb-campaign-page .pb-cp-card strong:last-child { padding-bottom: 0.35rem; }
@@ -621,8 +625,8 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
 .pb-campaign-page .pb-cp-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.9rem; padding-right: 0.25rem; }
 /* shared bits */
 .pb-campaign-page .pb-cp-h { margin: 0; border: 0; display: flex; align-items: baseline; gap: 0.5rem; font-family: var(--pb-cp-slab); font-size: var(--font-size-14); color: var(--color-text-emphatic); }
-.pb-campaign-page .pb-cp-h small { font-family: var(--font-primary); font-weight: normal; color: var(--color-text-subtle); font-size: var(--font-size-12); }
-.pb-campaign-page .pb-cp-h > a, .pb-campaign-page .pb-cp-hacts { margin-left: auto; font-family: var(--font-primary); font-weight: normal; font-size: var(--font-size-12); color: var(--pb-cp-accent); }
+.pb-campaign-page .pb-cp-h small { font-family: var(--font-body, var(--font-primary)); font-weight: normal; color: var(--color-text-subtle); font-size: var(--font-size-12); }
+.pb-campaign-page .pb-cp-h > a, .pb-campaign-page .pb-cp-hacts { margin-left: auto; font-family: var(--font-body, var(--font-primary)); font-weight: normal; font-size: var(--font-size-12); color: var(--pb-cp-accent); }
 .pb-campaign-page .pb-cp-hacts { display: flex; gap: 0.9rem; } .pb-campaign-page .pb-cp-hacts a { color: var(--pb-cp-accent); }
 .pb-campaign-page .pb-cp-row { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
 .pb-campaign-page .pb-cp-row.end { justify-content: flex-end; }
@@ -643,10 +647,10 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
 .pb-campaign-page .pb-cp-face { width: 3rem; height: 3rem; object-fit: cover; object-position: top; border-radius: 3px; border: 1px solid var(--color-border); }
 .pb-campaign-page .pb-cp-cm { min-width: 0; display: flex; flex-direction: column; gap: 0.35rem; }
 .pb-campaign-page .pb-cp-cn { font-family: var(--pb-cp-slab); font-weight: bold; color: var(--color-text-emphatic); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pb-campaign-page .pb-cp-cn small { font-family: var(--font-primary); font-weight: normal; color: var(--color-text-subtle); margin-left: 0.4rem; font-size: var(--font-size-11); }
-.pb-campaign-page .pb-cp-cn em { font-family: var(--font-primary); font-weight: normal; font-style: normal; color: var(--color-level-error); margin-left: 0.4rem; font-size: var(--font-size-11); }
+.pb-campaign-page .pb-cp-cn small { font-family: var(--font-body, var(--font-primary)); font-weight: normal; color: var(--color-text-subtle); margin-left: 0.4rem; font-size: var(--font-size-11); }
+.pb-campaign-page .pb-cp-cn em { font-family: var(--font-body, var(--font-primary)); font-weight: normal; font-style: normal; color: var(--color-level-error); margin-left: 0.4rem; font-size: var(--font-size-11); }
 .pb-campaign-page .pb-cp-bars { display: grid; grid-template-columns: minmax(0, 1.4fr) auto minmax(0, 1fr) auto; gap: 0.4rem; align-items: center; }
-.pb-campaign-page .pb-cp-meter { position: relative; height: 0.45rem; border: 1px solid var(--color-border); border-radius: 2px; background: var(--color-cool-5-50, rgba(0,0,0,.3)); overflow: hidden; }
+.pb-campaign-page .pb-cp-meter { position: relative; height: 0.45rem; border: 1px solid var(--color-border); border-radius: 2px; background: var(--pb-cp-track); overflow: hidden; }
 .pb-campaign-page .pb-cp-meter i { position: absolute; inset: 0 auto 0 0; background: var(--pb-cp-hp); }
 .pb-campaign-page .pb-cp-meter.hd i { background: var(--pb-cp-hd); }
 .pb-campaign-page .pb-cp-val { font-size: var(--font-size-11); color: var(--color-text-secondary); white-space: nowrap; }
@@ -654,13 +658,13 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
 .pb-campaign-page .pb-cp-cs span { display: flex; flex-direction: column; align-items: center; gap: 0.2rem; }
 .pb-campaign-page .pb-cp-cs i { font-size: var(--font-size-10); color: var(--color-text-subtle); }
 .pb-campaign-page .pb-cp-panel { border: 1px solid var(--color-border); border-radius: 4px; overflow: hidden; background: var(--pb-cp-well); }
-.pb-campaign-page .pb-cp-panel > h4 { margin: 0; padding: 0.3rem 0.6rem; background: var(--pb-cp-head); color: var(--color-light-1, #fff); font-family: var(--pb-cp-slab); font-size: var(--font-size-12); border: 0; display: flex; justify-content: space-between; }
-.pb-campaign-page .pb-cp-panel > h4 a { font-family: var(--font-primary); font-weight: normal; color: inherit; opacity: 0.85; }
+.pb-campaign-page .pb-cp-panel > h4 { margin: 0; padding: 0.3rem 0.6rem; background: var(--pb-cp-head); color: var(--pb-cp-head-ink); font-family: var(--pb-cp-slab); font-size: var(--font-size-12); border: 0; display: flex; justify-content: space-between; }
+.pb-campaign-page .pb-cp-panel > h4 a { font-family: var(--font-body, var(--font-primary)); font-weight: normal; color: inherit; opacity: 0.85; }
 .pb-campaign-page .pb-cp-panel > :not(h4) { margin: 0.55rem 0.7rem; }
 .pb-campaign-page .pb-cp-prog { display: flex; align-items: center; gap: 0.6rem; }
 .pb-campaign-page .pb-cp-prog > span:first-child { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pb-campaign-page .pb-cp-prog small { color: var(--color-text-subtle); }
-.pb-campaign-page .pb-cp-pbar { position: relative; width: 4.5rem; height: 0.35rem; border: 1px solid var(--color-border); background: var(--color-cool-5-50, rgba(0,0,0,.3)); flex: none; }
+.pb-campaign-page .pb-cp-pbar { position: relative; width: 4.5rem; height: 0.35rem; border: 1px solid var(--color-border); background: var(--pb-cp-track); flex: none; }
 .pb-campaign-page .pb-cp-pbar i { position: absolute; inset: 0 auto 0 0; background: var(--pb-cp-accent); }
 .pb-campaign-page .pb-cp-thumbs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.4rem; }
 .pb-campaign-page .pb-cp-thumbs a { aspect-ratio: 1; border: 1px solid var(--color-border); border-radius: 3px; display: grid; place-items: center; overflow: hidden; font-size: 1.3rem; color: var(--color-text-secondary); }
@@ -695,7 +699,7 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
 .pb-campaign-page .pb-cp-peek p { margin: 0.2rem 0 0; font-size: var(--font-size-12); }
 .pb-campaign-page .pb-cp-morew { position: relative; }
 .pb-campaign-page .pb-cp-more { padding: 0 0.3rem; color: var(--color-text-secondary); }
-.pb-campaign-page .pb-cp-menu { position: absolute; right: 0; top: 1.3rem; z-index: 10; min-width: 11rem; display: flex; flex-direction: column; padding: 0.25rem 0; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-cool-5, var(--background)); box-shadow: 0 4px 12px rgba(0,0,0,.45); }
+.pb-campaign-page .pb-cp-menu { position: absolute; right: 0; top: 1.3rem; z-index: 10; min-width: 11rem; display: flex; flex-direction: column; padding: 0.25rem 0; border: 1px solid var(--color-border); border-radius: 4px; background: var(--background, var(--color-cool-5)); box-shadow: 0 4px 12px var(--color-shadow-dark, color-mix(in srgb, var(--color-cool-5) 60%, transparent)); }
 .pb-campaign-page .pb-cp-menu a { padding: 0.25rem 0.75rem; white-space: nowrap; }
 .pb-campaign-page .pb-cp-menu a:hover { background: var(--pb-cp-well); color: var(--pb-cp-accent); }
 .pb-campaign-page .pb-cp-steps { margin: 0; padding: 0 0 0 1.6rem; list-style: none; display: flex; flex-direction: column; gap: 0.3rem; }
@@ -716,13 +720,13 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
 .pb-campaign-page .pb-cp-oldin .pb-cp-fgrid, .pb-campaign-page .pb-cp-oldin > .pb-cp-find { display: grid; }
 .pb-campaign-page .pb-cp-find { position: relative; display: flex; flex-direction: column; border: 1px solid var(--color-border); border-radius: 4px; overflow: hidden; background: var(--pb-cp-well); }
 .pb-campaign-page .pb-cp-find.hidden { opacity: 0.6; border-style: dashed; }
-.pb-campaign-page .pb-cp-find.active, .pb-campaign-page .pb-cp-find:hover { border-color: var(--pb-cp-accent); }
+.pb-campaign-page .pb-cp-find.active, .pb-campaign-page .pb-cp-find:hover { border-color: var(--color-border-highlight, var(--pb-cp-accent)); }
 .pb-campaign-page .pb-cp-fimg { height: 6rem; display: grid; place-items: center; font-size: 2rem; color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border); overflow: hidden; }
 .pb-campaign-page .pb-cp-fimg img { width: 100%; height: 100%; object-fit: cover; border: 0; }
 .pb-campaign-page .pb-cp-fb { padding: 0.3rem 0.45rem; display: flex; flex-direction: column; }
 .pb-campaign-page .pb-cp-fb strong { color: var(--color-text-emphatic); font-family: var(--pb-cp-slab); font-size: var(--font-size-12); }
 .pb-campaign-page .pb-cp-fb small { color: var(--color-text-subtle); font-size: var(--font-size-11); }
-.pb-campaign-page .pb-cp-fk, .pb-campaign-page .pb-cp-fh { position: absolute; top: 0.25rem; z-index: 1; font-size: var(--font-size-10); padding: 0 0.3rem; border-radius: 2px; background: var(--color-cool-5-90, rgba(0,0,0,.75)); color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
+.pb-campaign-page .pb-cp-fk, .pb-campaign-page .pb-cp-fh { position: absolute; top: 0.25rem; z-index: 1; font-size: var(--font-size-10); padding: 0 0.3rem; border-radius: 2px; background: var(--color-cool-5-90); color: var(--color-light-3, var(--color-text-secondary)); text-transform: uppercase; letter-spacing: 0.04em; }
 .pb-campaign-page .pb-cp-fk { left: 0.25rem; } .pb-campaign-page .pb-cp-fh { right: 0.25rem; color: var(--pb-cp-accent); }
 .pb-campaign-page .pb-cp-detail { display: flex; gap: 0.75rem; padding: 0.6rem; border: 1px solid var(--pb-cp-accent); border-radius: 4px; background: var(--pb-cp-well); }
 .pb-campaign-page .pb-cp-dimg { width: 7rem; height: 7rem; flex: none; display: grid; place-items: center; font-size: 2.6rem; border: 1px solid var(--color-border); border-radius: 3px; overflow: hidden; color: var(--color-text-secondary); }
