@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Campaign Page Harness</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Signika:wght@400;600&family=Roboto+Slab:wght@500;700&display=swap">
+<link rel="stylesheet" href="../../styles/pendant-bridge.css">
+<style>
+/* Dev harness (not loaded by Foundry): the REAL scripts/campaign-page.js in a tiny stand-in for
+   Foundry (ApplicationV2, DialogV2, settings, users, actors, a dnd5e group), answered by the REAL
+   RealmScreen model (pendant-home lib/campaignPageModel.mjs applyOp). Serve the Downloads folder
+   (launch config "campaign-page-harness") and open /foundry-pendant-bridge/tests/harness/campaign-page.html.
+   Colours below stand in for Foundry's dark theme + dnd5e's variables. */
+:root, .theme-dark {
+  --color-text-emphatic: #f0f0e0; --color-text-primary: #e7e1d4; --color-text-secondary: #b5aea0; --color-text-subtle: #8a847a;
+  --color-border: #4a4842; --color-warm-2: #ee9b3a; --color-warm-3: #5d142b; --color-level-success: #3ba55d; --color-level-error: #d65a4a;
+  --color-cool-5: #1c1b20; --color-cool-5-50: rgba(28,27,32,.5); --color-cool-5-90: rgba(28,27,32,.9); --color-light-1: #fff;
+  --table-row-color-even: rgba(255,255,255,.05);
+  --dnd5e-color-maroon: #741b2b; --dnd5e-color-gold: #c9a95e; --dnd5e-color-hp-2: #3ba55d; --dnd5e-color-hd-2: #741b2b;
+  --dnd5e-font-roboto-slab: "Roboto Slab", serif; --dnd5e-font-modesto: "Palatino Linotype", serif;
+  --font-primary: "Signika", sans-serif; --font-size-10: 10px; --font-size-11: 11px; --font-size-12: 12px; --font-size-13: 13px; --font-size-14: 14px; --font-size-16: 16px; --font-size-32: 30px;
+  color-scheme: dark;
+}
+body { margin: 0; background: #0d100c; color: var(--color-text-primary); font: 14px/1.4 var(--font-primary); }
+#bar { display: flex; gap: 10px; align-items: center; padding: 8px 12px; background: #151515; border-bottom: 1px solid #333; flex-wrap: wrap; }
+#bar button, #bar select { background: #2a2a2a; color: #ddd; border: 1px solid #444; border-radius: 3px; padding: 3px 9px; font: inherit; cursor: pointer; }
+#bar .on { border-color: var(--color-warm-2); color: #fff; }
+#log { margin-left: auto; font: 12px monospace; color: #9c9; max-width: 50vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#stage { position: relative; padding: 16px; }
+.application { background: var(--color-cool-5); border: 1px solid #000; border-radius: 6px; box-shadow: 0 0 20px #000; display: flex; flex-direction: column; margin: 0 auto 16px; overflow: hidden; }
+.window-header { background: #0e0d13; padding: 6px 10px; display: flex; gap: 8px; align-items: center; border-bottom: 1px solid #333; }
+.window-header .t { flex: 1; }
+.window-content { padding: 12px 16px; overflow: auto; flex: 1; }
+nav.tabs { display: flex; justify-content: space-evenly; border-top: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); line-height: 2.5; }
+nav.tabs .item { cursor: pointer; color: var(--color-text-secondary); } nav.tabs .item.active { color: var(--color-text-emphatic); text-shadow: 0 0 8px var(--color-warm-2); }
+a { cursor: pointer; } button { background: rgba(255,255,255,.07); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 3px; padding: 3px 9px; font: inherit; cursor: pointer; min-height: 26px; }
+input[type=text], input[type=number], textarea, select { background: rgba(0,0,0,.3); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 3px; padding: 3px 6px; font: inherit; }
+.form-group { display: flex; gap: 8px; align-items: center; margin: 4px 0; } .form-group > label { flex: 0 0 110px; color: var(--color-text-secondary); } .form-group.stacked { flex-direction: column; align-items: stretch; } .form-group input, .form-group select, .form-group textarea { flex: 1; }
+.hint { color: var(--color-text-subtle); font-size: 12px; margin: 0; }
+fieldset { border: 1px solid var(--color-border); border-radius: 4px; padding: 6px 10px; } legend { font-weight: bold; }
+.dlg-back { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: grid; place-items: center; z-index: 50; }
+.dlg { width: 440px; background: var(--color-cool-5); border: 1px solid #000; border-radius: 6px; box-shadow: 0 0 20px #000; }
+.dlg form { padding: 10px 14px; } .dlg footer { display: flex; gap: 6px; justify-content: flex-end; padding: 8px 14px; border-top: 1px solid #333; }
+.toast { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: #222; border: 1px solid var(--color-warm-2); padding: 6px 12px; border-radius: 4px; z-index: 60; font-size: 13px; }
+.toast.warn { border-color: #d65a4a; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <strong>Campaign page harness</strong>
+  <span>Viewing as</span><select id="who"></select>
+  <button id="reset">Reset data</button>
+  <span id="log"></span>
+</div>
+<div id="stage"></div>
+<script type="module">
+// ── a tiny Foundry ──────────────────────────────────────────────────────────
+const MOD = "pendant-bridge"
+const $ = (s) => document.querySelector(s)
+const hooks = {}
+globalThis.Hooks = {
+  on: (n, f) => { (hooks[n] ??= []).push(f) }, once: (n, f) => { (hooks[n] ??= []).push(f) },
+  callAll: (n, ...a) => { for (const f of hooks[n] || []) f(...a) },
+}
+class Coll extends Array {
+  get(id) { return this.find(x => x.id === id) }
+  get contents() { return [...this] }
+}
+const own = (ids) => ({ testUserPermission: (u, lvl) => ids.includes(u.id) })
+const actor = (id, name, img, owners, sys) => ({ id, name, img, type: "character", documentName: "Actor", uuid: `Actor.${id}`, system: sys, ...own(owners), sheet: { render: () => toast(`(${name}'s sheet would open)`) } })
+const stats = (hp, hpm, hd, hdm, ac, prc, ste, sur) => ({ attributes: { hp: { value: hp, max: hpm }, hd: { value: hd, max: hdm }, ac: { value: ac } }, skills: { prc: { passive: prc }, ste: { passive: ste }, sur: { passive: sur } } })
+const face = (c, l) => `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" fill="${c}"/><text x="20" y="27" font-size="20" text-anchor="middle" fill="#fff" font-family="serif">${l}</text></svg>`)}`
+const users = Coll.from([
+  { id: "gm", name: "Gamemaster", isGM: true, active: true },
+  { id: "u1", name: "Sam", isGM: false, active: true },
+  { id: "u2", name: "Jo", isGM: false, active: true },
+  { id: "u3", name: "Mia", isGM: false, active: true },
+])
+const actors = Coll.from([
+  actor("a1", "Doril Ironweave", face("#6b4a2a", "D"), ["u1"], stats(1, 73, 8, 8, 15, 16, 19, 10)),
+  actor("a2", "Grayson Vindsor", face("#3a3a44", "G"), ["u2"], stats(31, 31, 7, 7, 19, 14, 16, 14)),
+  actor("a3", "Gareth Mahogan", face("#4a4a4a", "G"), ["u3"], stats(52, 58, 6, 6, 21, 14, 13, 11)),
+  { id: "it1", name: "Potion of Healing", img: face("#2a6a6a", "⚗"), type: "consumable", documentName: "Item", uuid: "Item.it1", system: { description: { value: "<p>Regains 2d4 + 2 hit points.</p>" } }, ...own([]), sheet: { render: () => toast("(item sheet)") } },
+])
+const group = { id: "grp", name: "The Red Company", img: face("#741b2b", "⚑"), type: "group", documentName: "Actor", uuid: "Actor.grp", system: { members: [{ actor: actors[0] }, { actor: actors[1] }] }, ...own([]), sheet: { render: () => toast("(group sheet)") } }
+actors.push(group)
+const store = new Map()
+let me = users[0]
+globalThis.game = {
+  get user() { return me }, users, actors, scenes: Coll.from([]), journal: Coll.from([]), folders: Coll.from([]),
+  modules: new Map([[MOD, { version: "harness" }]]),
+  settings: {
+    reg: {}, register(m, k, cfg) { this.reg[k] = cfg; if (!store.has(k)) store.set(k, cfg.default ?? null) },
+    get(m, k) { return store.get(k) }, async set(m, k, v) { store.set(k, JSON.parse(JSON.stringify(v))); this.reg[k]?.onChange?.(v); return v },
+  },
+  socket: { on() {}, emit() {} },
+}
+const toast = (t, cls = "") => { const d = document.createElement("div"); d.className = "toast " + cls; d.textContent = t; document.body.append(d); setTimeout(() => d.remove(), 2600) }
+globalThis.ui = { notifications: { info: (t) => toast(t), warn: (t) => toast(t, "warn") } }
+globalThis.canvas = null
+globalThis.fromUuid = async (u) => actors.find(a => a.uuid === u) || null
+globalThis.ChatMessage = { create: async (d) => toast("Chat: " + d.content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()) }
+
+// ApplicationV2: options from DEFAULT_OPTIONS up the chain, render → _renderHTML/_replaceHTML/_onRender, click actions.
+const instances = new Map()
+class ApplicationV2 {
+  constructor(options = {}) {
+    const chain = []; for (let c = this.constructor; c && c !== Object; c = Object.getPrototypeOf(c)) if (Object.hasOwn(c, "DEFAULT_OPTIONS")) chain.unshift(c.DEFAULT_OPTIONS)
+    this.options = Object.assign({}, ...chain, options)
+    this.options.actions = Object.assign({}, ...chain.map(o => o.actions || {}))
+  }
+  get id() { return this.options.id }
+  async render() {
+    if (!this.element) {
+      const el = document.createElement("div")
+      el.className = ["application", "theme-dark", ...(this.options.classes || [])].join(" ")
+      el.style.width = (this.options.position?.width || 600) + "px"
+      el.style.height = (this.options.position?.height || 600) + "px"
+      el.innerHTML = `<header class="window-header"><i class="${this.options.window?.icon || ""}"></i><span class="t"></span><a data-close>✕</a></header><section class="window-content"></section>`
+      $("#stage").append(el)
+      this.element = el
+      el.addEventListener("click", (ev) => {
+        if (ev.target.closest("[data-close]")) { el.remove(); instances.delete(this.id); return }
+        const t = ev.target.closest("[data-action]")
+        if (!t || !el.contains(t)) return
+        const h = this.options.actions[t.dataset.action]
+        if (h) h.call(this, ev, t); else console.warn("no action", t.dataset.action)
+      })
+      instances.set(this.id, this)
+    }
+    this.element.querySelector(".window-header .t").textContent = this.title
+    const r = await this._renderHTML()
+    this._replaceHTML(r, this.element.querySelector(".window-content"))
+    this._onRender?.()
+    return this
+  }
+  bringToFront() {} minimize() {} maximize() {}
+}
+// DialogV2: a real little form; the ok callback gets (event, button) with button.form.
+const DialogV2 = {
+  show({ title, content, buttons }) {
+    return new Promise((res) => {
+      const back = document.createElement("div"); back.className = "dlg-back"
+      back.innerHTML = `<div class="dlg ${"pb-cp-dialog"}"><header class="window-header"><span class="t">${title}</span></header><form>${content}</form><footer></footer></div>`
+      const form = back.querySelector("form"), foot = back.querySelector("footer")
+      for (const b of buttons) {
+        const el = document.createElement("button"); el.type = "button"; el.textContent = b.label; el.dataset.dlg = b.action
+        el.form && null
+        Object.defineProperty(el, "form", { get: () => form })
+        el.onclick = (ev) => { back.remove(); res(b.callback ? b.callback(ev, el) : b.action) }
+        foot.append(el)
+      }
+      form.onsubmit = (ev) => { ev.preventDefault(); foot.lastElementChild.click() }
+      document.body.append(back)
+      back.querySelector("[autofocus], input, textarea")?.focus()
+    })
+  },
+  prompt({ window, content, ok }) { return this.show({ title: window?.title, content, buttons: [{ action: "cancel", label: "Cancel", callback: () => null }, { action: "ok", label: ok?.label || "OK", callback: ok?.callback }] }) },
+  confirm({ window, content }) { return this.show({ title: window?.title, content, buttons: [{ action: "no", label: "No", callback: () => false }, { action: "yes", label: "Yes", callback: () => true }] }) },
+  wait(o) { return this.show({ title: o.window?.title, content: o.content, buttons: o.buttons }) },
+}
+class FilePicker { constructor(o) { this.o = o } render() { setTimeout(() => this.o.callback?.(face("#3a4a3a", "🗺").replace("40 40", "40 40") ), 30) } }
+class ImagePopout { constructor(o) { this.o = o } render() { toast("Image popout: " + this.o.window?.title) } shareImage() { toast("Shared with players") } }
+globalThis.foundry = {
+  applications: { api: { ApplicationV2, DialogV2 }, instances, apps: { FilePicker: { implementation: FilePicker }, ImagePopout }, ux: { TextEditor: { implementation: { getDragEventData: (ev) => JSON.parse(ev.dataTransfer.getData("text/plain") || "null") } } } },
+  utils: {},
+}
+
+// ── the real modules ────────────────────────────────────────────────────────
+const live = await import("../../scripts/live.js")
+const camp = await import("../../scripts/campaigns.js")
+const page = await import("../../scripts/campaign-page.js")
+const model = await import("../../../pendant-home/src/renderer/src/lib/campaignPageModel.mjs")
+Hooks.callAll("init")
+live.setLinked(true)
+
+// ── a fake RealmScreen: the real applyOp + a fixed overview ──────────────────
+const CID = "c1"
+const CODEX = { "captain dorn": { name: "Captain Dorn", img: face("#4a5a6a", "D"), summary: "Harrowgate’s watch captain. Owes the Ironhand." }, "the ironhand": { name: "The Ironhand", img: face("#6a3a2a", "I"), summary: "A mercenary company." } }
+let rs, ledger
+function resetData() {
+  rs = model.normalizePages({ threads: { [CID]: [{ id: "t1", text: "Deliver the seal to Harrowgate" }] } })
+  ledger = [
+    { id: "character:mother aske", name: "Mother Aske", cover: face("#6a4a5a", "A"), line: "seen 13 Emberfall · session 11", times: 2, first: "2 Emberfall", manual: false },
+    { id: "character:captain dorn", name: "Captain Dorn", cover: face("#4a5a6a", "D"), line: "seen 9 Emberfall · session 10", times: 1, first: "9 Emberfall", manual: false },
+  ]
+}
+resetData()
+function publish() {
+  const d = model.pageData(rs, CID)
+  const prefs = d.peoplePrefs
+  const people = ledger.map(p => ({ ...p, pinned: prefs.pinned.includes(p.id), hidden: prefs.hidden.includes(p.id), note: prefs.notes[p.id] || "" }))
+    .sort((a, b) => b.pinned - a.pinned)
+  const users = [...new Set(["u3", ...(d.group?.users || [])])]
+  return game.settings.set(MOD, "campaignPages", { [CID]: {
+    overview: { name: "Ashfall", date: "14 Emberfall, 1203", played: 11, running: null, where: { text: "On the road to Harrowgate · day 1 of 2", place: "Kessel Ford" },
+      party: [{ name: "Gareth Mahogan", player: "Mia", cover: null }], people, coming: [{ name: "Night of Lanterns", rel: "in 3 days" }] },
+    users, ...d } })
+}
+camp.setCampaignSender((msg) => {
+  $("#log").textContent = `→ ${msg.op} ${msg.userId}${msg.isGM ? " (GM)" : ""}`
+  console.log("op", msg)
+  const party = model.pageData(rs, CID).group?.users || []
+  const r = model.applyOp(rs, msg, {
+    now: Date.now(), newId: () => Math.random().toString(36).slice(2, 9), party: [...new Set(["u3", ...party])], userNames: { u1: "Doril Ironweave", u2: "Grayson Vindsor", u3: "Gareth Mahogan" },
+    sessionLabel: "", whereLabel: "14 Emberfall · Kessel Ford", dayKey: 100, dateLabelOf: (k) => "day " + k,
+    findPage: (n) => CODEX[String(n).toLowerCase()] || Object.values(CODEX).find(c => c.name.toLowerCase().includes(String(n).toLowerCase())) || null,
+  })
+  if (!r.error) rs = r.store
+  for (const n of r.notes) if (!n.userId || n.userId === me.id) toast(n.text, n.level)
+  if (r.ledger?.op === "add") ledger.push({ id: "character:" + r.ledger.name.toLowerCase(), name: r.ledger.name, cover: null, line: "met · 14 Emberfall", times: 0, first: "", manual: true })
+  if (r.ledger?.op === "remove") { const p = ledger.find(x => x.id === r.ledger.personId); if (p?.manual) ledger = ledger.filter(x => x !== p); else toast("They met in play — hide them instead.", "warn") }
+  for (const w of r.whispers) toast(`Whisper → ${w.to}: ${w.title}`)
+  setTimeout(publish, 120)        // RealmScreen answers a beat later (the optimistic copy shows first)
+  return true
+})
+await publish()
+
+// ── the bar ─────────────────────────────────────────────────────────────────
+$("#who").innerHTML = users.map(u => `<option value="${u.id}">${u.name}${u.isGM ? " (GM)" : ""}</option>`).join("")
+$("#who").onchange = (e) => { me = users.get(e.target.value); for (const a of instances.values()) { a.element.remove() } instances.clear(); page.openPage({ id: CID, name: "Ashfall" }) }
+$("#reset").onclick = () => { resetData(); publish() }
+page.openPage({ id: CID, name: "Ashfall" })
+window.H = { page, model, get rs() { return rs }, get ledger() { return ledger }, group, actors, users, setUser: (id) => { $("#who").value = id; $("#who").onchange({ target: $("#who") }) } }
+</script>
+</body>
+</html>
