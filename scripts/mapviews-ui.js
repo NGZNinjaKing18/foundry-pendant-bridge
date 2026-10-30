@@ -11,6 +11,7 @@
 // ──────────────────────────────────────────────────────────────
 
 import { viewsOf, mapViewsState, mapViewsSet, mapReveal, mapRemove, showEverything, setShowEverything } from "./mapviews.js"
+import { nameScale, nameGap } from "./realm-layer.js"
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]))
 const KIND_ICON = { settlement: "fa-solid fa-house", road: "fa-solid fa-road", river: "fa-solid fa-water", nation: "fa-solid fa-flag" }
@@ -58,10 +59,23 @@ function viewsClass() {
         ${st.views.length ? "" : `<p class="hint">No views yet. Make them in RealmScreen — the Foundry chip on its map.</p>`}
         <hr>
         <label class="pb-mv-check"><input type="checkbox" data-action="everything" ${showEverything() ? "checked" : ""}> Show me everything (only you)</label>
+        <hr>
+        <div class="form-group pb-mv-range"><label>Name size</label><input type="range" name="realmNameScale" min="0.5" max="1.5" step="0.05" value="${nameScale()}"><span class="pb-mv-n">${Math.round(nameScale() * 100)}%</span></div>
+        <div class="form-group pb-mv-range"><label>Name gap</label><input type="range" name="realmNameGap" min="0" max="20" step="1" value="${nameGap()}"><span class="pb-mv-n">${nameGap()} px</span></div>
         <p class="hint">Players see the view you pick. Things not in it are hidden for them.</p>`
       return el
     }
     _replaceHTML(result, content) { content.replaceChildren(result) }
+
+    // The two name sliders: shown live while dragging, saved (for everyone) when let go.
+    _onRender() {
+      for (const input of this.element.querySelectorAll(".pb-mv-range input")) {
+        const out = input.parentElement.querySelector(".pb-mv-n")
+        const say = () => { out.textContent = input.name === "realmNameScale" ? `${Math.round(input.value * 100)}%` : `${input.value} px` }
+        input.addEventListener("input", say)
+        input.addEventListener("change", () => { say(); game.settings.set("pendant-bridge", input.name, Number(input.value)).catch(warn) })
+      }
+    }
 
     static async run(op, target, extra = {}) {
       const scene = viewedScene()

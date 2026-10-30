@@ -19,7 +19,14 @@
 import { viewsOf, realmRecords, showEverything, inView } from "./mapviews.js"
 
 const SORT_LAYER = 650
-const FONT = "Signika, 'IBM Plex Sans', sans-serif"
+// RealmScreen's own font (bundled: styles/pendant-bridge.css @font-face, OFL licence in assets/fonts).
+const FONT = "'RealmScreen Plex', 'IBM Plex Sans', Signika, sans-serif"
+const MOD = "pendant-bridge"
+// Name size and the gap between a town and its name — the GM tunes them in Map views (the user, 2026-10-30:
+// "a wee bit too close and too big" against RealmScreen's 1:1). World settings, so every viewer gets the same.
+const setting = (k, d) => { try { const v = game.settings.get(MOD, k); return Number.isFinite(v) ? v : d } catch { return d } }
+export const nameScale = () => setting("realmNameScale", 0.85)
+export const nameGap = () => setting("realmNameGap", 4)
 const BASE = 64                 // text is rasterised at this size and scaled; re-sharpened when zooming stops
 const ZMIN = 0.2, ZMAX = 30, FADE = Math.log(1.45)
 
@@ -195,7 +202,22 @@ function strokePoly(g, pts, w, closed) {
   if (closed) g.closePath()
 }
 
-// RealmScreen's road dashes (ROAD_DASH): dashed = 3w on / 2w off; dotted = round dots every 2.4w.
+// RealmScreen's dotted roads (ROAD_DASH dotted: round dots w across, every 2.4w), as filled circles.
+function dotted(g, pts, w, colour) {
+  const step = w * 2.4
+  let left = 0
+  g.lineStyle(0); g.beginFill(colour, 1)
+  for (let i = 1; i < pts.length; i++) {
+    const [x0, y0] = pts[i - 1], [x1, y1] = pts[i]
+    const seg = Math.hypot(x1 - x0, y1 - y0)
+    let at = left
+    while (at <= seg) { const f = seg ? at / seg : 0; g.drawCircle(x0 + (x1 - x0) * f, y0 + (y1 - y0) * f, w / 2); at += step }
+    left = at - seg
+  }
+  g.endFill()
+}
+
+// RealmScreen's dashed roads (ROAD_DASH dashed): 3w on / 2w off.
 function dashed(g, pts, w, kind) {
   const on = kind === "dashed" ? w * 3 : 0.0001, off = kind === "dashed" ? w * 2 : w * 2.4
   let drawing = true, left = on
@@ -240,7 +262,7 @@ function update(full = false) {
       for (const { t, l } of it.labels) {
         t.visible = nameOn
         if (!nameOn) continue
-        const size = nationNameSize(l.text, l.box[0] * d.sceneWidth * k, l.box[1] * d.sceneHeight * k, r.nameStyle || {})
+        const size = nationNameSize(l.text, l.box[0] * d.sceneWidth * k, l.box[1] * d.sceneHeight * k, r.nameStyle || {}) * nameScale()
         t.scale.set(size / BASE / k)
         const ls = (r.nameStyle?.letterSpacing || 0) * (BASE / Math.max(size, 1))
         if (Math.abs((t.style.letterSpacing || 0) - ls) > 0.05) t.style.letterSpacing = ls
@@ -259,7 +281,8 @@ function update(full = false) {
         strokePoly(it.under, it.pts, 0, false)
       }
       g.lineStyle({ width: w, color: colour(r.color, 0xb0a080), alpha: 1, join: "round", cap: "round" })
-      if (r.dash === "dashed" || r.dash === "dotted") dashed(g, it.pts, w, r.dash)
+      if (r.dash === "dotted") dotted(g, it.pts, w, colour(r.color, 0xb0a080))
+      else if (r.dash === "dashed") dashed(g, it.pts, w, r.dash)
       else strokePoly(g, it.pts, 0, false)
     } else if (r.kind === "settlement") {
       const markerOn = shown && inBand(z, r.markerZoom)
@@ -287,13 +310,13 @@ function update(full = false) {
         it.name.visible = on
         if (!on) continue
         // MarkerName: the name's middle sits at its offset, pushed out by half its own size along that way.
-        const s = px(L.px, map, r.fitPx) / BASE
+        const s = px(L.px * nameScale(), map, r.fitPx) / BASE
         it.name.scale.set(s)
         const w = it.name.width, h = it.name.height
         const len = Math.hypot(L.dx, L.dy) || 1, ux = L.dx / len, uy = L.dy / len
-        const u = px(1, map, r.fitPx)
+        const u = px(1, map, r.fitPx), gap = nameGap()
         const [x, y] = toScene([r.x, r.y])
-        it.name.position.set(x + L.dx * u + ux * w / 2, y + L.dy * u + uy * h / 2)
+        it.name.position.set(x + (L.dx + ux * gap) * u + ux * w / 2, y + (L.dy + uy * gap) * u + uy * h / 2)
       }
     }
   }
@@ -360,9 +383,17 @@ function onMove(e) {
 
 // ── hooks ─────────────────────────────────────────────────────
 
+Hooks.once("init", () => {
+  for (const [key, def] of [["realmNameScale", 0.85], ["realmNameGap", 4]]) {
+    game.settings.register(MOD, key, { scope: "world", config: false, type: Number, default: def, onChange: () => redrawRealm() })
+  }
+})
+
 Hooks.on("canvasReady", () => {
   S.root = null; S.tex.clear()
   redrawRealm()
+  // Names drawn before the bundled font arrives would keep the fallback's shapes: redraw once it's in.
+  document.fonts?.load?.("600 16px 'RealmScreen Plex'").then(() => redrawRealm()).catch(() => {})
   const view = canvas?.app?.view
   if (view && !view._pbRealmTip) { view._pbRealmTip = true; view.addEventListener("pointermove", onMove); view.addEventListener("pointerleave", () => { if (S.tip) S.tip.hidden = true }) }
 })

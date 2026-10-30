@@ -108,7 +108,7 @@ const recs = [
 for (const r of recs) flags['pendant-bridge'].realm.items[r.id] = r
 
 await import('/foundry-pendant-bridge/scripts/mapviews.js')
-await import('/foundry-pendant-bridge/scripts/realm-layer.js')
+await import('/foundry-pendant-bridge/scripts/realm-layer.js?v=' + Date.now())   // always the file on disk
 await document.fonts.ready
 Hooks.callAll('canvasReady')
 
