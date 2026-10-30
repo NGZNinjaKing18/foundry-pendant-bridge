@@ -8,7 +8,7 @@
 //
 //   { [campaignId]: { overview: { name, date, played, running, where, party, people, coming },
 //                     users: [Foundry user id],        // who is in the campaign (incl. a linked group's)
-//                     secrets, asks, goals, info, finds, peoplePrefs, ptick, group } }
+//                     secrets, goals, info, finds, peoplePrefs, ptick, group } }
 //
 // Laid out like the dnd5e group sheet (header with emblem + cards, tabs): Overview (the
 // party with HP / Hit Dice / AC / passives, open goals, newest findings, secrets, and
@@ -246,6 +246,20 @@ Hooks.on("clientSettingChanged", (key) => {
   applyTheme(app.element)
 })
 
+/** Move a goal: before another (`before` id), after one (`after` id), else to the end — and
+ *  into another section when `who` is given. Pure; RealmScreen's goal.move does the same. */
+export function moveGoal(goals, id, { before = null, after = null, who } = {}) {
+  const list = arr(goals).slice()
+  const i = list.findIndex(g => g.id === id)
+  if (i < 0) return list
+  const [g] = list.splice(i, 1)
+  const moved = who ? { ...g, who } : g
+  let at = before ? list.findIndex(x => x.id === before) : after ? list.findIndex(x => x.id === after) + 1 : list.length
+  if (at < 0) at = list.length
+  list.splice(at, 0, moved)
+  return list
+}
+
 // ── the window ────────────────────────────────────────────────
 const userName = (id) => { const u = game.users?.get(id); return u ? (u.character?.name || u.name) : "a player" }
 const DialogV2 = () => foundry.applications.api.DialogV2
@@ -284,12 +298,13 @@ function pageClass() {
         compose: CampaignPage.#compose, kind: CampaignPage.#kind, cancel: CampaignPage.#cancel, give: CampaignPage.#give,
         pickSpot: CampaignPage.#pickSpot, pickImage: CampaignPage.#pickImage, who: CampaignPage.#who,
         sendNow: CampaignPage.#simple, remove: CampaignPage.#remove, reveal: CampaignPage.#reveal, edit: CampaignPage.#edit,
-        share: CampaignPage.#share, ask: CampaignPage.#ask, answer: CampaignPage.#answer, dropAsk: CampaignPage.#simple,
+        share: CampaignPage.#share,
         panPlace: CampaignPage.#panPlace, panParty: CampaignPage.#panParty,
         // goals + information
         addGoal: CampaignPage.#addGoal, editGoal: CampaignPage.#editGoal, goalDone: CampaignPage.#goalDone, step: CampaignPage.#step,
         addStep: CampaignPage.#addStep, dropStep: CampaignPage.#dropStep, addInfo: CampaignPage.#addInfo, editInfo: CampaignPage.#editInfo,
         old: CampaignPage.#old, del: CampaignPage.#del, ptick: CampaignPage.#ptick, peek: CampaignPage.#peek, menu: CampaignPage.#menu,
+        rename: CampaignPage.#rename, oldDone: CampaignPage.#oldDone,
         // findings
         addPicture: CampaignPage.#addPicture, addNote: CampaignPage.#addNote, openFind: CampaignPage.#openFind, editFind: CampaignPage.#editFind,
         found: CampaignPage.#found, openDoc: CampaignPage.#openDoc, showPic: CampaignPage.#showPic,
@@ -337,7 +352,7 @@ function pageClass() {
         const sh = el.querySelector("[name=cShare]"); if (sh) this.comp.share = sh.checked
       }
       this.drafts = {}
-      for (const t of el.querySelectorAll("textarea[data-draft]")) this.drafts[t.dataset.draft] = t.value
+      for (const t of el.querySelectorAll("[data-draft]")) this.drafts[t.dataset.draft] = t.value
       for (const d of el.querySelectorAll("details[data-old]")) { if (d.open) this.oldOpen.add(d.dataset.old); else this.oldOpen.delete(d.dataset.old) }
     }
 
@@ -404,9 +419,41 @@ function pageClass() {
       // Drops: anything onto Findings; a group actor anywhere links it (GM).
       if (game.user?.isGM && !this.#dropWired) {
         this.#dropWired = true
-        this.element.addEventListener("dragover", (ev) => ev.preventDefault())
-        this.element.addEventListener("drop", (ev) => this.#onDrop(ev))
+        this.element.addEventListener("dragstart", (ev) => {
+          const g = ev.target.closest?.("[data-goal]")
+          if (!g) return
+          this.dragGoal = g.dataset.goal
+          ev.dataTransfer.effectAllowed = "move"
+          ev.dataTransfer.setData("text/plain", JSON.stringify({ pbGoal: g.dataset.goal }))
+          g.classList.add("dragging")
+        })
+        this.element.addEventListener("dragend", () => { this.dragGoal = null; this.element.querySelectorAll(".pb-cp-goal.dragging, .pb-cp-drop-before, .pb-cp-drop-after").forEach(e => e.classList.remove("dragging", "pb-cp-drop-before", "pb-cp-drop-after")) })
+        this.element.addEventListener("dragover", (ev) => {
+          ev.preventDefault()
+          if (!this.dragGoal) return
+          this.element.querySelectorAll(".pb-cp-drop-before, .pb-cp-drop-after").forEach(e => e.classList.remove("pb-cp-drop-before", "pb-cp-drop-after"))
+          const g = ev.target.closest?.("[data-goal]")
+          if (g && g.dataset.goal !== this.dragGoal) { const r = g.getBoundingClientRect(); g.classList.add(ev.clientY < r.top + r.height / 2 ? "pb-cp-drop-before" : "pb-cp-drop-after") }
+        })
+        this.element.addEventListener("drop", (ev) => (this.dragGoal ? this.#onGoalDrop(ev) : this.#onDrop(ev)))
+        this.element.addEventListener("change", (ev) => { const t = ev.target; if (t.matches?.("select[data-enter=addFor]") && t.value) { this.addFor = t.value; this.render() } })
+        this.element.addEventListener("keydown", (ev) => {
+          const t = ev.target
+          if (!t.matches?.("input[data-enter]")) return
+          if (ev.key === "Escape" && t.dataset.enter === "saveRename") { ev.preventDefault(); this.renaming = null; this.render(); return }
+          if (ev.key !== "Enter") return
+          ev.preventDefault()
+          this.#onEnter(t)
+        })
+        this.element.addEventListener("focusin", (ev) => { this.typingIn = ev.target.matches?.("input[data-draft]") ? ev.target.dataset.draft : null })
+        this.element.addEventListener("focusout", (ev) => { if (ev.target.matches?.("input[data-enter=saveRename]") && this.renaming) this.#onEnter(ev.target) })
       }
+      // Keep typing where you were: a redraw (yours, or RealmScreen's answer arriving) puts the
+      // cursor back in the quick line you were using, or in a fresh rename / "Add goals for…" line.
+      const lost = !this.element.contains(document.activeElement) || document.activeElement === document.body
+      const f = this.typingIn && this.element.querySelector(`[data-draft="${CSS.escape(this.typingIn)}"]`)
+      const want = this.element.querySelector("input.pb-cp-rename") || (this.addFor && this.element.querySelector("input[autofocus]")) || (lost ? f : null)
+      if (want && document.activeElement !== want) { want.focus(); if (want === f) want.setSelectionRange?.(want.value.length, want.value.length) }
       // Clicking anywhere else closes an open ⋯ menu.
       if (this.menuKey && !this.#menuWired) {
         this.#menuWired = true
@@ -416,6 +463,54 @@ function pageClass() {
     }
     #seenSent = null
     #dropWired = false
+
+    // ── quick lines (Enter) and goal drags ──
+    #onEnter(t) {
+      const v = str(t.value)
+      const kind = t.dataset.enter
+      if (kind === "saveRename") {
+        const id = t.dataset.id
+        this.renaming = null
+        const x = this.#find("goal", id)
+        if (!v || !x || v === x.text) return this.render()
+        return this.act("goal.edit", { id, goal: { text: v } }, (c) => { c.goals.find(g => g.id === id).text = v })
+      }
+      if (!v) return
+      // Read every quick line first (so other half-typed lines survive the redraw), then empty this one.
+      const clear = (key) => { this.#keep(); this.drafts[key] = ""; this.typingIn = key }
+      if (kind === "quickGoal") {
+        const who = t.dataset.who || "party"
+        clear("g:" + who)
+        if (this.addFor === who) this.addFor = null
+        return this.act("goal.add", { goal: { text: v, who } }, (c) => { c.goals = [...arr(c.goals), { id: "tmp" + Date.now(), who, text: v, note: "", done: false, old: false, link: null, steps: [] }] })
+      }
+      if (kind === "quickStep") {
+        const id = t.dataset.id
+        clear("s:" + id)
+        return this.act("goal.addStep", { id, text: v }, (c) => { c.goals.find(g => g.id === id)?.steps.push({ id: "tmp" + Date.now(), text: v, done: false }) })
+      }
+      if (kind === "quickInfo") {
+        clear("info")
+        return this.act("info.add", { info: { text: v } }, (c) => { c.info = [...arr(c.info), { id: "tmp" + Date.now(), text: v, link: null, old: false }] })
+      }
+    }
+    #onGoalDrop(ev) {
+      ev.preventDefault()
+      const id = this.dragGoal
+      this.dragGoal = null
+      const target = ev.target.closest?.("[data-goal]")
+      const section = ev.target.closest?.("[data-who]")
+      if (!id || (!target && !section)) return this.render()
+      let before = null
+      if (target && target.dataset.goal !== id) {
+        const r = target.getBoundingClientRect()
+        if (ev.clientY < r.top + r.height / 2) before = target.dataset.goal
+        else { const nxt = target.nextElementSibling?.closest?.("[data-goal]"); before = nxt?.dataset.goal || null; if (!nxt) before = "__end__:" + target.dataset.goal }
+      }
+      const who = section?.dataset.who || undefined
+      this.act("goal.move", { id, before: before?.startsWith("__end__") ? null : before, after: before?.startsWith("__end__") ? before.slice(8) : null, who },
+        (c) => { c.goals = moveGoal(c.goals, id, { before: before?.startsWith("__end__") ? null : before, after: before?.startsWith("__end__") ? before.slice(8) : null, who }) })
+    }
     #menuWired = false
 
     async #onDrop(ev) {
@@ -464,7 +559,7 @@ function pageClass() {
           <div class="pb-cp-panel"><h4>Findings <a data-action="go" data-tab="finds">All ›</a></h4>
             ${finds.length ? `<div class="pb-cp-thumbs">${finds.map(f => `<a data-action="openFind" data-id="${esc(f.id)}" data-tooltip="${esc(f.name)}">${f.img ? img(f.img) : `<i class="fa-solid ${FIND_ICON[f.kind] || "fa-gem"}"></i>`}</a>`).join("")}</div>` : `<p class="hint">Nothing found yet.</p>`}</div>
           <div class="pb-cp-panel"><h4>Secrets <a data-action="go" data-tab="sec">Open ›</a></h4>
-            ${gm ? `<div class="pb-cp-row"><span><i class="fa-solid fa-key"></i> ${arr(p.secrets).filter(s => s.state === "given").length} given</span>${waiting ? `<span class="pb-cp-r">${waiting} waiting</span>` : ""}</div>${arr(p.asks).length ? `<div class="pb-cp-row"><span><i class="fa-solid fa-circle-question"></i> ${arr(p.asks).length} question${arr(p.asks).length === 1 ? "" : "s"}</span><span class="pb-cp-new">New</span></div>` : ""}`
+            ${gm ? `<div class="pb-cp-row"><span><i class="fa-solid fa-key"></i> ${arr(p.secrets).filter(s => s.state === "given").length} given</span>${waiting ? `<span class="pb-cp-r">${waiting} waiting</span>` : ""}</div>`
               : `<div class="pb-cp-row"><span><i class="fa-solid fa-key"></i> ${vis.length} secret${vis.length === 1 ? "" : "s"}</span>${unseen ? `<span class="pb-cp-new">${unseen} new</span>` : ""}</div>`}</div>
         </div>
       </div>
@@ -506,17 +601,23 @@ function pageClass() {
     #goalCard(x, gm, ptick) {
       const d = x.steps.filter(s => s.done).length
       const key = "goal:" + x.id
-      const canTick = gm || ptick
-      return `<article class="pb-cp-goal${x.done ? " done" : ""}">
-        <div class="pb-cp-grow">${gm ? `<input type="checkbox" data-action="goalDone" data-id="${esc(x.id)}" ${x.done ? "checked" : ""}>` : x.done ? `<i class="fa-solid fa-check"></i>` : `<i class="fa-regular fa-square"></i>`}
-          <strong class="pb-cp-gt">${esc(x.text)}</strong>${x.steps.length ? `<span class="pb-cp-r">${d}/${x.steps.length}</span>` : ""}${this.#link(x.link, key)}
+      const canTick = (gm || ptick) && !x.old
+      const pct = x.steps.length ? Math.round(d / x.steps.length * 100) : x.done ? 100 : 0
+      const title = this.renaming === x.id
+        ? `<input type="text" class="pb-cp-rename" data-enter="saveRename" data-id="${esc(x.id)}" value="${esc(x.text)}" autofocus>`
+        : gm && !x.old ? `<a class="pb-cp-gt" data-action="rename" data-id="${esc(x.id)}" data-tooltip="Click to rename">${esc(x.text)}</a>` : `<strong class="pb-cp-gt">${esc(x.text)}</strong>`
+      return `<article class="pb-cp-goal${x.done ? " done" : ""}" ${gm && !x.old ? `draggable="true" data-goal="${esc(x.id)}"` : ""}>
+        <div class="pb-cp-grow">${gm && !x.old ? `<i class="fa-solid fa-grip-vertical pb-cp-grip" data-tooltip="Drag to reorder, or onto another section"></i>` : ""}
+          ${gm ? `<input type="checkbox" data-action="goalDone" data-id="${esc(x.id)}" ${x.done ? "checked" : ""} data-tooltip="Done">` : x.done ? `<i class="fa-solid fa-check"></i>` : `<i class="fa-regular fa-square"></i>`}
+          ${title}${x.steps.length ? `<span class="pb-cp-r">${d}/${x.steps.length}</span>` : ""}${this.#link(x.link, key)}
           ${gm ? this.#more(key, [
-            `<a data-action="editGoal" data-id="${esc(x.id)}"><i class="fa-solid fa-pen"></i> Edit</a>`,
-            `<a data-action="addStep" data-id="${esc(x.id)}"><i class="fa-solid fa-list-check"></i> Add a step</a>`,
+            `<a data-action="editGoal" data-id="${esc(x.id)}"><i class="fa-solid fa-pen"></i> Edit details…</a>`,
             `<a data-action="old" data-area="goal" data-id="${esc(x.id)}" data-old="${x.old ? "0" : "1"}"><i class="fa-solid fa-box-archive"></i> ${x.old ? "Bring back" : "Move to Old"}</a>`,
             `<a data-action="del" data-area="goal" data-id="${esc(x.id)}" class="pb-cp-danger"><i class="fa-solid fa-trash"></i> Delete for good</a>`]) : ""}</div>
+        ${x.steps.length ? `<div class="pb-cp-gbar"><i style="width:${pct}%"></i></div>` : ""}
         ${this.#peekBox(x.link, key)}
-        ${x.steps.length ? `<ul class="pb-cp-steps">${x.steps.map(s => `<li class="${s.done ? "done" : ""}">${canTick ? `<input type="checkbox" data-action="step" data-id="${esc(x.id)}" data-step="${esc(s.id)}" ${s.done ? "checked" : ""}>` : `<i class="fa-${s.done ? "solid fa-check" : "regular fa-square"}"></i>`}<span>${esc(s.text)}</span>${gm ? `<a data-action="dropStep" data-id="${esc(x.id)}" data-step="${esc(s.id)}" class="pb-cp-x"><i class="fa-solid fa-xmark"></i></a>` : ""}</li>`).join("")}</ul>` : ""}
+        ${x.steps.length ? `<ul class="pb-cp-steps">${x.steps.map(s => `<li class="${s.done ? "done" : ""}">${canTick ? `<input type="checkbox" data-action="step" data-id="${esc(x.id)}" data-step="${esc(s.id)}" ${s.done ? "checked" : ""}>` : `<i class="fa-${s.done ? "solid fa-check" : "regular fa-square"}"></i>`}<span>${esc(s.text)}</span>${gm && !x.old ? `<a data-action="dropStep" data-id="${esc(x.id)}" data-step="${esc(s.id)}" class="pb-cp-x" data-tooltip="Remove step"><i class="fa-solid fa-xmark"></i></a>` : ""}</li>`).join("")}</ul>` : ""}
+        ${gm && !x.old ? `<div class="pb-cp-quick step"><i class="fa-solid fa-plus"></i><input type="text" data-draft="s:${esc(x.id)}" data-enter="quickStep" data-id="${esc(x.id)}" placeholder="Add a step… (Enter)" value="${esc(this.drafts?.["s:" + x.id] || "")}"></div>` : ""}
         ${x.note ? `<p class="pb-cp-gnote">${escNl(x.note)}</p>` : ""}
       </article>`
     }
@@ -535,18 +636,34 @@ function pageClass() {
     #goals(p, gm) {
       const goals = arr(p.goals), info = arr(p.info)
       const live = goals.filter(x => !x.old)
-      const sections = [["party", "Party goals"], ...this.#characters(p).map(n => [n, `${n}’s goals`])]
+      const chars = this.#characters(p)
+      const me = game.user?.character?.name
+      // Only sections with goals (the party's is always there for the GM); a player's own character first.
+      const whoHas = new Set(live.map(x => x.who))
+      const order = [...chars].sort((a, b) => (b === me) - (a === me))
+      const sections = [["party", "Party goals"], ...order.filter(n => whoHas.has(n) || this.addFor === n).map(n => [n, n === me ? "Your goals" : `${n}’s goals`])]
+      const quick = (who) => `<div class="pb-cp-quick"><i class="fa-solid fa-plus"></i><input type="text" data-draft="g:${esc(who)}" data-enter="quickGoal" data-who="${esc(who)}" placeholder="Add a goal${who === "party" ? "" : ` for ${esc(who)}`}… (Enter)" value="${esc(this.drafts?.["g:" + who] || "")}"${this.addFor === who ? " autofocus" : ""}></div>`
       const sec = ([who, title]) => {
         const list = live.filter(x => x.who === who)
         if (!gm && !list.length) return ""
-        return `<section class="pb-cp-gsec"><h3 class="pb-cp-h">${esc(title)}${gm ? `<a data-action="addGoal" data-who="${esc(who)}"><i class="fa-solid fa-plus"></i> Goal</a>` : ""}</h3>
-          ${list.map(x => this.#goalCard(x, gm, p.ptick)).join("") || `<p class="hint">Nothing yet.</p>`}</section>`
+        const done = list.filter(x => x.done).length
+        const sorted = [...list.filter(x => !x.done), ...list.filter(x => x.done)]   // finished ones sink
+        return `<section class="pb-cp-gsec" data-who="${esc(who)}"><h3 class="pb-cp-h">${esc(title)}${list.length ? `<small>${done}/${list.length} done</small>` : ""}</h3>
+          ${sorted.map(x => this.#goalCard(x, gm, p.ptick)).join("") || (gm ? "" : `<p class="hint">Nothing yet.</p>`)}
+          ${gm ? quick(who) : ""}</section>`
       }
-      return `${gm ? `<div class="pb-cp-row pb-cp-tools"><button type="button" data-action="addGoal" data-who="party"><i class="fa-solid fa-plus"></i> Add a goal</button><button type="button" data-action="addInfo"><i class="fa-solid fa-plus"></i> Add information</button>
+      const doneLive = live.filter(x => x.done).length
+      const missing = chars.filter(n => !whoHas.has(n) && this.addFor !== n)
+      const liveInfo = info.filter(x => !x.old)
+      return `${gm ? `<div class="pb-cp-row pb-cp-tools">
+          ${missing.length ? `<select data-enter="addFor" data-tooltip="Start goals for a character"><option value="">Add goals for…</option>${missing.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join("")}</select>` : ""}
+          <button type="button" data-action="addGoal" data-who="party" data-tooltip="A goal with steps, notes and a Codex link"><i class="fa-solid fa-list-check"></i> Detailed goal…</button>
+          ${doneLive ? `<button type="button" data-action="oldDone"><i class="fa-solid fa-box-archive"></i> Put finished away (${doneLive})</button>` : ""}
           <label class="pb-cp-opt pb-cp-push"><input type="checkbox" data-action="ptick" ${p.ptick ? "checked" : ""}> Players can tick steps</label></div>` : ""}
         ${sections.map(sec).join("")}
-        <section class="pb-cp-gsec"><h3 class="pb-cp-h">Information <small>things worth remembering</small>${gm ? `<a data-action="addInfo"><i class="fa-solid fa-plus"></i> Add</a>` : ""}</h3>
-          ${info.filter(x => !x.old).length ? `<div class="pb-cp-infogrid">${info.filter(x => !x.old).map(x => this.#infoCard(x, gm)).join("")}</div>` : `<p class="hint">Nothing yet.</p>`}</section>
+        <section class="pb-cp-gsec"><h3 class="pb-cp-h">Information <small>things worth remembering</small></h3>
+          ${liveInfo.length ? `<div class="pb-cp-infogrid">${liveInfo.map(x => this.#infoCard(x, gm)).join("")}</div>` : gm ? "" : `<p class="hint">Nothing yet.</p>`}
+          ${gm ? `<div class="pb-cp-quick"><i class="fa-solid fa-plus"></i><input type="text" data-draft="info" data-enter="quickInfo" placeholder="Something worth remembering… (Enter)" value="${esc(this.drafts?.info || "")}"></div>` : ""}</section>
         ${this.#oldDrawer("goals", "goals", goals.filter(x => x.old).map(x => this.#goalCard(x, gm, false)))}
         ${this.#oldDrawer("info", "information", info.filter(x => x.old).map(x => this.#infoCard(x, gm)))}`
     }
@@ -609,20 +726,12 @@ function pageClass() {
       }
       const list = vis.slice().sort((a, b) => (b.given?.at || b.createdAt || 0) - (a.given?.at || a.createdAt || 0))
       if (gm) {
-        const asks = arr(p.asks)
         return `<div class="pb-cp-row"><span class="hint">${list.length} secret${list.length === 1 ? "" : "s"} · who knows what</span>${this.comp ? "" : `<button type="button" class="pb-cp-push" data-action="compose"><i class="fa-solid fa-key"></i> Give a secret</button>`}</div>
           ${this.comp ? this.#composer(p) : ""}
-          ${asks.length ? `<fieldset class="pb-cp-blk"><legend>Questions from players</legend>${asks.map(a => `
-            <div class="pb-cp-ask"><strong>${esc(a.name || userName(a.from))}</strong> asks: ${escNl(a.text)}
-            <textarea data-draft="ans-${esc(a.id)}" rows="2" placeholder="Your answer. It reaches them as a secret.">${esc(this.drafts?.["ans-" + a.id] || "")}</textarea>
-            <div class="pb-cp-row end"><button type="button" data-action="dropAsk" data-op="dropAsk" data-ask="${esc(a.id)}">Dismiss</button><button type="button" data-action="answer" data-ask="${esc(a.id)}"><i class="fa-solid fa-reply"></i> Answer</button></div></div>`).join("")}</fieldset>` : ""}
           <div class="pb-cp-secs">${list.map(card).join("") || `<p class="hint">No secrets yet.</p>`}</div>`
       }
       return `<p class="hint">Things you know that the others might not.</p>
-        <div class="pb-cp-secs">${list.map(card).join("") || `<p class="hint">No secrets yet.</p>`}</div>
-        <fieldset class="pb-cp-blk"><legend>Ask the GM, privately</legend>
-          <textarea data-draft="ask" rows="2" placeholder="Only the GM sees this.">${esc(this.drafts?.ask || "")}</textarea>
-          <div class="pb-cp-row end"><button type="button" data-action="ask"><i class="fa-solid fa-paper-plane"></i> Send</button></div></fieldset>`
+        <div class="pb-cp-secs">${list.map(card).join("") || `<p class="hint">No secrets yet.</p>`}</div>`
     }
 
     #composer(p) {
@@ -730,20 +839,6 @@ function pageClass() {
       const ok = await foundry.applications.api.DialogV2.confirm({ window: { title: "Show the party" }, content: `<p>Show <strong>${esc(s?.title)}</strong> to the rest of the party? You can’t take it back.</p>`, rejectClose: false })
       if (ok) this.send("share", { id: t.dataset.id })
     }
-    static #ask() {
-      this.#keep()
-      const text = str(this.drafts?.ask)
-      if (!text) return
-      this.send("ask", { text })
-      this.element.querySelector("textarea[data-draft=ask]").value = ""
-      this.drafts.ask = ""
-    }
-    static #answer(e, t) {
-      this.#keep()
-      const text = str(this.drafts?.["ans-" + t.dataset.ask])
-      if (!text) return ui.notifications?.warn("Write the answer first.")
-      this.send("answer", { askId: t.dataset.ask, text })
-    }
     static #panPlace(e, t) {
       const s = arr(this.page?.secrets).find(x => x.id === t.dataset.id)
       if (s?.place) panTo(s.place.sceneId, s.place.x, s.place.y)
@@ -767,7 +862,7 @@ function pageClass() {
       ].join(""), x ? "Save" : "Add goal")
     }
     static async #addGoal(e, t) {
-      const f = await this.#goalForm(null, t.dataset.who || "party")
+      const f = await this.#goalForm(null, t.dataset.who || this.addFor || "party")
       if (!f || !str(f.text)) return
       const steps = String(f.steps || "").split("\n").map(s => s.trim()).filter(Boolean)
       this.act("goal.add", { goal: { text: f.text, who: f.who, note: f.note, steps, link: str(f.link) } },
@@ -834,6 +929,12 @@ function pageClass() {
       if (!ok) return this.render()
       if (area === "find") this.openFindId = null
       this.act(`${area}.remove`, { id }, (c) => { const k = area === "goal" ? "goals" : area === "info" ? "info" : "finds"; c[k] = c[k].filter(x => x.id !== id) })
+    }
+    static #rename(e, t) { this.renaming = t.dataset.id; this.render() }
+    static #oldDone() {
+      const ids = arr(this.page?.goals).filter(x => x.done && !x.old).map(x => x.id)
+      if (!ids.length) return
+      this.act("goal.oldDone", {}, (c) => { for (const g of c.goals) if (ids.includes(g.id)) g.old = true })
     }
     static #ptick(e, t) { const on = !!t.checked; this.act("ptick.set", { on }, (c) => { c.ptick = on }) }
     static #peek(e, t) { this.peekKey = this.peekKey === t.dataset.key ? null : t.dataset.key; this.render() }

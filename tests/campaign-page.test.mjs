@@ -57,3 +57,13 @@ test("member stats read like the group sheet; missing numbers stay null", () => 
   assert.deepEqual(s, { hp: [1, 73], hd: [8, 8], ac: 15, prc: 16, ste: 19, sur: 10 })
   assert.deepEqual(memberStats({ system: {} }), { hp: null, hd: null, ac: null, prc: null, ste: null, sur: null })
 })
+
+const { moveGoal } = await import("../scripts/campaign-page.js")
+test("moveGoal: before / after / end, and into another section", () => {
+  const g = [{ id: "a", who: "party" }, { id: "b", who: "party" }, { id: "c", who: "party" }]
+  assert.deepEqual(moveGoal(g, "c", { before: "a" }).map(x => x.id), ["c", "a", "b"])
+  assert.deepEqual(moveGoal(g, "a", { after: "b" }).map(x => x.id), ["b", "a", "c"])
+  assert.deepEqual(moveGoal(g, "a", {}).map(x => x.id), ["b", "c", "a"])
+  assert.equal(moveGoal(g, "b", { who: "Doril" }).find(x => x.id === "b").who, "Doril")
+  assert.deepEqual(moveGoal(g, "zz", { before: "a" }).map(x => x.id), ["a", "b", "c"])
+})
