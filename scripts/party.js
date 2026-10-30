@@ -20,18 +20,14 @@
 //
 // Positions are 0..1 fractions of the map image, as `settlement.push` uses.
 //
-// The GM dragging one of these tokens does NOT move anyone in RealmScreen: the
-// bridge sends `party.moved`, and RealmScreen offers the move for the GM to
-// confirm. Moves this file makes itself are tagged so they never echo back.
-//
-// The GM can pause all of it from the Token controls ("RealmScreen moves people"):
-// while paused nothing is placed, nothing snaps back and no drag is reported —
-// tokens are just tokens. Turning it back on asks RealmScreen to re-sync.
+// Every date / hour change RealmScreen sends puts everyone where it has them. What a drag does is the GM's
+// "Plan a trip" switch (scripts/trips.js): off = tokens move freely until Resync or the next change; on = a
+// trip card, priced and written by RealmScreen. Moves this file makes itself are tagged (SYNC) so they never
+// read as a drag. (The 2026-10-04 pause switch and `party.moved` notes were replaced 2026-10-30.)
 // ──────────────────────────────────────────────────────────────
 
 const MOD = "pendant-bridge"
 const SYNC = "pendantPartySync"          // update option on our own writes
-const TOOL = "pendantCastSync"
 
 let sender = null
 /** main.js hands over its send (for the pause switch telling RealmScreen to re-sync). */
@@ -39,7 +35,6 @@ export function setPartySender(fn) { sender = typeof fn === "function" ? fn : nu
 
 const partyFlag = (doc) => doc?.getFlag?.(MOD, "party") || null
 const trailFlag = (doc) => doc?.getFlag?.(MOD, "trail") || null
-export const castSyncOn = () => { try { return game.settings.get(MOD, "castSync") !== false } catch { return true } }
 
 function dims(scene) {
   const d = scene.dimensions
@@ -162,23 +157,8 @@ Hooks.on("updateActor", (actor, change, options) => {
   ui.notifications?.info(`${actor.name}: RealmScreen keeps who is in the party — the change is waiting there for you to accept.`)
 })
 
-/** dnd5e's travel pace for a party group → { pace: slow|normal|fast, slowed, vehicle: land|water|air|null }. */
-function travelOf(actor) {
-  if (actor?.type !== "group") return null
-  try {
-    const t = actor.system.getTravelPace?.()
-    const pace = t?.pace?.value ?? (typeof t?.pace === "string" ? t.pace : null) ?? actor.system.attributes?.travel?.pace ?? null
-    return {
-      pace: typeof pace === "string" ? pace : null,
-      slowed: !!t?.pace?.slowed,
-      vehicle: actor.system.primaryVehicle?.system?.details?.type ?? null,
-    }
-  } catch { return null }
-}
-
 /** { sceneId, tokens: [{ key, campaignId, name, nx, ny, src, hidden, actorId? }] } → reconcile. */
 export async function syncParty(msg) {
-  if (!castSyncOn()) return { paused: true, created: 0, updated: 0, removed: 0 }
   const scene = game.scenes.get(msg.sceneId)
   if (!scene) throw new Error("Scene not found: " + msg.sceneId)
   const want = new Map()
@@ -267,7 +247,6 @@ function markDrawing(scene, [u, v], key, sig, hidden) {
 
 /** { sceneId, trails: [{ key, points: [[nx, ny]…], marks: [[nx, ny]…], hidden }] } → reconcile Drawings. */
 export async function syncTrails(msg) {
-  if (!castSyncOn()) return { paused: true }
   const scene = game.scenes.get(msg.sceneId)
   if (!scene) throw new Error("Scene not found: " + msg.sceneId)
   const want = new Map()
@@ -292,63 +271,11 @@ export async function syncTrails(msg) {
   return { created: creates.length, removed: stale.length }
 }
 
-/**
- * main.js registers this on `updateToken`: one of these tokens moved by hand (not by a
- * sync) → tell RealmScreen where it was dropped. `send` is the bridge's send.
- */
-export function partyMovedHook(send) {
-  return (doc, changes, options) => {
-    if (options?.[SYNC] || !castSyncOn()) return
-    if (!("x" in (changes || {})) && !("y" in (changes || {}))) return
-    const f = partyFlag(doc)
-    const scene = doc.parent
-    if (!f || !scene) return
-    const { nx, ny } = mapFraction(scene, { x: changes.x ?? doc.x, y: changes.y ?? doc.y, width: doc.width, height: doc.height })
-    const travel = travelOf(doc.actor)
-    send({ type: "party.moved", sceneId: scene.id, key: f.key, campaignId: f.campaignId, nx, ny, ...(travel ? { travel } : {}) })
-  }
-}
-
-// ── the GM's pause switch (Token controls) ─────────────────────
-Hooks.once("init", () => {
-  game.settings.register(MOD, "castSync", {
-    scope: "world", config: false, type: Boolean, default: true,
-    onChange: (on) => {
-      try { ui.controls?.render?.() } catch { /* */ }
-      // RealmScreen shows the switch's state (Settings › Connections); back on → it puts everyone
-      // back where it has them.
-      sender?.({ type: "party.switched", on: !!on, by: game.user?.name || null })
-      if (on && game.user?.isGM) sender?.({ type: "party.resync" })
-    },
-  })
-})
-
-Hooks.on("getSceneControlButtons", (controls) => {
-  if (!game.user?.isGM) return
-  const title = "RealmScreen moves people (off: move tokens freely)"
-  const icon = "fa-solid fa-route"
-  const onToggle = (active) => { game.settings.set(MOD, "castSync", !!active) }
-  // V13+: controls is an object keyed by control name, tools an object keyed by tool name.
-  if (!Array.isArray(controls)) {
-    const tokens = controls?.tokens
-    if (!tokens?.tools) return
-    tokens.tools[TOOL] = {
-      name: TOOL, title, icon, order: Object.keys(tokens.tools).length + 1,
-      toggle: true, active: castSyncOn(),
-      onChange: (_event, active) => onToggle(active),
-    }
-    return
-  }
-  // V11–V12: an array of controls, each with a tools array.
-  const tokens = controls.find(c => c.name === "token")
-  if (!tokens) return
-  tokens.tools.push({ name: TOOL, title, icon, toggle: true, active: castSyncOn(), onClick: (active) => onToggle(active) })
-})
-
-/** `party.switch { on? }` — read the GM's pause switch, or set it from RealmScreen. → { on } */
-export async function partySwitch(msg) {
-  if (typeof msg.on === "boolean" && game.user?.isGM) await game.settings.set(MOD, "castSync", msg.on)
-  return { on: castSyncOn() }
+/** `party.switch` — RealmScreen asks how a drag behaves here. → { on, planTrips } (the old pause switch is gone) */
+export function partySwitch() {
+  let planTrips = false
+  try { planTrips = game.settings.get(MOD, "planTrips") === true } catch { /* not registered yet */ }
+  return { on: true, planTrips }
 }
 
 /** `party.groups` — can this world hold party Group actors? (dnd5e Group type present) → { groups } */

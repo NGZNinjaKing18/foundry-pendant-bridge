@@ -27,7 +27,8 @@ import {} from "./scene-control.js"  // the RealmScreen (DM screen) control set
 import { setCampaigns, noteCampaigns, setCampaignSender } from "./campaigns.js"
 import { setPages, whisperCampaign } from "./campaign-page.js"
 import {} from "./group-stack.js"    // dnd5e group tokens: stacked art, pile order, pull-out fan
-import { syncParty, syncTrails, partyMovedHook, setPartySender, partySwitch, partyGroups } from "./party.js"
+import { syncParty, syncTrails, setPartySender, partySwitch, partyGroups } from "./party.js"
+import { setTripSender, tripAnswer } from "./trips.js"
 import { timelineStatus, applyFromRealm, broadcastFromRealm, isTimelineWriter } from "./timeline.js"
 import { setMapBuilders, mapViewsState, mapViewsSet, mapSend, mapViewsEdit, mapRemove, mapReveal } from "./mapviews.js"
 import {} from "./realm-layer.js"   // draws the sent World Map itself (records in flags.realm)
@@ -538,8 +539,7 @@ const bridge = {
       if (!doc.parent?.active) return
       this.send({ type: "scene.token", sceneId: doc.parent.id, token: serializeToken(doc) })
     })
-    // RealmScreen's party token dragged by hand → RealmScreen suggests a journey (scripts/party.js).
-    reg("updateToken", partyMovedHook((m) => this.send(m)))
+    // (RealmScreen's people dragged by hand: scripts/trips.js — the GM's Plan a trip switch)
     reg("deleteToken", (doc) => {
       if (!doc.parent?.active) return
       this.send({ type: "scene.token.delete", sceneId: doc.parent.id, id: doc.id })
@@ -603,6 +603,7 @@ const bridge = {
 setClockSender((m) => bridge.send(m))
 setCampaignSender((m) => bridge.send(m))
 setPartySender((m) => bridge.send(m))
+setTripSender((m) => bridge.send(m))
 
 // ──────────────────────────────────────────────────────────────
 // Snapshot / serialization helpers
@@ -3736,6 +3737,11 @@ async function handleCommand(msg) {
     }
     // { sceneId, trails: [{ key, points, marks, hidden }] } — the road walked + a mark per day, as Drawings.
     // { on? } — the GM's "RealmScreen moves people" switch: read it, or set it from RealmScreen.
+    // RealmScreen's answer to a trip card (scripts/trips.js) → the window that asked.
+    case "trip.answer": {
+      const r = tripAnswer(msg)
+      return bridge.reply(msg.reqId, { type: "trip.answer", ...r })
+    }
     case "party.switch": {
       const r = await partySwitch(msg)
       return bridge.reply(msg.reqId, { type: "party.switch", ok: true, ...r })

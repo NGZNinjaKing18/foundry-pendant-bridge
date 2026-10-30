@@ -3,7 +3,7 @@
 //
 // While RealmScreen is connected (live.js), every user gets one more control
 // set under Foundry's own (Tokens, Drawings, …), drawn as a DM screen. Its
-// tools are RealmScreen's player tools: "Plan a trip" (does nothing yet),
+// tools are RealmScreen's player tools: "Plan a trip" (the GM's switch — scripts/trips.js) + "Resync" (GM),
 // "Campaigns" (scripts/campaigns.js) and "Views" (scripts/my-view.js, the eye). Not connected = the control isn't there at all.
 //
 // Native-first: added through `getSceneControlButtons`, re-prepared with
@@ -14,6 +14,7 @@ import { realmLive } from "./live.js"
 import { openCampaigns } from "./campaigns.js"
 import { openMapViews, openSentList } from "./mapviews-ui.js"
 import { openMyView } from "./my-view.js"
+import { planTripsOn, setPlanTrips, resync } from "./trips.js"
 
 const NAME = "realmscreen"
 
@@ -26,13 +27,26 @@ export function realmControl() {
     icon: "pb-dm-screen",             // styles/pendant-bridge.css draws assets/dm-screen.svg
     visible: true,
     tools: {
+      // The GM's switch (scripts/trips.js): on = dropping one of RealmScreen's people opens a trip card;
+      // off = tokens move freely until Resync (or the next date / hour change) puts them back.
       planTrip: {
         name: "planTrip",
         order: 0,
-        title: "Plan a trip",
+        title: "Plan a trip (on: a dropped token plans a trip in RealmScreen · off: move tokens freely)",
         icon: "fa-solid fa-route",
+        toggle: true,
+        active: planTripsOn(),
+        visible: !!game.user?.isGM,
+        onChange: (_event, active) => { setPlanTrips(!!active) },
+      },
+      resync: {
+        name: "resync",
+        order: 0.5,
+        title: "Resync — put everyone back where RealmScreen has them",
+        icon: "fa-solid fa-arrows-rotate",
         button: true,
-        onChange: () => {},           // coming later
+        visible: !!game.user?.isGM,
+        onChange: () => { resync(); ui.notifications?.info("Putting everyone back where RealmScreen has them.") },
       },
       campaigns: {
         name: "campaigns",
@@ -78,7 +92,7 @@ Hooks.on("getSceneControlButtons", (controls) => {
   if (!realmLive()) return
   if (Array.isArray(controls)) {      // V11/V12: an array of sets, tools as an array
     const c = realmControl()
-    controls.push({ ...c, layer: "tokens", tools: Object.values(c.tools).map(t => ({ ...t, onClick: t.onChange })) })
+    controls.push({ ...c, layer: "tokens", tools: Object.values(c.tools).filter(t => t.visible !== false).map(t => ({ ...t, onClick: t.toggle ? (active) => t.onChange(null, active) : t.onChange })) })
   } else controls[NAME] = realmControl()
 })
 
