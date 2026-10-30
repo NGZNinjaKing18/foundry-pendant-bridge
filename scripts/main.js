@@ -30,6 +30,7 @@ import {} from "./group-stack.js"    // dnd5e group tokens: stacked art, pile or
 import { syncParty, syncTrails, partyMovedHook, setPartySender, partySwitch, partyGroups } from "./party.js"
 import { timelineStatus, applyFromRealm, broadcastFromRealm, isTimelineWriter } from "./timeline.js"
 import { setMapBuilders, mapViewsState, mapViewsSet, mapSend, mapViewsEdit, mapRemove, mapReveal } from "./mapviews.js"
+import {} from "./realm-layer.js"   // draws the sent World Map itself (records in flags.realm)
 
 const MOD = "pendant-bridge"
 const FS_LEDGER = "fileSortLedger"
@@ -3758,6 +3759,9 @@ async function handleCommand(msg) {
       return bridge.reply(msg.reqId, { type: "map.views", ok: true, ...(await mapViewsEdit(msg)) })
     case "map.remove":
       return bridge.reply(msg.reqId, { type: "map.removed", ok: true, ...(await mapRemove(msg)) })
+    // The app checks this to send records for the Realm layer instead of documents (v0.144.0+).
+    case "map.realm":
+      return bridge.reply(msg.reqId, { type: "map.realm", ok: true, version: 1 })
     case "map.reveal":
       return bridge.reply(msg.reqId, { type: "map.revealed", ok: true, ...(await mapReveal(msg)) })
     case "clock.get": {

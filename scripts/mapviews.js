@@ -46,16 +46,49 @@ function sentDocs(scene, id = null) {
   return out
 }
 
-// One entry per sent thing (its documents share the same rs).
+// ── Realm layer records (v0.144.0+; scripts/realm-layer.js draws them) ──
+// What RealmScreen sends now is ONE record per thing, not Foundry documents:
+//   flags[MOD].realm = { items: { [key]: { kind, id, name, views, gm, sentAt, fitPx, …its look (pendant-home
+//   lib/foundryRealm.mjs) } } }
+// Each send replaces its own key whole (ForcedReplacement on v14; delete + write before), so nothing stale
+// lingers. Documents from v0.140–0.143 (Drawings / Tiles / Notes with flags[MOD].rs) are still read, listed
+// and removed the next time that thing is sent.
+const keyOf = (id) => String(id).replace(/[.\s]/g, "_")
+export function realmOf(scene) {
+  const f = scene?.getFlag?.(MOD, "realm")
+  return { items: (f && typeof f.items === "object" && f.items) || {} }
+}
+export const realmRecords = (scene) => Object.values(realmOf(scene).items).filter(r => r && r.id && r.kind)
+const recordOf = (scene, id) => realmOf(scene).items[keyOf(id)] || null
+const itemPath = (id) => `flags.${MOD}.realm.items.${keyOf(id)}`
+const OPS = () => foundry?.data?.operators || null
+
+async function writeRecord(scene, rec) {
+  const ops = OPS()
+  if (ops?.ForcedReplacement?.create) return scene.update({ [itemPath(rec.id)]: ops.ForcedReplacement.create(rec) })
+  if (recordOf(scene, rec.id)) await dropRecord(scene, rec.id)
+  return scene.update({ [itemPath(rec.id)]: rec })
+}
+async function dropRecord(scene, id) {
+  if (!recordOf(scene, id)) return
+  const ops = OPS()
+  if (ops?.ForcedDeletion) return scene.update({ [itemPath(id)]: new ops.ForcedDeletion() })
+  return scene.update({ [`flags.${MOD}.realm.items.-=${keyOf(id)}`]: null })   // v11–13
+}
+
+// One entry per sent thing: its record, else (sent before v0.144) its documents, which share the same rs.
 function sentItems(scene) {
   const by = new Map()
+  for (const r of realmRecords(scene)) {
+    by.set(String(r.id), { id: String(r.id), kind: r.kind, name: r.name || null, views: r.views || [], gm: !!r.gm, sentAt: r.sentAt || null })
+  }
   for (const { rs } of sentDocs(scene)) {
-    if (!by.has(rs.id)) by.set(rs.id, { id: rs.id, kind: rs.kind, name: rs.name || null, views: rs.views || [], gm: !!rs.gm, sentAt: rs.sentAt || null })
+    if (!by.has(rs.id)) by.set(rs.id, { id: rs.id, kind: rs.kind, name: rs.name || null, views: rs.views || [], gm: !!rs.gm, sentAt: rs.sentAt || null, old: true })
   }
   return [...by.values()]
 }
 
-const inView = (rs, current) => current === ALL || !current || (rs.views || []).includes(current)
+export const inView = (rs, current) => current === ALL || !current || (rs.views || []).includes(current)
 
 function sceneOf(msg) {
   const scene = msg.sceneId ? game.scenes.get(msg.sceneId) : game.scenes.active
@@ -88,8 +121,14 @@ function nextId(views) {
   return "v" + (n + 1)
 }
 
-// Write rs.views on every document of the things `fn` changes. fn(rs) → new views array or null (no change).
+// Write the views of every thing `fn` changes — records and older documents. fn(rs) → new views array or null.
 async function rewriteViews(scene, fn) {
+  const patch = {}
+  for (const r of realmRecords(scene)) {
+    const views = fn(r)
+    if (views) patch[`${itemPath(r.id)}.views`] = views   // arrays replace whole
+  }
+  if (Object.keys(patch).length) await scene.update(patch)
   for (const type of DOC_TYPES) {
     const updates = []
     for (const doc of collection(scene, type)) {
@@ -171,7 +210,6 @@ function staleOf(scene, id) {
  * → { id, views, ids }
  */
 export async function mapSend(msg) {
-  if (!B) throw new Error("Map builders not ready")
   const scene = sceneOf(msg)
   const kind = String(msg.kind || "")
   if (!KINDS.includes(kind)) throw new Error("Can't send a " + kind)
@@ -179,13 +217,23 @@ export async function mapSend(msg) {
   if (!id) throw new Error("Nothing to send (no id)")
   const known = new Set(viewsOf(scene).views.map(v => v.id))
   const stale = staleOf(scene, id)
+  const prev = recordOf(scene, id)
   let views
   if (Array.isArray(msg.views)) views = msg.views.filter(v => known.has(v))
   else {
-    views = [...new Set(stale.flatMap(s => s.rs?.views || []))].filter(v => known.has(v))
+    views = [...new Set([...(prev?.views || []), ...stale.flatMap(s => s.rs?.views || [])])].filter(v => known.has(v))
     if (msg.into && msg.into !== NONE && known.has(msg.into) && !views.includes(msg.into)) views.push(msg.into)
   }
   const gm = !!msg.gm
+  // A record (RealmScreen 2026-10-29+): the Realm layer draws it; its older documents go.
+  if (msg.record && typeof msg.record === "object") {
+    const rec = { ...msg.record, kind, id, name: msg.name || msg.record.name || null, views, gm, sentAt: msg.sentAt || null }
+    await deleteDocs(scene, stale)
+    await writeRecord(scene, rec)
+    return { id, views, record: true }
+  }
+  // An older RealmScreen: Foundry documents, as before.
+  if (!B) throw new Error("Map builders not ready")
   const p = msg.payload || {}
   const art = kind === "settlement" && p.art?.rs ? { rs: String(p.art.rs), more: String(p.art.more || p.art.rs) } : null
   const rs = { id, kind, name: msg.name || p.name || null, views, gm, sentAt: msg.sentAt || null, ...(art ? { art } : {}) }
@@ -204,7 +252,7 @@ export async function mapViewsEdit(msg) {
   const scene = sceneOf(msg)
   const known = new Set(viewsOf(scene).views.map(v => v.id))
   let out = null
-  await rewriteViews(scene, rs => {
+  await rewriteViews(scene, rs => {   // a record or an older document's rs
     if (rs.id !== msg.id) return null
     let views = (rs.views || []).filter(v => known.has(v))
     if (msg.add && known.has(msg.add) && !views.includes(msg.add)) views = [...views, msg.add]
@@ -220,21 +268,42 @@ export async function mapViewsEdit(msg) {
 /** `map.remove { sceneId, id }` — take a sent thing off the scene (every view). */
 export async function mapRemove(msg) {
   const scene = sceneOf(msg)
-  const stale = staleOf(scene, String(msg.id || ""))
+  const id = String(msg.id || "")
+  const stale = staleOf(scene, id)
+  const had = recordOf(scene, id) ? 1 : 0
   await deleteDocs(scene, stale)
+  await dropRecord(scene, id)
   await applyMarkerArt(scene)
-  return { id: msg.id, removed: stale.length }
+  return { id: msg.id, removed: stale.length + had }
+}
+
+// Where a record sits, in scene px: a town's spot, a line's middle, a nation's first name (else its land's middle).
+export function recordPoint(scene, r) {
+  const d = scene.dimensions || {}
+  const at = (p) => ({ x: (d.sceneX || 0) + p[0] * (d.sceneWidth || 0), y: (d.sceneY || 0) + p[1] * (d.sceneHeight || 0) })
+  if (r.kind === "settlement") return at([r.x, r.y])
+  if (r.pts?.length) return at(r.pts[Math.floor(r.pts.length / 2)])
+  if (r.labels?.length) return at(r.labels[0].at)
+  const o = r.land?.[0]?.outer
+  if (o?.length) return at([o.reduce((s, p) => s + p[0], 0) / o.length, o.reduce((s, p) => s + p[1], 0) / o.length])
+  return null
 }
 
 /** `map.reveal { sceneId, id }` — the GM's canvas goes to the scene and pans to the thing. */
 export async function mapReveal(msg) {
   const scene = sceneOf(msg)
-  const list = sentDocs(scene, String(msg.id || ""))
-  if (!list.length) throw new Error("That isn't on this scene")
-  // a town's marker first (its Tile, or an older Note), else the first of its drawings
-  const { type, doc } = list.find(d => d.type === "Tile" || d.type === "Note") || list[0]
-  const x = type === "Note" ? doc.x : type === "Tile" ? doc.x + (doc.width || 0) / 2 : doc.x + (doc.shape?.width || 0) / 2
-  const y = type === "Note" ? doc.y : type === "Tile" ? doc.y + (doc.height || 0) / 2 : doc.y + (doc.shape?.height || 0) / 2
+  const rec = recordOf(scene, String(msg.id || ""))
+  let x, y
+  if (rec) ({ x, y } = recordPoint(scene, rec) || {})
+  else {
+    const list = sentDocs(scene, String(msg.id || ""))
+    if (!list.length) throw new Error("That isn't on this scene")
+    // a town's marker first (its Tile, or an older Note), else the first of its drawings
+    const { type, doc } = list.find(d => d.type === "Tile" || d.type === "Note") || list[0]
+    x = type === "Note" ? doc.x : type === "Tile" ? doc.x + (doc.width || 0) / 2 : doc.x + (doc.shape?.width || 0) / 2
+    y = type === "Note" ? doc.y : type === "Tile" ? doc.y + (doc.height || 0) / 2 : doc.y + (doc.shape?.height || 0) / 2
+  }
+  if (x == null) throw new Error("That isn't on this scene")
   if (canvas?.scene?.id !== scene.id) await scene.view()
   try { await canvas.animatePan({ x, y }) } catch {}
   try { canvas.ping?.({ x, y }) } catch {}
@@ -268,6 +337,7 @@ export function showEverything() {
 export async function setShowEverything(on) {
   await game.settings.set(MOD, "mapViewsShowAll", !!on)
   refreshSent()
+  Hooks.callAll("pendantRealmRedraw")   // scripts/realm-layer.js
 }
 
 // false = keep it off the canvas; null = not ours, leave Foundry's own rule.

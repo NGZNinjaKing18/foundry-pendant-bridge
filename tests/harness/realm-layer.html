@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Realm Layer Harness</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Signika:wght@400;600;700;800&display=swap">
+<link rel="stylesheet" href="../../styles/pendant-bridge.css">
+<style>
+/* Dev harness (not loaded by Foundry): the REAL scripts/realm-layer.js + scripts/mapviews.js drawing records made
+   by the REAL RealmScreen builders (pendant-home lib/foundryRealm.mjs), on real PIXI 7, inside a tiny stand-in for
+   Foundry's canvas (primary group sorted by elevation → sortLayer → sort, a token at sortLayer 700).
+   Serve the Downloads folder (launch config "campaign-page-harness") and open
+   /foundry-pendant-bridge/tests/harness/realm-layer.html */
+body { margin: 0; background: #0b0a10; color: #e7e1d4; font: 13px/1.4 Signika, sans-serif; }
+#bar { display: flex; gap: 12px; align-items: center; padding: 8px 12px; background: #151515; border-bottom: 1px solid #333; flex-wrap: wrap; }
+#bar label { display: flex; gap: 6px; align-items: center; }
+#bar select, #bar button { background: #2a2a2a; color: #ddd; border: 1px solid #444; border-radius: 3px; padding: 2px 8px; font: inherit; }
+#log { margin-left: auto; font: 12px monospace; color: #9c9; }
+#view { display: block; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <label>Map zoom <input id="zoom" type="range" min="0.5" max="14" step="0.05" value="1"> <span id="zv">1.00×</span></label>
+  <label>View <select id="cur"><option value="all">All</option><option value="v1">Political</option><option value="v2">Travel</option></select></label>
+  <label><input id="gm" type="checkbox" checked> GM</label>
+  <label>Centre <select id="ctr"><option value="0.45,0.45">Perseus</option><option value="0.33,0.5">prosperous</option><option value="0.72,0.62">Omacatl</option></select></label>
+  <span id="log">loading…</span>
+</div>
+<canvas id="view"></canvas>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.4.2/pixi.min.js"></script>
+<script type="module">
+const log = (m) => { document.getElementById('log').textContent = m }
+window.onerror = (m) => log('ERROR ' + m)
+
+// ── a tiny Foundry ──
+const hooks = {}
+globalThis.Hooks = {
+  on: (n, f) => { (hooks[n] ||= []).push(f) }, once: (n, f) => { (hooks[n] ||= []).push(f) },
+  callAll: (n, ...a) => { for (const f of hooks[n] || []) f(...a) }, call: (n, ...a) => { for (const f of hooks[n] || []) f(...a) },
+}
+globalThis.game = { user: { id: 'u', isGM: true }, settings: { get: () => false, register() {} } }
+globalThis.foundry = { data: { operators: null }, canvas: { loadTexture: (src) => PIXI.Assets.load(src) } }
+
+const W = 1100, H = 660
+const app = new PIXI.Application({ view: document.getElementById('view'), width: W, height: H, background: 0x0b0a10, antialias: true, resolution: window.devicePixelRatio || 1, autoDensity: true })
+const D = { sceneX: 250, sceneY: 160, sceneWidth: 4000, sceneHeight: 2400 }
+const primary = new PIXI.Container()
+primary.sortableChildren = true
+primary.sortChildren = function () {   // PrimaryCanvasGroup._compareObjects
+  this.children.sort((a, b) => ((a.elevation || 0) - (b.elevation || 0)) || ((a.sortLayer || 0) - (b.sortLayer || 0)) || ((a.sort || 0) - (b.sort || 0)))
+  this.sortDirty = false
+}
+app.stage.addChild(primary)
+const flags = { 'pendant-bridge': { mapViews: { views: [{ id: 'v1', name: 'Political' }, { id: 'v2', name: 'Travel' }], current: 'all' }, realm: { items: {} } } }
+const scene = { id: 's1', dimensions: D, getFlag: (m, k) => flags[m]?.[k] }
+globalThis.canvas = {
+  ready: true, dimensions: D, stage: app.stage, primary, app, scene,
+  canvasCoordinatesFromClient: ({ x, y }) => { const r = app.view.getBoundingClientRect(); return app.stage.toLocal(new PIXI.Point(x - r.left, y - r.top)) },
+}
+
+// the scene background (sortLayer 0) and a party token (700)
+const bg = new PIXI.Graphics(); bg.sortLayer = 0
+const S = (x, y) => [D.sceneX + x * D.sceneWidth, D.sceneY + y * D.sceneHeight]
+bg.beginFill(0x2f5470).drawRect(0, 0, D.sceneWidth + 2 * D.sceneX, D.sceneHeight + 2 * D.sceneY).endFill()
+bg.beginFill(0x55603f).drawPolygon([[0.04, 0.2], [0.3, 0.05], [0.62, 0.08], [0.82, 0.25], [0.86, 0.6], [0.74, 0.92], [0.4, 0.95], [0.12, 0.82], [0.03, 0.5]].flatMap(p => S(...p))).endFill()
+for (let i = 0; i < 260; i++) { const x = (i * 97 % 1000) / 1000, y = (i * 61 % 1000) / 1000; bg.beginFill(0x47522f, 0.6).drawCircle(...S(x, y), 18 + (i % 5) * 9).endFill() }
+primary.addChild(bg)
+const token = new PIXI.Graphics(); token.sortLayer = 700
+token.beginFill(0x6b4a2e).lineStyle(6, 0xf2c14e).drawCircle(0, 0, 50).endFill(); token.position.set(...S(0.42, 0.53))
+primary.addChild(token)
+
+// ── records, made by RealmScreen's own builders ──
+const R = await import('/pendant-home/src/renderer/src/lib/foundryRealm.mjs')
+const { mergeZoomVis } = await import('/pendant-home/src/renderer/src/lib/zoomBand.mjs')
+const ZV = mergeZoomVis(null)
+const FIT = 1200   // the map was 1200 px wide on screen at 1× when sent
+const ink = (fill, roof) => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 64 64"><g stroke="#2a211c" stroke-width="1.6" stroke-linejoin="round"><rect x="14" y="30" width="36" height="28" fill="${fill}"/><polygon points="11,30 32,12 53,30" fill="${roof}"/><rect x="28" y="44" width="8" height="14" fill="#2a211c"/></g></svg>`)
+const town = (id, name, tier, x, y, extra = {}) => {
+  const r = R.asDrawnPlace({ id, name, tier, x, y, population: { capital: 450, city: 192, town: 115, village: 23 }[tier], ...extra }, {}, { natColour: '#2f8be0' })
+  const rec = R.placeRecord(r, { zoomVis: ZV, alt: true, artFor: (t) => t, id })
+  rec.marker = { art: { rs: ink('#dfe6ee', '#9a5a48'), more: ink('#9dc3ea', '#7a5a68') }, w: rec.marker.px, h: rec.marker.px }
+  return { ...rec, fitPx: FIT, views: ['v1', 'v2'] }
+}
+const box = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+const recs = [
+  { ...R.nationRecord({ id: 'nP', name: 'Perseus', strokeColor: '#2f8be0', fillColor: '#2f8be0', strokeWidth: 3 },
+    [{ points: [[0.08, 0.22], [0.32, 0.1], [0.58, 0.12], [0.66, 0.3], [0.62, 0.6], [0.66, 0.9], [0.36, 0.92], [0.12, 0.8], [0.06, 0.5]] },
+     { points: box(0.44, 0.62, 0.56, 0.78) },                      // a lake (inside → a hole)
+     { points: box(0.48, 0.67, 0.52, 0.72), name: 'Isle' }],      // an island in the lake (land again, its own name)
+    { zoomVis: ZV, outlineOnly: false }), fitPx: FIT, views: ['v1'] },
+  { ...R.nationRecord({ id: 'nT', name: 'Tidemark', strokeColor: '#c0606e', fillColor: '#c0606e' },
+    [{ points: [[0.66, 0.3], [0.8, 0.26], [0.85, 0.6], [0.74, 0.9], [0.66, 0.9], [0.62, 0.6]] }], { zoomVis: ZV, outlineOnly: false }), fitPx: FIT, views: ['v1'] },
+  { ...R.routeRecord('road', { id: 'r1', name: "King's Road" }, [[0.18, 0.55], [0.33, 0.5], [0.45, 0.47], [0.6, 0.42], [0.72, 0.62]], { color: '#caa14e', width: 4, casing: true }, { zoomVis: ZV }), fitPx: FIT, views: ['v2'] },
+  { ...R.routeRecord('road', { id: 'r2', name: 'Marrow Lane' }, [[0.33, 0.5], [0.3, 0.7], [0.24, 0.8]], { color: '#9a8f80', width: 2, dash: 'dotted' }, { zoomVis: ZV }), fitPx: FIT, views: ['v2'] },
+  { ...R.routeRecord('road', { id: 'r3', name: 'Fort Way' }, [[0.33, 0.5], [0.28, 0.3], [0.22, 0.2]], { color: '#b0a080', width: 2.5, dash: 'dashed' }, { zoomVis: ZV }), fitPx: FIT, views: ['v2'] },
+  { ...R.routeRecord('river', { id: 'w1', name: 'River Ashe' }, [[0.55, 0.05], [0.52, 0.25], [0.5, 0.45], [0.53, 0.62]], { color: '#3f7590', width: 4 }, { zoomVis: ZV }), fitPx: FIT, views: ['v1', 'v2'] },
+  town('t1', 'Omacatl', 'capital', 0.72, 0.62),
+  town('t2', 'prosperous', 'city', 0.33, 0.5),
+  town('t3', 'Fort Delta', 'town', 0.18, 0.55, { nameDx: -12, nameDy: 16 }),
+  town('t4', 'Burgen', 'village', 0.45, 0.3),
+  town('t5', 'Kulkel', 'village', 0.47, 0.42),
+  town('t6', 'Dalemartia', 'village', 0.3, 0.6, { labelAnchor: 'bottom' }),
+  town('t7', 'Glimton', 'town', 0.6, 0.38, { scaleWithMap: false }),   // ignored, as on the map: a type's look (withTypeLook) always makes towns grow
+  { ...town('t8', 'Tomb of Seven', 'village', 0.4, 0.75), gm: true },
+]
+for (const r of recs) flags['pendant-bridge'].realm.items[r.id] = r
+
+await import('/foundry-pendant-bridge/scripts/mapviews.js')
+await import('/foundry-pendant-bridge/scripts/realm-layer.js')
+await document.fonts.ready
+Hooks.callAll('canvasReady')
+
+// ── zoom / view / who ──
+const fit = Math.min(W / D.sceneWidth, H / D.sceneHeight)
+function setZoom() {
+  const z = +document.getElementById('zoom').value
+  const [cx, cy] = document.getElementById('ctr').value.split(',').map(Number)
+  const s = fit * z
+  app.stage.scale.set(s)
+  const [sx, sy] = S(cx, cy)
+  app.stage.position.set(W / 2 - sx * s, H / 2 - sy * s)
+  document.getElementById('zv').textContent = z.toFixed(2) + '×'
+  Hooks.callAll('canvasPan', canvas, {})
+}
+for (const id of ['zoom', 'ctr']) document.getElementById(id).addEventListener('input', setZoom)
+document.getElementById('cur').addEventListener('change', (e) => { flags['pendant-bridge'].mapViews.current = e.target.value; Hooks.callAll('updateScene', scene, { flags: { 'pendant-bridge': { mapViews: {} } } }) })
+document.getElementById('gm').addEventListener('change', (e) => { game.user.isGM = e.target.checked; Hooks.callAll('pendantRealmRedraw') })
+window.__set = (z, cur, gm, ctr) => {
+  if (ctr) document.getElementById('ctr').value = ctr
+  document.getElementById('zoom').value = z
+  if (cur) { document.getElementById('cur').value = cur; flags['pendant-bridge'].mapViews.current = cur }
+  if (gm != null) { document.getElementById('gm').checked = gm; game.user.isGM = gm }
+  setZoom(); Hooks.callAll('pendantRealmRedraw')   // zoom first: a hidden page runs no animation frames
+}
+setZoom()
+log(`ok · ${recs.length} records · primary order: ${primary.children.map(c => c.sortLayer).join(', ')}`)
+window.__primaryOrder = () => { primary.sortChildren(); return primary.children.map(c => c.sortLayer) }
+</script>
+</body>
+</html>
