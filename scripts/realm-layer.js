@@ -65,7 +65,8 @@ const colour = (c, d = 0xffffff) => {
 
 // ── the canvas ────────────────────────────────────────────────
 
-const S = { root: null, parts: null, items: [], tex: new Map(), raf: 0, sharpT: 0, tip: null, hover: null }
+const S = { root: null, parts: null, items: [], tex: new Map(), raf: 0, sharpT: 0, tip: null, hover: null, held: null, holdT: 0 }
+const RAISE_AFTER = 1500   // ms on a town (its marker or its name) before it comes to the top (the user, 2026-10-30)
 
 function dims() { return canvas?.dimensions || null }
 function scale() { return canvas?.stage?.scale?.x || 1 }
@@ -95,7 +96,7 @@ function ensureRoot() {
   root.elevation = 0; root.sortLayer = SORT_LAYER; root.sort = 0
   root.eventMode = "none"; root.interactiveChildren = false
   // Names draw UNDER the markers (the user, 2026-10-30): a picture is never covered by text.
-  const names = ["fills", "borders", "rivers", "roads", "nationNames", "townNames", "markers"]
+  const names = ["fills", "borders", "rivers", "roads", "nationNames", "townNames", "markers", "raised"]
   S.parts = {}
   for (const n of names) S.parts[n] = root.addChild(new PIXI.Container())
   primary.addChild(root)
@@ -132,6 +133,7 @@ function build() {
   const root = ensureRoot()
   if (!root) return
   for (const c of Object.values(S.parts)) for (const ch of c.removeChildren()) ch.destroy({ children: true })
+  lower(); S.held = null
   S.items = []
   const recs = realmRecords(canvas.scene)
   for (const r of recs) {
@@ -370,11 +372,15 @@ function onMove(e) {
   const k = scale()
   let best = null, bestD = Infinity
   for (const it of S.items) {
-    if (it.r.kind !== "settlement" || !it.sprite?.visible) continue
-    const r = Math.max(it.sprite.width, it.sprite.height) / 2 + 4 / k
-    const dd = Math.hypot(p.x - it.sprite.x, p.y - it.sprite.y)
-    if (dd <= r && dd < bestD) { best = it; bestD = dd }
+    if (it.r.kind !== "settlement") continue
+    if (it.sprite?.visible) {
+      const r = Math.max(it.sprite.width, it.sprite.height) / 2 + 4 / k
+      const dd = Math.hypot(p.x - it.sprite.x, p.y - it.sprite.y)
+      if (dd <= r && dd < bestD) { best = it; bestD = dd }
+    }
+    if (it.name?.visible && onName(it.name, p) && bestD > 0) { best = it; bestD = 0 }   // on its name counts too
   }
+  hold(best)
   const el = tipEl()
   if (!best) { if (!el.hidden) el.hidden = true; S.hover = null; return }
   if (S.hover !== best) {
@@ -388,6 +394,40 @@ function onMove(e) {
   }
   el.style.left = `${e.clientX + 14}px`; el.style.top = `${e.clientY + 12}px`
   el.hidden = false
+}
+
+// Is scene point p on this name? (anchor: centred, hung from its top — or centred for a name-only town)
+function onName(t, p) {
+  const w = t.width, h = t.height
+  const x0 = t.x - w * t.anchor.x, y0 = t.y - h * t.anchor.y
+  return p.x >= x0 && p.x <= x0 + w && p.y >= y0 && p.y <= y0 + h
+}
+
+// Stay on a town for RAISE_AFTER and its marker + name come to the top until you leave it.
+function hold(it) {
+  if (it === S.held) return
+  clearTimeout(S.holdT); S.holdT = 0
+  lower()
+  S.held = it
+  if (it) S.holdT = setTimeout(() => { if (S.held === it) raise(it) }, RAISE_AFTER)
+}
+function raise(it) {
+  const top = S.parts?.raised
+  if (!top || top.destroyed) return
+  it._home = []
+  for (const o of [it.name, it.sprite]) {   // its name under its own marker, both above everything else
+    if (!o || o.destroyed || !o.parent) continue
+    it._home.push({ o, parent: o.parent, at: o.parent.getChildIndex(o) })
+    top.addChild(o)
+  }
+  S.raised = it
+}
+function lower() {
+  const it = S.raised
+  S.raised = null
+  if (!it?._home) return
+  for (const { o, parent, at } of it._home) if (!o.destroyed && !parent.destroyed) parent.addChildAt(o, Math.min(at, parent.children.length))
+  it._home = null
 }
 
 // ── hooks ─────────────────────────────────────────────────────
@@ -404,9 +444,9 @@ Hooks.on("canvasReady", () => {
   // Names drawn before the bundled font arrives would keep the fallback's shapes: redraw once it's in.
   document.fonts?.load?.("600 16px 'RealmScreen Plex'").then(() => redrawRealm()).catch(() => {})
   const view = canvas?.app?.view
-  if (view && !view._pbRealmTip) { view._pbRealmTip = true; view.addEventListener("pointermove", onMove); view.addEventListener("pointerleave", () => { if (S.tip) S.tip.hidden = true }) }
+  if (view && !view._pbRealmTip) { view._pbRealmTip = true; view.addEventListener("pointermove", onMove); view.addEventListener("pointerleave", () => { if (S.tip) S.tip.hidden = true; hold(null) }) }
 })
-Hooks.on("canvasTearDown", () => { S.root = null; S.items = []; if (S.tip) S.tip.hidden = true })
+Hooks.on("canvasTearDown", () => { clearTimeout(S.holdT); S.raised = null; S.held = null; S.root = null; S.items = []; if (S.tip) S.tip.hidden = true })
 Hooks.on("canvasPan", () => schedule())
 Hooks.on("updateScene", (scene, changes) => {
   if (scene?.id !== canvas?.scene?.id) return
