@@ -110,7 +110,16 @@ const recs = [
 ]
 for (const r of recs) flags['pendant-bridge'].realm.items[r.id] = r
 
-await import('/foundry-pendant-bridge/scripts/mapviews.js')
+// scene.update: dotted flag paths only (enough for renameNationLabel), then the hook Foundry would fire.
+scene.update = async (u) => {
+  for (const [path, v] of Object.entries(u)) {
+    const keys = path.replace(/^flags\./, '').split('.'); let o = flags
+    for (const k of keys.slice(0, -1)) o = o[k] ??= {}
+    o[keys.at(-1)] = v
+  }
+  Hooks.callAll('updateScene', scene, { flags: { 'pendant-bridge': { realm: {} } } })
+}
+window.__mv = await import('/foundry-pendant-bridge/scripts/mapviews.js')
 await import('/foundry-pendant-bridge/scripts/realm-layer.js?v=' + Date.now())   // always the file on disk
 await document.fonts.ready
 Hooks.callAll('canvasReady')

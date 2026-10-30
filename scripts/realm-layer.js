@@ -16,7 +16,7 @@
 // Hover a town: a small card (name, type, population).
 // ──────────────────────────────────────────────────────────────
 
-import { viewsOf, realmRecords, showEverything, inView } from "./mapviews.js"
+import { viewsOf, realmRecords, showEverything, inView, renamedText } from "./mapviews.js"
 
 const SORT_LAYER = 650
 // RealmScreen's own font (bundled: styles/pendant-bridge.css @font-face, OFL licence in assets/fonts).
@@ -159,7 +159,7 @@ function buildNation(r) {
   }
   const st = r.nameStyle || {}
   for (const l of r.labels || []) {
-    const t = S.parts.nationNames.addChild(textOf(l.text, {
+    const t = S.parts.nationNames.addChild(textOf(renamedText(r, l.text), {
       fill: st.color || "#ffffff", fontWeight: String(st.weight ?? 700), fontStyle: st.italic ? "italic" : "normal",
       stroke: "rgba(0,0,0,0.7)", strokeThickness: BASE * 0.27,
     }))
@@ -265,7 +265,7 @@ function update(full = false) {
       for (const { t, l } of it.labels) {
         t.visible = nameOn
         if (!nameOn) continue
-        const size = nationNameSize(l.text, l.box[0] * d.sceneWidth * k, l.box[1] * d.sceneHeight * k, r.nameStyle || {}) * nameScale()
+        const size = nationNameSize(t.text, l.box[0] * d.sceneWidth * k, l.box[1] * d.sceneHeight * k, r.nameStyle || {}) * nameScale()
         t.scale.set(size / BASE / k)
         const ls = (r.nameStyle?.letterSpacing || 0) * (BASE / Math.max(size, 1))
         if (Math.abs((t.style.letterSpacing || 0) - ls) > 0.05) t.style.letterSpacing = ls
