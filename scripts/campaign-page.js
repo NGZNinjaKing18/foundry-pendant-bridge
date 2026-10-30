@@ -31,6 +31,7 @@
 
 import { relay } from "./campaigns.js"
 import { linkedHere } from "./live.js"
+import { mySlice, onSlice, setFull, fullPages } from "./private.js"
 
 const MOD = "pendant-bridge"
 const KEY = "campaignPages"
@@ -79,14 +80,16 @@ export function whoLine(s, me, nameOf = (id) => id) {
   return others.length ? `You and ${others.join(" & ")} know this` : "Only you know this"
 }
 
-// ── the setting ───────────────────────────────────────────────
-const readPages = () => { try { return game.settings.get(MOD, KEY) || {} } catch { return {} } }
+// ── the pages: this user's own part only (scripts/private.js) ──
+// A player's slice has just their campaigns, the secrets they may see, and no GM-only
+// data; a GM's has everything. Nothing campaign-private is in a shared setting any more.
+const readPages = () => mySlice().pages || {}
 
-/** `campaigns.pages` (GM window): store, then keep the secret Map Notes true. */
+/** `campaigns.pages` (GM window): kept in memory, written out per player, Map Notes kept true. */
 export async function setPages(pages) {
   if (!game.user?.isGM) throw new Error("Only the GM can set the campaign pages")
   const clean = pages && typeof pages === "object" ? pages : {}
-  await game.settings.set(MOD, KEY, clean)
+  setFull("pages", clean)
   syncSecretNotes(clean).catch(e => console.warn(`${MOD} | secret notes`, e))
   reportGroups(clean)
   return { ok: true }
@@ -98,7 +101,7 @@ export async function whisperCampaign({ to, title, text, campaignId } = {}) {
   for (const u of game.users ?? []) if (u.isGM) ids.add(u.id)
   if (!ids.size) return { ok: false }
   await ChatMessage.create({
-    speaker: { alias: "RealmScreen" },
+    speaker: { alias: game.user?.name || "GM" },
     whisper: [...ids],
     content: `<div class="pb-secret-card"><h3><i class="fa-solid fa-key"></i> ${esc(title)}</h3>${text ? `<p>${escNl(text)}</p>` : ""}</div>`,
     flags: { [MOD]: { secretCard: true, campaignId: str(campaignId) || null } },
@@ -152,11 +155,11 @@ async function syncSecretNotes(pages) {
       const add = [], upd = []
       for (const [id, w] of want) {
         if (w.s.place.sceneId !== scene.id || !w.entry) continue
-        const data = { x: Math.round(w.s.place.x), y: Math.round(w.s.place.y), entryId: w.entry.id, text: w.s.title, global: true,
+        const data = { x: Math.round(w.s.place.x), y: Math.round(w.s.place.y), entryId: w.entry.id, text: "", global: true,
           texture: { src: "icons/svg/mystery-man.svg" }, iconSize: 40, flags: { [MOD]: { secretId: id } } }
         const n = have.get(id)
         if (!n) add.push(data)
-        else if (n.x !== data.x || n.y !== data.y || n.text !== data.text || n.entryId !== data.entryId) upd.push({ _id: n.id, x: data.x, y: data.y, text: data.text, entryId: data.entryId })
+        else if (n.x !== data.x || n.y !== data.y || (n.text || "") !== data.text || n.entryId !== data.entryId) upd.push({ _id: n.id, x: data.x, y: data.y, text: data.text, entryId: data.entryId })
       }
       if (add.length) await scene.createEmbeddedDocuments("Note", add)
       if (upd.length) await scene.updateEmbeddedDocuments("Note", upd)
@@ -187,9 +190,11 @@ export function groupMemberActors(group) {
   const list = Array.isArray(m) ? m.map(x => x?.actor ?? x) : [...m].map(x => (typeof x === "string" ? game.actors?.get(x) : x?.actor ?? x))
   return list.filter(a => a && a.id)
 }
-/** The non-GM users who own any of these actors — they become the campaign's players. */
+/** The non-GM users EXPLICITLY made owner of any of these actors — they become the campaign's
+ *  players. "All players: Owner" (default ownership) does not count: it would put everyone in. */
+export const OWNER = 3
 export function ownersOf(actors, users) {
-  return arr(users).filter(u => !u.isGM && actors.some(a => a.testUserPermission?.(u, "OWNER"))).map(u => u.id)
+  return arr(users).filter(u => !u.isGM && actors.some(a => Number(a?.ownership?.[u.id]) >= OWNER)).map(u => u.id)
 }
 /** One member's numbers, as the dnd5e group sheet shows them (missing → null). */
 export function memberStats(a) {
@@ -202,7 +207,7 @@ const linkedGroup = (page) => (page?.group?.actorId ? game.actors?.get(page.grou
 
 // The linked GM window tells RealmScreen who is in each linked group, whenever that changes.
 const groupSig = new Map()
-function reportGroups(pages = readPages()) {
+function reportGroups(pages = fullPages()) {
   if (!game.user?.isGM || !linkedHere()) return
   for (const [cid, p] of Object.entries(pages || {})) {
     const g = linkedGroup(p)
@@ -339,7 +344,7 @@ function pageClass() {
     // ── the party: the linked group's members, else the campaign's characters ──
     #party(p) {
       const g = linkedGroup(p)
-      if (g) return groupMemberActors(g).map(a => ({ name: a.name, img: a.img, actor: a, player: game.users?.find(u => !u.isGM && a.testUserPermission?.(u, "OWNER"))?.name || "" }))
+      if (g) return groupMemberActors(g).map(a => ({ name: a.name, img: a.img, actor: a, player: game.users?.find(u => !u.isGM && Number(a.ownership?.[u.id]) >= OWNER)?.name || "" }))
       return arr(p.overview?.party).map(c => {
         const a = game.actors?.find(x => x.type === "character" && x.name?.toLowerCase() === String(c.name || "").toLowerCase()) || null
         return { name: c.name, img: c.cover || a?.img || null, actor: a, player: c.player || "", away: c.away }
@@ -353,7 +358,7 @@ function pageClass() {
       const el = document.createElement("div")
       el.className = "pb-cp standard-form"
       const p = this.page
-      if (!p) { el.innerHTML = `<p class="hint">RealmScreen hasn’t sent this campaign’s page yet. It does while it’s connected.</p>`; return el }
+      if (!p) { el.innerHTML = `<p class="hint">${game.user?.isGM ? "RealmScreen hasn’t sent this campaign’s page yet. It does while it’s connected." : "This page isn’t ready yet."}</p>`; return el }
       const gm = !!game.user?.isGM, me = game.user?.id
       const o = p.overview || {}
       const vis = visibleSecrets(p, me, gm)
@@ -459,7 +464,7 @@ function pageClass() {
           <div class="pb-cp-panel"><h4>Findings <a data-action="go" data-tab="finds">All ›</a></h4>
             ${finds.length ? `<div class="pb-cp-thumbs">${finds.map(f => `<a data-action="openFind" data-id="${esc(f.id)}" data-tooltip="${esc(f.name)}">${f.img ? img(f.img) : `<i class="fa-solid ${FIND_ICON[f.kind] || "fa-gem"}"></i>`}</a>`).join("")}</div>` : `<p class="hint">Nothing found yet.</p>`}</div>
           <div class="pb-cp-panel"><h4>Secrets <a data-action="go" data-tab="sec">Open ›</a></h4>
-            ${gm ? `<div class="pb-cp-row"><span><i class="fa-solid fa-key"></i> ${arr(p.secrets).length} given</span>${waiting ? `<span class="pb-cp-r">${waiting} waiting</span>` : ""}</div>${arr(p.asks).length ? `<div class="pb-cp-row"><span><i class="fa-solid fa-circle-question"></i> ${arr(p.asks).length} question${arr(p.asks).length === 1 ? "" : "s"}</span><span class="pb-cp-new">New</span></div>` : ""}`
+            ${gm ? `<div class="pb-cp-row"><span><i class="fa-solid fa-key"></i> ${arr(p.secrets).filter(s => s.state === "given").length} given</span>${waiting ? `<span class="pb-cp-r">${waiting} waiting</span>` : ""}</div>${arr(p.asks).length ? `<div class="pb-cp-row"><span><i class="fa-solid fa-circle-question"></i> ${arr(p.asks).length} question${arr(p.asks).length === 1 ? "" : "s"}</span><span class="pb-cp-new">New</span></div>` : ""}`
               : `<div class="pb-cp-row"><span><i class="fa-solid fa-key"></i> ${vis.length} secret${vis.length === 1 ? "" : "s"}</span>${unseen ? `<span class="pb-cp-new">${unseen} new</span>` : ""}</div>`}</div>
         </div>
       </div>
@@ -757,7 +762,7 @@ function pageClass() {
         field("Goal", `<input type="text" name="text" value="${esc(x?.text || "")}" placeholder="e.g. Deliver the seal to Harrowgate" autofocus>`),
         field("For", `<select name="who">${opts}</select>`),
         field("Steps", `<textarea name="steps" rows="4" placeholder="One per line (optional) — a checklist under the goal">${esc(arr(x?.steps).map(s => s.text).join("\n"))}</textarea>`),
-        field("Notes", `<textarea name="note" rows="3" placeholder="Optional">${esc(x?.note || "")}</textarea>`),
+        field("Notes", `<textarea name="note" rows="3" placeholder="Optional">${esc(x?.note || "")}</textarea>`, "Players see this."),
         field("Codex page", `<input type="text" name="link" value="${esc(x?.link?.name || "")}" placeholder="Optional — a page's name in RealmScreen">`, "Leave empty for no link."),
       ].join(""), x ? "Save" : "Add goal")
     }
@@ -947,6 +952,8 @@ function pageClass() {
 
 /** Open (or bring forward) a campaign's page. */
 export function openPage(campaign, { tab } = {}) {
+  // Only someone in the campaign (or a GM) — their slice has no page for anything else.
+  if (!game.user?.isGM && !readPages()[campaign?.id]) return
   const C = pageClass()
   if (!C) return ui.notifications?.info(campaign.name)
   const open = foundry.applications.instances?.get?.(APP_ID)
@@ -970,12 +977,14 @@ function rerender() {
 
 // ── hooks ─────────────────────────────────────────────────────
 Hooks.once("init", () => {
-  game.settings.register(MOD, KEY, { scope: "world", config: false, type: Object, default: {}, onChange: () => rerender() })
+  // No longer written (it reached every client): kept registered so the GM can empty it (private.js).
+  game.settings.register(MOD, KEY, { scope: "world", config: false, type: Object, default: {} })
 })
+onSlice(() => rerender())
 // A linked group's members changing (or one of them: HP, a new owner) → report + redraw.
 for (const h of ["createActor", "updateActor", "deleteActor"]) {
   Hooks.on(h, (actor) => {
-    const pages = readPages()
+    const pages = fullPages()
     const touched = Object.values(pages).some(p => p?.group?.actorId === actor.id || groupMemberActors(linkedGroup(p)).some(a => a.id === actor.id) || actor.type === "group")
     if (!touched) return
     scheduleReport()

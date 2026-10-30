@@ -37,3 +37,11 @@ test("a bad roster is cleaned, not trusted", () => {
     [{ id: "x", name: "Untitled campaign", users: ["u"] }])
   assert.equal(buttonFor(undefined, "u1", false).kind, "list")
 })
+
+const { roomFor } = await import("../scripts/scene-control.js")
+test("the control column gets the room down to the Players box (else the screen), never less than a minimum", () => {
+  assert.equal(roomFor(60, 700, 1000), 632)
+  assert.equal(roomFor(60, NaN, 1000), 932)
+  assert.equal(roomFor(60, 40, 1000), 932)      // Players box above (another layout) → the screen
+  assert.equal(roomFor(600, 650, 1000), 120)
+})

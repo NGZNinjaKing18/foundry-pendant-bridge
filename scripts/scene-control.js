@@ -19,7 +19,8 @@ const NAME = "realmscreen"
 export function realmControl() {
   return {
     name: NAME,
-    order: 100,                       // after Foundry's own sets
+    order: -1,                        // FIRST: with many modules + the clock the column runs off
+                                      // the screen, and this one must always be reachable
     title: "RealmScreen",
     icon: "pb-dm-screen",             // styles/pendant-bridge.css draws assets/dm-screen.svg
     visible: true,
@@ -90,3 +91,36 @@ async function refresh() {
 
 Hooks.on("pendantBridgeLive", () => refresh())
 Hooks.once("ready", () => refresh())
+
+// ── never off the screen ──────────────────────────────────────
+// Foundry stacks the control sets in one column above the Players box (where our clock lives).
+// With many modules the column runs past it and the last buttons can't be reached. Cap each
+// menu at the room it really has and let it scroll — only when it doesn't fit.
+export function roomFor(top, playersTop, viewH, min = 120) {
+  const bottom = Number.isFinite(playersTop) && playersTop > top ? playersTop : viewH
+  return Math.max(min, Math.floor(bottom - top - 8))
+}
+function fitControls() {
+  const root = document.getElementById("scene-controls")
+  if (!root) return
+  const players = document.getElementById("players")
+  const pTop = players?.offsetParent ? players.getBoundingClientRect().top : NaN
+  for (const m of root.querySelectorAll("#scene-controls-layers, #scene-controls-tools")) {
+    // Measure as Foundry lays it out, then cap only if it runs past the room (so nothing is
+    // clipped — not even the active button's glow — when it all fits).
+    m.classList.remove("pb-fit"); m.style.maxHeight = ""
+    const room = roomFor(m.getBoundingClientRect().top, pTop, window.innerHeight)
+    if (m.scrollHeight > room) { m.classList.add("pb-fit"); m.style.maxHeight = `${room}px` }
+  }
+}
+let fitT = 0
+const scheduleFit = () => { cancelAnimationFrame(fitT); fitT = requestAnimationFrame(fitControls); setTimeout(fitControls, 250) }
+Hooks.on("renderSceneControls", scheduleFit)
+Hooks.on("renderPlayers", scheduleFit)
+Hooks.on("renderPlayerList", scheduleFit)
+Hooks.once("ready", () => {
+  window.addEventListener("resize", scheduleFit)
+  const players = document.getElementById("players")
+  if (players && typeof ResizeObserver === "function") new ResizeObserver(scheduleFit).observe(players)   // the clock grows/shrinks
+  scheduleFit()
+})

@@ -2,11 +2,14 @@
 // Campaigns — the "Campaigns" button in the RealmScreen scene control.
 //
 // RealmScreen sends `campaigns.set` with its roster whenever campaigns, the
-// players or the running session change. The GM window stores it in the world
-// setting `pendant-bridge.campaigns`, so every client reads the same thing:
+// players or the running session change:
 //
 //   { active: { id, name } | null,
 //     campaigns: [{ id, name, users: [Foundry user id] }] }   // users = who is in it
+//
+// The linked GM window keeps it in memory and gives each player ONLY their own
+// campaigns, in their private slice (scripts/private.js `rosterFor`) — another
+// campaign's names, members or running session never reach them.
 //
 // Pressing the button:
 //   • a session is running → a user in that campaign (or a GM) gets its page;
@@ -15,21 +18,20 @@
 //     one → "Start a session?" → Yes asks RealmScreen to start it, or "Just
 //     view details" opens its page
 //
-// A player's window can't reach RealmScreen, so "Yes" goes over the module
-// socket to the GM window holding the link, which passes `campaign.start` on.
-// RealmScreen decides (it checks again) and answers with `campaigns.note`,
-// which comes back to that one user as a notification.
+// A player's window can't reach RealmScreen, so "Yes" is a hidden whisper to the
+// GMs (private.js `sendOp`, author stamped by Foundry); the linked GM window
+// passes `campaign.start` on. RealmScreen decides (it checks again) and answers
+// with `campaigns.note`, which comes back to that one user as a notification.
 //
-// The page itself is scripts/campaign-page.js. When a session starts, its players get it
-// opened for them (the roster's `active` changing to a campaign they're in).
+// The page itself is scripts/campaign-page.js. It only ever opens because THIS user pressed
+// the button (or a secret's chat card) — never by itself, never for anyone else.
 // ──────────────────────────────────────────────────────────────
 
-import { linkedHere } from "./live.js"
+import { mySlice, setFull, sendOp, setOpPasser, noteTo } from "./private.js"
 import { openPage } from "./campaign-page.js"
 
 const MOD = "pendant-bridge"
 const KEY = "campaigns"
-const CHANNEL = `module.${MOD}`
 
 let sender = null   // (msg) => bool — the bridge's WebSocket send (GM window only)
 /** main.js hands over its send so a linked window can pass requests on. */
@@ -62,61 +64,39 @@ export function buttonFor(roster, userId, isGM) {
   return { kind: "list", campaigns: r.campaigns.filter(inIt) }
 }
 
-const readRoster = () => { try { return game.settings.get(MOD, KEY) || null } catch { return null } }
+// Each user's own part, from their private slice (scripts/private.js) — never a shared setting.
+const readRoster = () => mySlice().roster
 
-/** The `campaigns.set` command (GM window). */
+/** The `campaigns.set` command (GM window): kept in memory, written out per player. */
 export async function setCampaigns(roster) {
   if (!game.user?.isGM) throw new Error("Only the GM can set the campaigns")
-  await game.settings.set(MOD, KEY, cleanRoster(roster))
+  setFull("roster", cleanRoster(roster))
   return { ok: true }
 }
 
-/** The `campaigns.note` command: tell one user (or everyone) something. */
-export function noteCampaigns({ userId, text, level } = {}) {
-  const msg = { t: "camp.note", to: str(userId) || null, text: str(text), level: level === "warn" ? "warn" : "info" }
-  if (!msg.text) return { ok: false }
-  showNote(msg)
-  try { game.socket?.emit(CHANNEL, msg) } catch { /* no socket */ }
-  return { ok: true }
+/** The `campaigns.note` command: tell one user (`userId`) or a few (`to`) — never everyone. */
+export function noteCampaigns({ userId, to, text, level } = {}) {
+  const ids = Array.isArray(to) ? to.map(str).filter(Boolean) : str(userId) ? [str(userId)] : []
+  noteTo(ids, str(text), level === "warn" ? "warn" : "info")
+  return { ok: !!ids.length && !!str(text) }
 }
 
-function showNote(m) {
-  if (m.to && m.to !== game.user?.id) return
-  ui.notifications?.[m.level === "warn" ? "warn" : "info"](m.text)
-}
-
-// ── asking RealmScreen to start a session ─────────────────────
-function passOn(campaignId, userId) {
-  const u = game.users?.get(userId)
-  if (!u || !sender) return false
-  return sender({ type: "campaign.start", campaignId, userId, userName: u.name, isGM: !!u.isGM })
-}
-
-/** What the campaign page does goes to RealmScreen the same way (only these types). */
-const RELAYED = new Set(["campaign.page"])
-function passMsg(type, data, userId) {
+// ── acting: a player's request → RealmScreen ──────────────────
+// Sent as a whisper to the GMs (scripts/private.js), so `userId` and `isGM` come from the
+// message's REAL author — Foundry's server stamps it; nobody can claim to be someone else.
+const RELAYED = new Set(["campaign.page", "campaign.start"])
+export function passMsg(type, data, userId) {
   const u = game.users?.get(userId)
   if (!u || !sender || !RELAYED.has(type)) return false
-  return sender({ ...(data && typeof data === "object" ? data : {}), type, userId: u.id, userName: u.character?.name || u.name, isGM: !!u.isGM })
+  const { userId: _u, userName: _n, isGM: _g, ...clean } = data && typeof data === "object" ? data : {}
+  return sender({ ...clean, type, userId: u.id, userName: u.character?.name || u.name, isGM: !!u.isGM })
 }
-export function relay(type, data) {
-  if (linkedHere() && passMsg(type, data, game.user.id)) return true
-  try { game.socket?.emit(CHANNEL, { t: "camp.relay", type, data, user: game.user.id }) } catch { /* no socket */ }
-  return true
-}
+setOpPasser(passMsg)
+export function relay(type, data) { sendOp(type, data); return true }
 
 function askStart(campaign) {
-  if (linkedHere() && passOn(campaign.id, game.user.id)) return ui.notifications?.info(`Asking RealmScreen to start ${campaign.name}…`)
-  try { game.socket?.emit(CHANNEL, { t: "camp.start", campaignId: campaign.id, user: game.user.id }) } catch { /* no socket */ }
-  ui.notifications?.info(`Asking RealmScreen to start ${campaign.name}…`)
-}
-
-function onSocket(m, senderId) {
-  if (!m || typeof m.t !== "string" || !m.t.startsWith("camp.")) return
-  if (m.t === "camp.note") return showNote(m)
-  // Only the window holding the link passes a request on. Foundry names the sender when it can.
-  if (m.t === "camp.start" && linkedHere()) passOn(str(m.campaignId), str(senderId) || str(m.user))
-  if (m.t === "camp.relay" && linkedHere()) passMsg(str(m.type), m.data, str(senderId) || str(m.user))
+  sendOp("campaign.start", { campaignId: campaign.id })
+  ui.notifications?.info(`Asking to start ${campaign.name}…`)
 }
 
 // ── the windows ───────────────────────────────────────────────
@@ -128,7 +108,7 @@ async function chooseCampaign(list) {
   const id = await D.wait({
     window: { title: "Campaigns", icon: "fa-solid fa-flag" },
     classes: ["pb-campaigns"],
-    content: `<p>${game.user?.isGM ? "Every campaign in RealmScreen." : "The campaigns you're in."}</p>`,
+    content: `<p>${game.user?.isGM ? "Every campaign in RealmScreen." : "The campaigns you’re in."}</p>`,
     buttons: list.map((c, i) => ({ action: c.id, label: c.name, icon: "fa-solid fa-flag", default: i === 0 })),
     rejectClose: false,
   })
@@ -156,28 +136,13 @@ export async function openCampaigns() {
   const b = buttonFor(readRoster(), game.user?.id, !!game.user?.isGM)
   if (b.kind === "none") return                       // a session of another campaign is running
   if (b.kind === "page") return openPage(b.campaign)
-  if (!b.campaigns.length) return ui.notifications?.info("You aren't in any RealmScreen campaign yet.")
+  if (!b.campaigns.length) return ui.notifications?.info(game.user?.isGM ? "RealmScreen hasn’t sent any campaigns yet." : "You aren’t in a campaign yet.")
   const c = await chooseCampaign(b.campaigns)
   if (c) await startOrView(c)
 }
 
-// A session starting opens its page for its players (not the GM: they started it).
-let wasActive
-function onRoster(v) {
-  const r = cleanRoster(v)
-  const now = r.active?.id || null
-  if (wasActive !== undefined && now && now !== wasActive && !game.user?.isGM) {
-    const b = buttonFor(r, game.user?.id, false)
-    if (b.kind === "page") openPage(b.campaign)
-  }
-  wasActive = now
-}
-
 // ── hooks ─────────────────────────────────────────────────────
 Hooks.once("init", () => {
-  game.settings.register(MOD, KEY, { scope: "world", config: false, type: Object, default: null, onChange: onRoster })
-})
-Hooks.once("ready", () => {
-  wasActive = cleanRoster(readRoster()).active?.id || null
-  try { game.socket?.on(CHANNEL, onSocket) } catch { /* no socket */ }
+  // No longer written (it reached every client): kept registered so the GM can empty it (private.js).
+  game.settings.register(MOD, KEY, { scope: "world", config: false, type: Object, default: null })
 })

@@ -75,7 +75,7 @@ class Coll extends Array {
   get(id) { return this.find(x => x.id === id) }
   get contents() { return [...this] }
 }
-const own = (ids) => ({ testUserPermission: (u, lvl) => ids.includes(u.id) })
+const own = (ids) => ({ ownership: { default: 0, ...Object.fromEntries(ids.map(id => [id, 3])) }, testUserPermission: (u, lvl) => ids.includes(u.id) })
 const actor = (id, name, img, owners, sys) => ({ id, name, img, type: "character", documentName: "Actor", uuid: `Actor.${id}`, system: sys, ...own(owners), sheet: { render: () => toast(`(${name}'s sheet would open)`) } })
 const stats = (hp, hpm, hd, hdm, ac, prc, ste, sur) => ({ attributes: { hp: { value: hp, max: hpm }, hd: { value: hd, max: hdm }, ac: { value: ac } }, skills: { prc: { passive: prc }, ste: { passive: ste }, sur: { passive: sur } } })
 const face = (c, l) => `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" fill="${c}"/><text x="20" y="27" font-size="20" text-anchor="middle" fill="#fff" font-family="serif">${l}</text></svg>`)}`
@@ -96,7 +96,8 @@ actors.push(group)
 const store = new Map([["uiConfig", { colorScheme: { applications: "dark", interface: "dark" } }]])
 let me = users[0]
 globalThis.game = {
-  get user() { return me }, users, actors, scenes: Coll.from([]), journal: Coll.from([]), folders: Coll.from([]),
+  get user() { return me }, users, actors,
+  get messages() { return Coll.from(allMsgs.filter(m => canGet(m, me))) }, scenes: Coll.from([]), journal: Coll.from([]), folders: Coll.from([]),
   modules: new Map([[MOD, { version: "harness" }]]),
   settings: {
     reg: {}, register(m, k, cfg) { this.reg[k] = cfg; if (!store.has(k)) store.set(k, cfg.default ?? null) },
@@ -108,7 +109,30 @@ const toast = (t, cls = "") => { const d = document.createElement("div"); d.clas
 globalThis.ui = { notifications: { info: (t) => toast(t), warn: (t) => toast(t, "warn") } }
 globalThis.canvas = null
 globalThis.fromUuid = async (u) => actors.find(a => a.uuid === u) || null
-globalThis.ChatMessage = { create: async (d) => toast("Chat: " + d.content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()) }
+// Chat messages, with Foundry's SERVER rule for whispers: a player only ever receives messages
+// whispered to them (or not whispered at all); GMs receive everything. Authors are stamped.
+const allMsgs = []
+let msgN = 0
+const asGM = async (fn) => { const was = me; me = users[0]; try { return await fn() } finally { me = was } }
+class Msg {
+  constructor(d) { Object.assign(this, JSON.parse(JSON.stringify(d))); this.id = "m" + (++msgN); this.author = me; this.timestamp = Date.now(); this.whisper ||= [] }
+  async update(ch) {
+    for (const [k, v] of Object.entries(ch)) { const path = k.split("."); let o = this; while (path.length > 1) { const x = path.shift(); o = o[x] ??= {} } o[path[0]] = v }
+    Hooks.callAll("updateChatMessage", this)
+  }
+  async delete() { const i = allMsgs.indexOf(this); if (i >= 0) allMsgs.splice(i, 1); Hooks.callAll("deleteChatMessage", this) }
+}
+const canGet = (m, u) => u.isGM || !m.whisper.length || m.whisper.includes(u.id)
+globalThis.ChatMessage = {
+  async create(d) {
+    const m = new Msg(d); allMsgs.push(m)
+    if (!m.flags?.[MOD]?.hidden) toast("Chat: " + String(m.content).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim())
+    // Every client that receives it runs the hook; here: this client, and the GM's (where ops are handled).
+    if (canGet(m, me)) Hooks.callAll("createChatMessage", m)
+    if (!me.isGM && m.flags?.[MOD]?.op) await asGM(() => Hooks.callAll("createChatMessage", m))
+    return m
+  },
+}
 
 // ApplicationV2: options from DEFAULT_OPTIONS up the chain, render → _renderHTML/_replaceHTML/_onRender, click actions.
 const instances = new Map()
@@ -179,6 +203,7 @@ globalThis.foundry = {
 const live = await import("../../scripts/live.js")
 const camp = await import("../../scripts/campaigns.js")
 const page = await import("../../scripts/campaign-page.js")
+const priv = await import("../../scripts/private.js")
 const model = await import("../../../pendant-home/src/renderer/src/lib/campaignPageModel.mjs")
 Hooks.callAll("init")
 live.setLinked(true)
@@ -201,10 +226,11 @@ function publish() {
   const people = ledger.map(p => ({ ...p, pinned: prefs.pinned.includes(p.id), hidden: prefs.hidden.includes(p.id), note: prefs.notes[p.id] || "" }))
     .sort((a, b) => b.pinned - a.pinned)
   const users = [...new Set(["u3", ...(d.group?.users || [])])]
-  return game.settings.set(MOD, "campaignPages", { [CID]: {
+  // RealmScreen → the linked GM window (always a GM, whoever this tab is viewing as).
+  return asGM(async () => { await camp.setCampaigns({ active: null, campaigns: [{ id: CID, name: "Ashfall", users }] }); return page.setPages({ [CID]: {
     overview: { name: "Ashfall", date: "14 Emberfall, 1203", played: 11, running: null, where: { text: "On the road to Harrowgate · day 1 of 2", place: "Kessel Ford" },
       party: [{ name: "Gareth Mahogan", player: "Mia", cover: null }], people, coming: [{ name: "Night of Lanterns", rel: "in 3 days" }] },
-    users, ...d } })
+    users, ...d } }) })
 }
 camp.setCampaignSender((msg) => {
   $("#log").textContent = `→ ${msg.op} ${msg.userId}${msg.isGM ? " (GM)" : ""}`
@@ -227,12 +253,12 @@ await publish()
 
 // ── the bar ─────────────────────────────────────────────────────────────────
 $("#who").innerHTML = users.map(u => `<option value="${u.id}">${u.name}${u.isGM ? " (GM)" : ""}</option>`).join("")
-$("#who").onchange = (e) => { me = users.get(e.target.value); for (const a of instances.values()) { a.element.remove() } instances.clear(); page.openPage({ id: CID, name: "Ashfall" }) }
+$("#who").onchange = (e) => { me = users.get(e.target.value); Hooks.callAll("updateChatMessage", { flags: { [MOD]: { slice: {} } } }); for (const a of instances.values()) { a.element.remove() } instances.clear(); page.openPage({ id: CID, name: "Ashfall" }) }
 $("#reset").onclick = () => { resetData(); publish() }
 $("#theme").onchange = (e) => { store.set("uiConfig", { colorScheme: { applications: e.target.value, interface: e.target.value } }); Hooks.callAll("clientSettingChanged", "core.uiConfig") }
 $("#look").onchange = (e) => document.body.classList.toggle("pb-look", e.target.checked)
 page.openPage({ id: CID, name: "Ashfall" })
-window.H = { page, model, get rs() { return rs }, get ledger() { return ledger }, group, actors, users, setUser: (id) => { $("#who").value = id; $("#who").onchange({ target: $("#who") }) } }
+window.H = { page, model, priv, allMsgs, asGM, get me() { return me }, get rs() { return rs }, get ledger() { return ledger }, group, actors, users, setUser: (id) => { $("#who").value = id; $("#who").onchange({ target: $("#who") }) } }
 </script>
 </body>
 </html>

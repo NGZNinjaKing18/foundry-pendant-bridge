@@ -42,13 +42,14 @@ test("who-knows line", () => {
 const { groupMemberActors, ownersOf, memberStats } = await import("../scripts/campaign-page.js")
 
 test("a linked group: its member actors (dnd5e 4+ and the old id set) and their owners", () => {
-  const a = { id: "a1", testUserPermission: (u) => u.id === "u1" }, b = { id: "a2", testUserPermission: (u) => u.id === "u2" }
+  const a = { id: "a1", ownership: { default: 0, u1: 3 } }, b = { id: "a2", ownership: { default: 3, u2: 3 } }   // b: "All players: Owner"
   assert.deepEqual(groupMemberActors({ system: { members: [{ actor: a }, { actor: b }, { actor: null }] } }).map(x => x.id), ["a1", "a2"])
   globalThis.game = { actors: { get: (id) => ({ a1: a, a2: b }[id]) } }
   assert.deepEqual(groupMemberActors({ system: { members: new Set(["a2"]) } }).map(x => x.id), ["a2"])
   assert.deepEqual(groupMemberActors(null), [])
   const users = [{ id: "gm", isGM: true }, { id: "u1" }, { id: "u2" }, { id: "u3" }]
-  assert.deepEqual(ownersOf([a, b], users), ["u1", "u2"])
+  assert.deepEqual(ownersOf([a, b], users), ["u1", "u2"])          // only the explicit owners — default ownership doesn't add u3
+  assert.deepEqual(ownersOf([{ id: "x", ownership: { default: 3 } }], users), [])
 })
 
 test("member stats read like the group sheet; missing numbers stay null", () => {
