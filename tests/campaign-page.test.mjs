@@ -79,3 +79,21 @@ test("new ids are unique", () => {
   const s = new Set(Array.from({ length: 500 }, () => newId()))
   assert.equal(s.size, 500)
 })
+
+const { md, niceName, shortWhen } = await import("../scripts/campaign-page.js")
+test("formatting: bold, underline, italic, struck, lists; nothing else gets through", () => {
+  assert.equal(md("**Tiberius**\nforgive me __i need someone__"), "<p><strong>Tiberius</strong><br>forgive me <u>i need someone</u></p>")
+  assert.equal(md("an *odd* day ~~gone~~"), "<p>an <em>odd</em> day <s>gone</s></p>")
+  assert.equal(md("- one\n- two\nafter"), "<ul><li>one</li><li>two</li></ul><p>after</p>")
+  assert.equal(md("<script>x</script>"), "<p>&lt;script&gt;x&lt;/script&gt;</p>")
+  assert.equal(md("2 * 3 * 4"), "<p>2 * 3 * 4</p>")
+  assert.equal(md("snake_case_name"), "<p>snake_case_name</p>")
+})
+test("names from files read like names; calendar labels get short", () => {
+  assert.equal(niceName("Tiberius%20Ghoa%202nd%20Xocoh%20 %20Journal%20Entry%20"), "Tiberius Ghoa 2nd Xocoh Journal Entry")
+  assert.equal(niceName("From%20Tiberius%20To%20Fufia.webp"), "From Tiberius To Fufia")
+  assert.equal(niceName("Plain name"), "Plain name")
+  assert.equal(shortWhen("98 • 3/4 → MistMorn (Mist-Morn) • 19"), "MistMorn 19")
+  assert.equal(shortWhen("98 • 3/4 → MistMorn (Mist-Morn) • 19 · Kessel Ford"), "MistMorn 19 · Kessel Ford")
+  assert.equal(shortWhen("Session 12 · Harrowgate"), "Session 12 · Harrowgate")
+})

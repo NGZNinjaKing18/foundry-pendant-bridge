@@ -40,6 +40,45 @@ const FOLDER = "RealmScreen secrets"
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]))
 const escNl = (s) => esc(s).replace(/\n/g, "<br>")
+
+/** Light formatting people actually type: **bold**, *italic* / _italic_, __underline__, ~~struck~~,
+ *  "- " / "* " / "• " lists, line breaks. Everything is escaped first, so nothing else gets through. */
+export function md(text) {
+  const inline = (t) => t
+    .replace(/\*\*(\S(?:.*?\S)?)\*\*/g, "<strong>$1</strong>")
+    .replace(/__(\S(?:.*?\S)?)__/g, "<u>$1</u>")
+    .replace(/~~(\S(?:.*?\S)?)~~/g, "<s>$1</s>")
+    .replace(/(^|[^*\w])\*(\S(?:.*?\S)?)\*(?![*\w])/g, "$1<em>$2</em>")
+    .replace(/(^|[^_\w])_(\S(?:.*?\S)?)_(?![_\w])/g, "$1<em>$2</em>")
+  const out = []
+  let list = null, para = []
+  const flush = () => { if (para.length) { out.push(`<p>${para.map(inline).join("<br>")}</p>`); para = [] } }
+  for (const raw of esc(text).split(/\r?\n/)) {
+    const m = raw.match(/^\s*(?:[-*•])\s+(.*)$/)
+    if (m) { flush(); (list ??= []).push(`<li>${inline(m[1])}</li>`); continue }
+    if (list) { out.push(`<ul>${list.join("")}</ul>`); list = null }
+    if (!raw.trim()) flush(); else para.push(raw)
+  }
+  flush()
+  if (list) out.push(`<ul>${list.join("")}</ul>`)
+  return out.join("")
+}
+/** A file name as a person would write it: "From%20Tiberius%20To%20Fufia.webp" → "From Tiberius To Fufia". */
+export function niceName(name) {
+  let t = String(name ?? "")
+  if (/%[0-9a-f]{2}/i.test(t)) { try { t = decodeURIComponent(t) } catch { t = t.replace(/%20/gi, " ") } }
+  return t.replace(/\.(webp|png|jpe?g|gif|svg|avif)$/i, "").replace(/[_]+/g, " ").replace(/\s+/g, " ").trim()
+}
+/** The calendar's full label shortened for a line: "98 • 3/4 → MistMorn (Mist-Morn) • 19" → "MistMorn 19"
+ *  (the same rule as RealmScreen's acquaintance.mjs shortDate); "date · place" keeps the place. */
+export function shortWhen(label) {
+  return String(label || "").split(" · ").map((part, i) => {
+    if (i) return part
+    let t = part.replace(/\s*·\s*Hour\b.*$/i, "").trim()
+    if (t.includes("→")) t = t.slice(t.lastIndexOf("→") + 1).trim()
+    return t.replace(/\s*\([^)]*\)/g, "").replace(/\s*•\s*/g, " ").replace(/\s+/g, " ").trim().replace(/ 0(\d)\b/, " $1")
+  }).join(" · ")
+}
 const str = (v) => (typeof v === "string" ? v.trim() : "")
 const arr = (v) => (Array.isArray(v) ? v : [])
 const KIND_ICON = { note: "fa-feather", place: "fa-location-dot", page: "fa-book-open", pic: "fa-image" }
@@ -103,7 +142,7 @@ export async function whisperCampaign({ to, title, text, campaignId } = {}) {
   await ChatMessage.create({
     speaker: { alias: game.user?.name || "GM" },
     whisper: [...ids],
-    content: `<div class="pb-secret-card"><h3><i class="fa-solid fa-key"></i> ${esc(title)}</h3>${text ? `<p>${escNl(text)}</p>` : ""}</div>`,
+    content: `<div class="pb-secret-card"><h3><i class="fa-solid fa-key"></i> ${esc(title)}</h3>${text ? md(text) : ""}</div>`,
     flags: { [MOD]: { secretCard: true, campaignId: str(campaignId) || null } },
   })
   return { ok: true }
@@ -136,7 +175,7 @@ async function syncSecretNotes(pages) {
       const old = entries.get(id)?.ownership || {}
       for (const u of Object.keys(old)) if (u !== "default" && !viewers.includes(u) && !game.users?.get(u)?.isGM) ownership[u] = 0
       const viewKey = (o) => JSON.stringify(Object.entries(o || {}).filter(([u, v]) => u === "default" || (!game.users?.get(u)?.isGM && v > 0)).sort())
-      const content = `<p>${escNl(s.text || "")}</p>`
+      const content = md(s.text || "") || "<p></p>"
       let j = entries.get(id)
       if (!j) {
         j = await JournalEntry.create({ name: `🗝 ${s.title}`, folder: folder?.id ?? null, ownership, flags: { [MOD]: { secretId: id } },
@@ -279,6 +318,12 @@ const clone = (x) => JSON.parse(JSON.stringify(x))
 export const newId = () => (globalThis.foundry?.utils?.randomID?.(16) ?? (Math.random().toString(36).slice(2) + Date.now().toString(36)).slice(0, 16))
 const PENDING_MS = 6000     // how long a change made here is laid over RealmScreen's copy
 const lowFirst = (t) => (t ? t[0].toLowerCase() + t.slice(1) : "")
+const FMT_HINT = "**bold**, *italic*, __underline__, ~~struck~~, and lines starting with “- ” make a list."
+const GOAL_TAGS = { main: { label: "Main", icon: "fa-star" }, side: { label: "Side", icon: "fa-compass" }, urgent: { label: "Urgent", icon: "fa-fire" } }
+// This viewer's own way of looking at Goals (folded goals, compact, hide finished) — only a preference.
+const viewKey = (cid) => `pendant-bridge.goalView.${cid}`
+function readView(cid) { try { return JSON.parse(localStorage.getItem(viewKey(cid)) || "{}") || {} } catch { return {} } }
+function writeView(cid, v) { try { localStorage.setItem(viewKey(cid), JSON.stringify(v)) } catch { /* private mode */ } }
 /** Item / journal HTML → readable text: links and rolls become their words, entities decoded. */
 export function plainText(html, max = 1500) {
   let h = String(html || "")
@@ -329,10 +374,10 @@ function pageClass() {
         addGoal: CampaignPage.#addGoal, editGoal: CampaignPage.#editGoal, goalDone: CampaignPage.#goalDone, step: CampaignPage.#step,
         openStep: CampaignPage.#openStep, renameStep: CampaignPage.#renameStep, dropStep: CampaignPage.#dropStep, addInfo: CampaignPage.#addInfo, editInfo: CampaignPage.#editInfo,
         old: CampaignPage.#old, del: CampaignPage.#del, ptick: CampaignPage.#ptick, peek: CampaignPage.#peek, menu: CampaignPage.#menu,
-        rename: CampaignPage.#rename, oldDone: CampaignPage.#oldDone,
+        rename: CampaignPage.#rename, oldDone: CampaignPage.#oldDone, fold: CampaignPage.#fold, goalView: CampaignPage.#goalView, tagGoal: CampaignPage.#tagGoal,
         // findings
         addPicture: CampaignPage.#addPicture, addNote: CampaignPage.#addNote, openFind: CampaignPage.#openFind, editFind: CampaignPage.#editFind,
-        found: CampaignPage.#found, openDoc: CampaignPage.#openDoc, showPic: CampaignPage.#showPic,
+        found: CampaignPage.#found, openDoc: CampaignPage.#openDoc, showPic: CampaignPage.#showPic, viewPic: CampaignPage.#viewPic,
         // people
         pin: CampaignPage.#pin, hidePerson: CampaignPage.#hidePerson, notePerson: CampaignPage.#notePerson, unmeet: CampaignPage.#unmeet,
         addMet: CampaignPage.#addMet, recent: CampaignPage.#recent,
@@ -644,6 +689,7 @@ function pageClass() {
       } else if (doc?.documentName === "Tile" || data.texture?.src || data.src) find = { kind: "picture", name: doc?.name || "Picture", img: data.texture?.src || data.src || doc?.texture?.src, text: "" }
       if (!find) return ui.notifications?.warn("That can’t be a finding — drop an item, actor, journal or picture.")
       find.id = newId()
+      find.name = niceName(find.name)
       find.hidden = !!ev.altKey          // Alt-drop: keep it for later ("not found yet")
       this.#addFind(find)
     }
@@ -693,7 +739,7 @@ function pageClass() {
         ${pic(x.cover, x.name, "pb-cp-metpic")}
         <div class="pb-cp-metm"><strong>${x.pinned ? `<i class="fa-solid fa-thumbtack"></i> ` : ""}${esc(x.name)}</strong>
           <small>${esc([x.line, x.times > 1 ? `met in ${x.times} sessions` : "", x.first && x.times > 1 ? `first ${x.first}` : ""].filter(Boolean).join(" · "))}</small>
-          ${x.note ? `<p>${escNl(x.note)}</p>` : ""}${gm && x.hidden ? `<small class="pb-cp-wait"><i class="fa-solid fa-eye-slash"></i> hidden from players</small>` : ""}</div>
+          ${x.note ? `<div class="pb-cp-md">${md(x.note)}</div>` : ""}${gm && x.hidden ? `<small class="pb-cp-wait"><i class="fa-solid fa-eye-slash"></i> hidden from players</small>` : ""}</div>
         ${gm ? `<div class="pb-cp-metacts">
           <a data-action="pin" data-id="${esc(x.id)}" data-tooltip="${x.pinned ? "Unpin" : "Pin to the top"}" aria-label="${x.pinned ? "Unpin" : "Pin"}"><i class="fa-solid fa-thumbtack${x.pinned ? "" : " pb-cp-off"}"></i></a>
           <a data-action="hidePerson" data-id="${esc(x.id)}" data-tooltip="${x.hidden ? "Show to players" : "Hide from players"}" aria-label="${x.hidden ? "Show to players" : "Hide from players"}"><i class="fa-solid fa-eye${x.hidden ? "-slash" : ""}"></i></a>
@@ -739,27 +785,37 @@ function pageClass() {
           ${edit && !renaming ? `<a data-action="renameStep" data-id="${esc(x.id)}" data-step="${esc(s.id)}" class="pb-cp-x" data-tooltip="Rename step" aria-label="Rename step"><i class="fa-solid fa-pen"></i></a><a data-action="dropStep" data-id="${esc(x.id)}" data-step="${esc(s.id)}" class="pb-cp-x" data-tooltip="Remove step" aria-label="Remove step"><i class="fa-solid fa-xmark"></i></a>` : ""}</li>`
       }
       const adding = edit && (this.stepOpen === x.id || !!this.drafts?.["s:" + x.id])
-      return `<article class="pb-cp-goal${x.done ? " done" : ""}${edit ? " gm" : ""}" ${edit ? `data-goal="${esc(x.id)}"` : ""}>
+      const view = readView(this.cid)
+      const folded = !!(view.fold || {})[x.id] !== !!view.compact      // compact folds everything; a click unfolds one
+      const tag = GOAL_TAGS[x.tag]
+      const hasBody = !!(x.note || x.steps.length || edit)
+      return `<article class="pb-cp-goal${x.done ? " done" : ""}${edit ? " gm" : ""}${tag ? ` tag-${x.tag}` : ""}${folded ? " folded" : ""}" ${edit ? `data-goal="${esc(x.id)}"` : ""}>
         <div class="pb-cp-grow">${edit ? `<i class="fa-solid fa-grip-vertical pb-cp-grip" data-tooltip="Drag to reorder, or onto another section"></i>` : ""}
           ${gm ? `<input type="checkbox" data-action="goalDone" data-id="${esc(x.id)}" ${x.done ? "checked" : ""} data-tooltip="Done (ticks every step)">` : `<i class="fa-${x.done ? "solid fa-check" : "regular fa-square"} pb-cp-box"></i>`}
-          ${title}${this.#link(x.link, key)}
+          ${title}
+          ${tag ? `<span class="pb-cp-gtag" data-tooltip="${tag.label} goal"><i class="fa-solid ${tag.icon}"></i> ${tag.label}</span>` : ""}
+          ${x.due ? `<span class="pb-cp-gdue" data-tooltip="Due"><i class="fa-solid fa-hourglass-half"></i> ${esc(x.due)}</span>` : ""}
+          ${folded && x.steps.length ? `<span class="pb-cp-r">${d}/${x.steps.length}</span>` : ""}
+          ${this.#link(x.link, key)}
+          ${hasBody ? `<a class="pb-cp-fold" data-action="fold" data-id="${esc(x.id)}" data-tooltip="${folded ? "Show details" : "Fold away"}" aria-expanded="${!folded}"><i class="fa-solid fa-chevron-${folded ? "down" : "up"}"></i></a>` : ""}
           ${gm ? this.#more(key, [
             `<a data-action="editGoal" data-id="${esc(x.id)}"><i class="fa-solid fa-pen"></i> Edit details…</a>`,
+            ...Object.entries(GOAL_TAGS).map(([k, v]) => `<a data-action="tagGoal" data-id="${esc(x.id)}" data-tag="${x.tag === k ? "" : k}"><i class="fa-solid ${v.icon}"></i> ${x.tag === k ? `Untag ${v.label}` : `Tag ${v.label}`}</a>`),
             `<a data-action="old" data-area="goal" data-id="${esc(x.id)}" data-old="${x.old ? "0" : "1"}"><i class="fa-solid fa-box-archive"></i> ${x.old ? "Bring back" : "Move to Old"}</a>`,
             `<a data-action="del" data-area="goal" data-id="${esc(x.id)}" class="pb-cp-danger"><i class="fa-solid fa-trash"></i> Delete for good</a>`]) : ""}</div>
-        <div class="pb-cp-gbody">
-          ${x.note ? `<p class="pb-cp-gnote">${escNl(x.note)}</p>` : ""}
+        ${folded ? "" : `<div class="pb-cp-gbody">
+          ${x.note ? `<div class="pb-cp-gnote pb-cp-md">${md(x.note)}</div>` : ""}
           ${this.#peekBox(x.link, key)}
           ${x.steps.length ? `<div class="pb-cp-gprog"><div class="pb-cp-gbar"><i style="width:${pct}%"></i></div><span>${d}/${x.steps.length}</span></div>
             <ul class="pb-cp-steps">${x.steps.map(step).join("")}</ul>` : ""}
           ${adding ? `<div class="pb-cp-quick step"><i class="fa-solid fa-plus"></i><input type="text" data-draft="s:${esc(x.id)}" data-enter="quickStep" data-id="${esc(x.id)}" placeholder="A step… (Enter adds, Esc closes)" value="${esc(this.drafts?.["s:" + x.id] || "")}"></div>`
             : edit ? `<a class="pb-cp-addstep" data-action="openStep" data-id="${esc(x.id)}"><i class="fa-solid fa-plus"></i> ${x.steps.length ? "Step" : "Add steps"}</a>` : ""}
-        </div>
+        </div>`}
       </article>`
     }
     #infoCard(x, gm) {
       const key = "info:" + x.id
-      return `<article class="pb-cp-goal pb-cp-info"><div class="pb-cp-grow"><i class="fa-solid fa-diamond pb-cp-gem"></i><span class="pb-cp-gt">${escNl(x.text)}</span>${this.#link(x.link, key)}
+      return `<article class="pb-cp-goal pb-cp-info"><div class="pb-cp-grow"><i class="fa-solid fa-diamond pb-cp-gem"></i><div class="pb-cp-gt pb-cp-md">${md(x.text)}</div>${this.#link(x.link, key)}
         ${gm ? this.#more(key, [
           `<a data-action="editInfo" data-id="${esc(x.id)}"><i class="fa-solid fa-pen"></i> Edit</a>`,
           `<a data-action="old" data-area="info" data-id="${esc(x.id)}" data-old="${x.old ? "0" : "1"}"><i class="fa-solid fa-box-archive"></i> ${x.old ? "Bring back" : "Move to Old"}</a>`,
@@ -779,12 +835,15 @@ function pageClass() {
       const whoHas = new Set(live.map(x => x.who))
       const order = [...chars].sort((a, b) => (b === me) - (a === me))
       const sections = [["party", "Party goals"], ...order.filter(n => whoHas.has(n) || this.addFor === n).map(n => [n, n === me ? "Your goals" : `${n}’s goals`])]
+      const view = readView(this.cid)
       const quick = (who) => `<div class="pb-cp-quick"><i class="fa-solid fa-plus"></i><input type="text" data-draft="g:${esc(who)}" data-enter="quickGoal" data-who="${esc(who)}" placeholder="Add a goal${who === "party" ? "" : ` for ${esc(who)}`}… (Enter)" value="${esc(this.drafts?.["g:" + who] || "")}"></div>`
       const sec = ([who, title]) => {
         const list = live.filter(x => x.who === who)
         if (!gm && !list.length) return ""
         const done = list.filter(x => x.done).length   // (a goal is done when it's ticked; ticking all its steps ticks it)
-        const sorted = [...list.filter(x => !x.done), ...list.filter(x => x.done)]   // finished ones sink
+        const rank = (x) => (x.tag === "urgent" ? 0 : x.tag === "main" ? 1 : 2)        // urgent, then main, then the rest
+        const shown = view.hideDone ? list.filter(x => !x.done) : list
+        const sorted = [...shown.filter(x => !x.done).sort((a, b) => rank(a) - rank(b)), ...shown.filter(x => x.done)]   // finished ones sink
         return `<section class="pb-cp-gsec" data-who="${esc(who)}"><h3 class="pb-cp-h">${esc(title)}${list.length ? `<small>${done}/${list.length} done</small>` : ""}</h3>
           ${sorted.map(x => this.#goalCard(x, gm, p.ptick)).join("") || (gm ? "" : `<p class="hint">Nothing yet.</p>`)}
           ${gm ? quick(who) : ""}</section>`
@@ -792,11 +851,13 @@ function pageClass() {
       const doneLive = live.filter(x => x.done).length
       const missing = chars.filter(n => !whoHas.has(n) && this.addFor !== n)
       const liveInfo = info.filter(x => !x.old)
-      return `${gm ? `<div class="pb-cp-row pb-cp-tools">
+      const viewOpts = `<label class="pb-cp-opt"><input type="checkbox" data-action="goalView" data-key="compact" ${view.compact ? "checked" : ""}> Compact</label>
+          <label class="pb-cp-opt"><input type="checkbox" data-action="goalView" data-key="hideDone" ${view.hideDone ? "checked" : ""}> Hide finished${live.some(x => x.done) ? ` (${live.filter(x => x.done).length})` : ""}</label>`
+      return `${gm ? "" : `<div class="pb-cp-row pb-cp-view">${viewOpts}</div>`}${gm ? `<div class="pb-cp-row pb-cp-tools">
           ${missing.length ? `<select data-enter="addFor" data-tooltip="Start goals for a character"><option value="">Add goals for…</option>${missing.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join("")}</select>` : ""}
           <button type="button" data-action="addGoal" data-who="party" data-tooltip="A goal with steps, notes and a Codex link"><i class="fa-solid fa-list-check"></i> Detailed goal…</button>
           ${doneLive ? `<button type="button" data-action="oldDone"><i class="fa-solid fa-box-archive"></i> Put finished away (${doneLive})</button>` : ""}
-          <label class="pb-cp-opt pb-cp-push"><input type="checkbox" data-action="ptick" ${p.ptick ? "checked" : ""}> Players can tick steps</label></div>` : ""}
+          <span class="pb-cp-push pb-cp-view">${viewOpts}<label class="pb-cp-opt"><input type="checkbox" data-action="ptick" ${p.ptick ? "checked" : ""}> Players can tick steps</label></span></div>` : ""}
         ${sections.map(sec).join("")}
         <section class="pb-cp-gsec"><h3 class="pb-cp-h">Information <small>things worth remembering</small></h3>
           ${liveInfo.length ? `<div class="pb-cp-infogrid">${liveInfo.map(x => this.#infoCard(x, gm)).join("")}</div>` : gm ? "" : `<p class="hint">Nothing yet.</p>`}
@@ -808,11 +869,10 @@ function pageClass() {
     // ── Findings ──
     #finds(p, gm) {
       const all = arr(p.finds).filter(f => gm || !f.hidden)
-      const fitCls = (f) => (f.kind === "picture" ? "" : "fit")     // icons and portraits are shown whole
-      const tile = (f) => `<a class="pb-cp-find${f.hidden ? " pb-cp-concealed" : ""}${this.openFindId === f.id ? " active" : ""}" data-action="openFind" data-id="${esc(f.id)}">
+      const tile = (f) => `<a class="pb-cp-find${f.hidden ? " pb-cp-concealed" : ""}${this.openFindId === f.id ? " active" : ""}" data-action="openFind" data-id="${esc(f.id)}" data-tooltip="${esc(niceName(f.name))}">
         <span class="pb-cp-fk">${esc(FIND_NAME[f.kind] || f.kind)}</span>
-        <span class="pb-cp-fimg">${f.img ? img(f.img, fitCls(f)) : `<i class="fa-solid ${FIND_ICON[f.kind] || "fa-gem"}"></i>`}${f.hidden ? `<span class="pb-cp-fh"><i class="fa-solid fa-eye-slash"></i> Not found yet</span>` : ""}</span>
-        <span class="pb-cp-fb"><strong>${esc(f.name)}</strong>${f.where ? `<small>${esc(f.where)}</small>` : ""}</span></a>`
+        <span class="pb-cp-fimg">${f.img ? img(f.img, "fit") : `<i class="fa-solid ${FIND_ICON[f.kind] || "fa-gem"}"></i>`}${f.hidden ? `<span class="pb-cp-fh"><i class="fa-solid fa-eye-slash"></i> Not found yet</span>` : ""}</span>
+        <span class="pb-cp-fb"><strong>${esc(niceName(f.name))}</strong>${f.where ? `<small>${esc(shortWhen(f.where))}</small>` : ""}</span></a>`
       const f = all.find(x => x.id === this.openFindId)
       const key = f ? "find:" + f.id : ""
       const canOpen = (x) => {
@@ -820,9 +880,12 @@ function pageClass() {
         if (game.user?.isGM) return true
         try { const d = fromUuidSync?.(x.uuid); return !!d && (d.testUserPermission?.(game.user, "LIMITED") ?? d.visible ?? true) } catch { return false }
       }
-      const detail = f ? `<div class="pb-cp-detail"><span class="pb-cp-dimg">${f.img ? img(f.img, fitCls(f)) : `<i class="fa-solid ${FIND_ICON[f.kind] || "fa-gem"}"></i>`}</span>
-        <div class="pb-cp-dm"><strong>${esc(f.name)}</strong><small>${esc([FIND_NAME[f.kind], f.holder ? `${f.holder} carries it` : "", f.where ? `found ${f.where}` : f.hidden ? "not found yet" : ""].filter(Boolean).join(" · "))}</small>
-          ${f.text ? `<p>${escNl(f.text)}</p>` : ""}${f.link ? `<div>${this.#link(f.link, key)}</div>${this.#peekBox(f.link, key)}` : ""}
+      const detail = f ? `<div class="pb-cp-detail${f.img ? " has-img" : ""}">${f.img
+          ? `<a class="pb-cp-dimg" data-action="viewPic" data-src="${esc(f.img)}" data-name="${esc(niceName(f.name))}" data-tooltip="Click to see it bigger">${img(f.img, "fit")}<span class="pb-cp-zoom"><i class="fa-solid fa-magnifying-glass-plus"></i></span></a>`
+          : `<span class="pb-cp-dimg"><i class="fa-solid ${FIND_ICON[f.kind] || "fa-gem"}"></i></span>`}
+        <div class="pb-cp-dm"><strong>${esc(niceName(f.name))}</strong>
+          <div class="pb-cp-dmeta"><span>${esc(FIND_NAME[f.kind] || "")}</span>${f.holder ? `<span><i class="fa-solid fa-hand-holding"></i> ${esc(f.holder)} carries it</span>` : ""}${f.where ? `<span><i class="fa-solid fa-location-dot"></i> found ${esc(shortWhen(f.where))}</span>` : f.hidden ? `<span><i class="fa-solid fa-eye-slash"></i> not found yet</span>` : ""}</div>
+          ${f.text ? `<div class="pb-cp-md pb-cp-dtext">${md(f.text)}</div>` : ""}${f.link ? `<div>${this.#link(f.link, key)}</div>${this.#peekBox(f.link, key)}` : ""}
           <div class="pb-cp-row">${canOpen(f) ? `<button type="button" data-action="openDoc" data-id="${esc(f.id)}"><i class="fa-solid fa-up-right-from-square"></i> Open</button>` : ""}
             ${f.img && gm && !f.hidden && (f.kind === "picture" || f.kind === "journal") ? `<button type="button" data-action="showPic" data-id="${esc(f.id)}"><i class="fa-solid fa-eye"></i> Show to players</button>` : ""}
             ${gm ? `<button type="button" data-action="found" data-id="${esc(f.id)}">${f.hidden ? `<i class="fa-solid fa-flag-checkered"></i> Mark found` : `<i class="fa-solid fa-eye-slash"></i> Hide again`}</button>
@@ -860,9 +923,9 @@ function pageClass() {
           : [esc(whoLine(s, me, (id) => s.toNames?.[id] || userName(id))), mine && s.given?.label ? `Learned: ${esc(s.given.label)}` : ""]
         const isNew = !gm && (!arr(s.seen).includes(me) || this.freshIds?.has(s.id))
         const tags = [isNew ? `<span class="pb-cp-new">New</span>` : "", gm && s.share ? `<span class="pb-cp-tag">can share</span>` : "", (s.revealed || arr(s.shown).length) ? `<span class="pb-cp-tag">party knows</span>` : ""].join("")
-        const body = s.kind === "pic" && s.img ? `<img class="pb-cp-handout" src="${esc(s.img)}" alt="">${s.text ? `<p>${escNl(s.text)}</p>` : ""}`
-          : s.kind === "page" ? `<div class="pb-cp-pagesec">${s.img ? `<img src="${esc(s.img)}" alt="">` : ""}<div><strong>${esc(s.page?.name || "")}</strong>${s.text ? `<p>${escNl(s.text)}</p>` : ""}</div></div>`
-          : s.text ? `<p>${escNl(s.text)}</p>` : ""
+        const body = s.kind === "pic" && s.img ? `<a data-action="viewPic" data-src="${esc(s.img)}" data-name="${esc(s.title)}" data-tooltip="Click to see it bigger"><img class="pb-cp-handout" src="${esc(s.img)}" alt=""></a>${s.text ? `<div class="pb-cp-md">${md(s.text)}</div>` : ""}`
+          : s.kind === "page" ? `<div class="pb-cp-pagesec">${s.img ? `<img src="${esc(s.img)}" alt="">` : ""}<div><strong>${esc(s.page?.name || "")}</strong>${s.text ? `<div class="pb-cp-md">${md(s.text)}</div>` : ""}</div></div>`
+          : s.text ? `<div class="pb-cp-md">${md(s.text)}</div>` : ""
         return `<article class="pb-cp-sec ${s.state === "waiting" ? "waiting" : (s.revealed || arr(s.shown).length) ? "shared" : ""}">
           <i class="fa-solid ${KIND_ICON[s.kind] || "fa-key"} pb-cp-kind" title="${esc(KIND_NAME[s.kind] || "")}"></i>
           <div class="pb-cp-secm"><div class="pb-cp-sect">${esc(s.title)} ${tags}</div>${body}
@@ -895,7 +958,7 @@ function pageClass() {
         ${c.kind === "page" ? row("Which page", `<input type="text" name="cPage" value="${esc(c.page || "")}" placeholder="The page’s name in RealmScreen, e.g. Captain Dorn">`) : ""}
         ${c.kind === "pic" ? row("Picture", `${c.img ? `<img class="pb-cp-av" src="${esc(c.img)}" alt="">` : ""}<button type="button" data-action="pickImage"><i class="fa-solid fa-file-image"></i> ${c.img ? "Change" : "Choose"}…</button>`) : ""}
         ${c.kind === "place" ? row("Spot", `<span class="hint">${c.place ? `${esc(c.place.sceneName || "This scene")} · placed` : "Not placed yet"}</span><button type="button" data-action="pickSpot"><i class="fa-solid fa-location-dot"></i> ${c.place ? "Move" : "Pick a spot on this scene"}</button>`) : ""}
-        <div class="form-group stacked"><label>${c.kind === "pic" ? "What it says (optional)" : c.kind === "page" ? "What they learn from it (optional)" : "What they learn"}</label><textarea name="cText" rows="3" placeholder="Write it the way they’d hear it">${esc(c.text || "")}</textarea></div>
+        <div class="form-group stacked"><label>${c.kind === "pic" ? "What it says (optional)" : c.kind === "page" ? "What they learn from it (optional)" : "What they learn"}</label><textarea name="cText" rows="4" placeholder="Write it the way they’d hear it">${esc(c.text || "")}</textarea><p class="hint">${FMT_HINT}</p></div>
         ${given ? "" : row("When", `<div class="pb-cp-opts col">
           ${radio("cWhen", "now", editing ? "Now (send it)" : "Now", c.when === "now")}
           ${radio("cWhen", "session", "When the next session starts", c.when === "session")}
@@ -1019,9 +1082,11 @@ function pageClass() {
       return formDialog(x ? "Edit goal" : "New goal", [
         field("Goal", `<input type="text" name="text" value="${esc(x?.text || "")}" placeholder="e.g. Deliver the seal to Harrowgate" autofocus>`),
         field("For", `<select name="who">${opts}</select>`),
+        field("Tag", `<select name="tag"><option value="">None</option>${Object.entries(GOAL_TAGS).map(([k, v]) => `<option value="${k}" ${x?.tag === k ? "selected" : ""}>${v.label}</option>`).join("")}</select>`, "Urgent goals sit first, then Main ones."),
+        field("Due", `<input type="text" name="due" value="${esc(x?.due || "")}" placeholder="Optional — e.g. before the assizes, 20 Emberfall">`),
         // Steps are edited on the card itself (tick, rename, remove, add) — so they keep who ticked what.
         x ? "" : field("Steps", `<textarea name="steps" rows="4" placeholder="One per line (optional) — a checklist under the goal"></textarea>`),
-        field("Notes", `<textarea name="note" rows="3" placeholder="Optional">${esc(x?.note || "")}</textarea>`, "Players see this."),
+        field("Notes", `<textarea name="note" rows="4" placeholder="Optional">${esc(x?.note || "")}</textarea>`, `Players see this. ${FMT_HINT}`),
         field("Codex page", `<input type="text" name="link" value="${esc(x?.link?.name || "")}" placeholder="Optional — a page's name in RealmScreen">`, "Leave empty for no link."),
       ].join(""), x ? "Save" : "Add goal")
     }
@@ -1030,8 +1095,8 @@ function pageClass() {
       if (!f || !str(f.text)) return
       const id = newId()
       const steps = String(f.steps || "").split("\n").map(s => s.trim()).filter(Boolean).map(text => ({ id: newId(), text, done: false }))
-      this.act("goal.add", { goal: { id, text: f.text, who: f.who, note: f.note, steps, link: str(f.link) } },
-        (c) => { c.goals = arr(c.goals); if (!c.goals.some(g => g.id === id)) c.goals.push({ id, who: f.who, text: f.text, note: f.note, done: false, old: false, link: str(f.link) ? { name: f.link } : null, steps: steps.map(s => ({ ...s })) }) })
+      this.act("goal.add", { goal: { id, text: f.text, who: f.who, note: f.note, tag: f.tag, due: f.due, steps, link: str(f.link) } },
+        (c) => { c.goals = arr(c.goals); if (!c.goals.some(g => g.id === id)) c.goals.push({ id, who: f.who, text: f.text, note: f.note, tag: f.tag || "", due: str(f.due), done: false, old: false, link: str(f.link) ? { name: f.link } : null, steps: steps.map(s => ({ ...s })) }) })
     }
     static async #editGoal(e, t) {
       this.menuKey = null
@@ -1039,9 +1104,9 @@ function pageClass() {
       if (!x) return this.render()
       const f = await this.#goalForm(x)
       if (!f || !str(f.text)) return this.render()
-      const goal = { text: f.text, who: f.who, note: f.note }
+      const goal = { text: f.text, who: f.who, note: f.note, tag: f.tag || "", due: str(f.due) }
       if (str(f.link) !== str(x.link?.name)) goal.link = str(f.link)     // only a changed link is looked up again
-      this.act("goal.edit", { id: x.id, goal }, (c) => { const g = c.goals.find(g => g.id === x.id); if (g) Object.assign(g, { text: f.text, who: f.who, note: f.note }, "link" in goal ? { link: goal.link ? { ...(x.link || {}), name: goal.link } : null } : {}) })
+      this.act("goal.edit", { id: x.id, goal }, (c) => { const g = c.goals.find(g => g.id === x.id); if (g) Object.assign(g, { text: f.text, who: f.who, note: f.note, tag: goal.tag, due: goal.due }, "link" in goal ? { link: goal.link ? { ...(x.link || {}), name: goal.link } : null } : {}) })
     }
     static #goalDone(e, t) {
       const done = !!t.checked
@@ -1061,7 +1126,7 @@ function pageClass() {
     }
     async #infoForm(x) {
       return formDialog(x ? "Edit information" : "Something worth remembering", [
-        field("What", `<textarea name="text" rows="3" autofocus>${esc(x?.text || "")}</textarea>`),
+        field("What", `<textarea name="text" rows="4" autofocus>${esc(x?.text || "")}</textarea>`, FMT_HINT),
         field("Codex page", `<input type="text" name="link" value="${esc(x?.link?.name || "")}" placeholder="Optional — a page's name in RealmScreen">`, "Leave empty for no link."),
       ].join(""), x ? "Save" : "Add")
     }
@@ -1095,6 +1160,25 @@ function pageClass() {
       if (area === "find") this.openFindId = null
       this.act(`${area}.remove`, { id }, (c) => { const k = area === "goal" ? "goals" : area === "info" ? "info" : "finds"; c[k] = c[k].filter(x => x.id !== id) })
     }
+    static #fold(e, t) {
+      const v = readView(this.cid)
+      v.fold = { ...(v.fold || {}) }
+      if (v.fold[t.dataset.id]) delete v.fold[t.dataset.id]; else v.fold[t.dataset.id] = true
+      writeView(this.cid, v)
+      this.render()
+    }
+    static #goalView(e, t) {
+      const v = readView(this.cid)
+      v[t.dataset.key] = !!t.checked
+      if (t.dataset.key === "compact") v.fold = {}       // a fresh start for the per-goal folds
+      writeView(this.cid, v)
+      this.render()
+    }
+    static #tagGoal(e, t) {
+      this.menuKey = null
+      const id = t.dataset.id, tag = t.dataset.tag || ""
+      this.act("goal.edit", { id, goal: { tag } }, (c) => { const g = c.goals.find(g => g.id === id); if (g) g.tag = tag })
+    }
     static #rename(e, t) { this.renaming = t.dataset.id; this.focusNext = "input.pb-cp-rename"; this.render() }
     static #oldDone() {
       const ids = arr(this.page?.goals).filter(x => x.done && !x.old).map(x => x.id)
@@ -1112,7 +1196,7 @@ function pageClass() {
         extra,
         field("Name", `<input type="text" name="name" value="${esc(x?.name || "")}" autofocus>`),
         field("Who carries it", `<input type="text" name="holder" value="${esc(x?.holder || "")}" list="pb-cp-holders" placeholder="Optional"><datalist id="pb-cp-holders">${party.map(n => `<option value="${esc(n)}">`).join("")}</datalist>`),
-        field("Notes", `<textarea name="text" rows="3">${esc(x?.text || "")}</textarea>`),
+        field("Notes", `<textarea name="text" rows="6">${esc(x?.text || "")}</textarea>`, FMT_HINT),
         field("Codex page", `<input type="text" name="link" value="${esc(x?.link?.name || "")}" placeholder="Optional">`),
         x?.id ? "" : field("Found yet?", `<select name="hidden"><option value="">Yes — players see it now</option><option value="1">Not yet — keep it for later</option></select>`),
       ].join(""), x?.id ? "Save" : "Add")
@@ -1121,7 +1205,7 @@ function pageClass() {
       const FP = foundry?.applications?.apps?.FilePicker?.implementation ?? globalThis.FilePicker
       const path = await new Promise((res) => new FP({ type: "image", callback: res }).render(true))
       if (!path) return
-      const f = await this.#findForm({ name: String(path).split("/").pop().replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ") }, `<img class="pb-cp-dlgimg" src="${esc(path)}" alt="">`)
+      const f = await this.#findForm({ name: niceName(String(path).split("/").pop()).replace(/-+/g, " ") }, `<img class="pb-cp-dlgimg" src="${esc(path)}" alt="">`)
       if (!f) return
       this.#addFind({ kind: "picture", img: path, ...f })
     }
@@ -1167,11 +1251,16 @@ function pageClass() {
       if (doc.documentName === "JournalEntryPage" && doc.parent?.sheet) return doc.parent.sheet.render(true, { pageId: doc.id })
       doc.sheet?.render(true)
     }
+    static #viewPic(e, t) {
+      const IP = foundry?.applications?.apps?.ImagePopout ?? globalThis.ImagePopout
+      if (!IP || !t.dataset.src) return
+      new IP({ src: t.dataset.src, window: { title: t.dataset.name || "Picture" } }).render(true)
+    }
     static #showPic(e, t) {
       const x = this.#find("find", t.dataset.id)
       if (!x?.img) return
       const IP = foundry?.applications?.apps?.ImagePopout ?? globalThis.ImagePopout
-      const pop = new IP({ src: x.img, window: { title: x.name }, uuid: x.uuid || undefined })
+      const pop = new IP({ src: x.img, window: { title: niceName(x.name) }, uuid: x.uuid || undefined })
       pop.render(true)
       pop.shareImage?.()
     }
@@ -1188,7 +1277,7 @@ function pageClass() {
     }
     static async #notePerson(e, t) {
       const x = this.#person(t.dataset.id); if (!x) return
-      const f = await formDialog(`What the party knows: ${x.name}`, field("Note", `<textarea name="text" rows="3" autofocus placeholder="Players see this under their name">${esc(x.note || "")}</textarea>`))
+      const f = await formDialog(`What the party knows: ${x.name}`, field("Note", `<textarea name="text" rows="4" autofocus placeholder="Players see this under their name">${esc(x.note || "")}</textarea>`, FMT_HINT))
       if (!f) return
       this.act("people.note", { personId: x.id, text: f.text }, (c) => { c.overview.people.find(p => p.id === x.id).note = str(f.text) })
     }
