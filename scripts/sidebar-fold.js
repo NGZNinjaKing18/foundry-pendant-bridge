@@ -1,10 +1,10 @@
 // ──────────────────────────────────────────────────────────────
-// Sidebar fold — tuck some sidebar tabs away for players.
+// Sidebar fold — tuck some sidebar tabs away (GM and players alike).
 //
 // While RealmScreen is connected (the same `clockLive` rule the clock dial
-// uses), a player's sidebar tab strip shows the folded tabs only behind one
-// "More" button. Clicking it opens the group in place; clicking again closes
-// it. The GM always sees every tab. Not connected = stock Foundry.
+// uses), the sidebar tab strip shows the folded tabs only behind one "More"
+// button — for players and the GM. Clicking it opens the group in place;
+// clicking again closes it. Not connected = stock Foundry.
 //
 // Which tabs fold is a world setting the GM picks in Module Settings ▸
 // "Folded sidebar tabs". Until the GM saves a pick, the built-in pick is used
@@ -24,7 +24,7 @@ const OPEN_KEY = `${MOD}.sidebarFoldOpen`
 // The built-in pick: core tab ids, plus module tabs found by id or tooltip.
 export const DEFAULT_IDS = ["items", "tables", "cards", "macros", "playlists"]
 const DEFAULT_MATCH = /dice|convers/i
-const NEVER = new Set(["chat", "settings"])   // a player always keeps these
+const NEVER = new Set(["chat", "settings"])   // always kept on the strip
 
 /**
  * The tab ids to fold.
@@ -107,7 +107,7 @@ function watch() {
 
 function fold(menu) {
   unfold(menu)
-  if (game.user?.isGM || !realmLive()) return
+  if (!realmLive()) return
 
   const tabs = stripTabs(menu)
   const folded = new Set(pickFolded(tabs, readSaved()))
@@ -190,7 +190,7 @@ function makeMenuClass() {
         `<div class="form-fields"><input type="checkbox" id="pb-fold-${esc(t.id)}" name="${esc(t.id)}" ${picked.has(t.id) ? "checked" : ""}></div></div>`).join("")
       const el = document.createElement("div")
       el.innerHTML =
-        `<p class="hint">Ticked tabs sit behind one “More” button on players’ sidebars while RealmScreen is connected. You always see every tab. It only tidies — a folded tab is still reachable.</p>` +
+        `<p class="hint">Ticked tabs sit behind one “More” button on every sidebar (yours and players’) while RealmScreen is connected. It only tidies — a folded tab is still reachable.</p>` +
         `<fieldset>${rows || `<p class="hint">No sidebar tabs found.</p>`}</fieldset>` +
         `<footer class="form-footer"><button type="button" data-action="resetDefault"><i class="fa-solid fa-rotate-left"></i><span>Built-in pick</span></button>` +
         `<button type="submit"><i class="fa-solid fa-floppy-disk"></i><span>Save</span></button></footer>`
@@ -226,7 +226,7 @@ Hooks.once("init", () => {
     game.settings.registerMenu(MOD, `${KEY}Menu`, {
       name: "Folded sidebar tabs",
       label: "Choose tabs",
-      hint: "While RealmScreen is connected, players see these sidebar tabs only behind a “More” button.",
+      hint: "While RealmScreen is connected, these sidebar tabs sit behind a “More” button — for you and for players.",
       icon: "fa-solid fa-ellipsis",
       type,
       restricted: true,

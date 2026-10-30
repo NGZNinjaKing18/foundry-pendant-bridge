@@ -22,7 +22,7 @@ import {
 import { setLook, previewLook, currentLook } from "./look.js"
 import { beginStats, collectStats } from "./boxscore.js"
 import { setClock, currentClock, setClockSender, setClockLive } from "./clock.js"
-import {} from "./sidebar-fold.js"   // folds some sidebar tabs for players
+import {} from "./sidebar-fold.js"   // folds some sidebar tabs while RealmScreen is connected
 import {} from "./scene-control.js"  // the RealmScreen (DM screen) control set
 import { setCampaigns, noteCampaigns, setCampaignSender } from "./campaigns.js"
 import { setPages, whisperCampaign } from "./campaign-page.js"

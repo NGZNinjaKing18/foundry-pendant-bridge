@@ -521,7 +521,7 @@
 body.pb-look .application .window-resize-handle { cursor: var(--cursor-nwse-resize, nwse-resize); }
 body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-resize); }
 
-/* Sidebar fold (sidebar-fold.js): players' folded tabs sit in a group under the
+/* Sidebar fold (sidebar-fold.js): folded tabs (GM + players) sit in a group under the
    "More" button. The inner list stacks like the strip itself (same 8px gap). */
 #sidebar-tabs .pb-fold-group { list-style: none; }
 #sidebar-tabs .pb-fold-group[hidden] { display: none; }
