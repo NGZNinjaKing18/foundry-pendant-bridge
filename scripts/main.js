@@ -31,6 +31,7 @@ import { syncParty, syncTrails, partyMovedHook, setPartySender, partySwitch, par
 import { timelineStatus, applyFromRealm, broadcastFromRealm, isTimelineWriter } from "./timeline.js"
 import { setMapBuilders, mapViewsState, mapViewsSet, mapSend, mapViewsEdit, mapRemove, mapReveal } from "./mapviews.js"
 import {} from "./realm-layer.js"   // draws the sent World Map itself (records in flags.realm)
+import { seeing } from "./my-view.js"   // each account's own eye switches (the grid overlay obeys "grid")
 
 const MOD = "pendant-bridge"
 const FS_LEDGER = "fileSortLedger"
@@ -6683,7 +6684,8 @@ function ovlCellPoly(g, cx, cy) {
 
 function ovlGetPayload(scene) { try { return scene?.getFlag(MOD, "overlay") || null } catch { return null } }
 function ovlShared(scene) { try { return scene?.getFlag(MOD, "overlayShared") === true } catch { return false } }
-function ovlVisible(scene) { return ovlShared(scene) || (game.user?.isGM && ovlState.localShow) }
+// …and only while this account hasn't switched the grid off with the eye (scripts/my-view.js).
+function ovlVisible(scene) { return seeing("grid") && (ovlShared(scene) || (game.user?.isGM && ovlState.localShow)) }
 function ovlParent() { return canvas?.interface || canvas?.stage || null }
 
 function ovlEnsureLayer() {
@@ -6814,6 +6816,7 @@ async function ovlCycle() {
 function ovlInit() {
   Hooks.on("canvasReady", () => { ovlState.layer = null; ovlScheduleDraw(); ovlUpdateToggle() })
   Hooks.on("canvasPan", () => ovlScheduleDraw())
+  Hooks.on("pendantGridSeen", () => ovlScheduleDraw())
   Hooks.on("canvasTearDown", () => { ovlState.layer = null })
   Hooks.on("updateScene", (scene, changes) => {
     if (!scene?.active) return

@@ -42,14 +42,14 @@ export function realmControl() {
         button: true,
         onChange: () => { openCampaigns() },   // scripts/campaigns.js
       },
-      // Everyone's own: switch the grid, nation borders and roads off / on for yourself (scripts/my-view.js).
+      // Everyone's own: a column of switches for the grid, nation borders and roads (scripts/my-view.js).
       views: {
         name: "views",
         order: 2,
         title: "Views",
         icon: "fa-solid fa-eye",
         button: true,
-        onChange: () => { openMyView() },
+        onChange: (event) => { openMyView(event) },
       },
       // The GM's: which of the World Map views players see, and what RealmScreen sent (scripts/mapviews-ui.js).
       mapViews: {

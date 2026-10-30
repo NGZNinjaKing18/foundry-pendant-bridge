@@ -958,3 +958,17 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
 .pb-mv-range.pb-mv-nation { grid-template-columns: 80px 1fr 42px 14px; margin: 0; }
 .pb-mv-nation label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pb-mv-nation a { color: var(--color-text-secondary, inherit); }
+
+/* Views (scripts/my-view.js): the eye's column of switches — Foundry's own control buttons, beside the eye.
+   Lit (.active) = showing; off = dimmed. */
+.pb-see {
+  position: fixed; z-index: calc(var(--z-index-ui, 60) + 1);
+  display: flex; flex-direction: column; gap: 8px;
+  margin: 0; padding: 0; list-style: none; pointer-events: auto;
+}
+.pb-see li { list-style: none; }
+.pb-see button[data-see]:not(.active) { opacity: .55; }
+@media (prefers-reduced-motion: no-preference) {
+  .pb-see { animation: pb-see-in .12s ease-out; }
+  @keyframes pb-see-in { from { opacity: 0; transform: translateX(-4px); } }
+}
