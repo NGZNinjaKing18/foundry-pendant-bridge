@@ -679,7 +679,7 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
 .pb-campaign-page .pb-cp-people { display: flex; flex-direction: column; gap: 0.6rem; padding-top: 0.6rem; border-top: 1px solid var(--color-border); }
 .pb-campaign-page .pb-cp-metgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 0.5rem; }
 .pb-campaign-page .pb-cp-met { position: relative; display: flex; gap: 0.6rem; padding: 0.45rem; border: 1px solid var(--color-border); border-radius: 4px; background: var(--pb-cp-well); }
-.pb-campaign-page .pb-cp-met.hidden { opacity: 0.55; border-style: dashed; }
+.pb-campaign-page .pb-cp-met.pb-cp-concealed { opacity: 0.55; border-style: dashed; }
 .pb-campaign-page .pb-cp-met.pinned { border-color: var(--pb-cp-accent); }
 .pb-campaign-page .pb-cp-metpic { width: 2.6rem; height: 2.6rem; object-fit: cover; object-position: top; border-radius: 3px; border: 1px solid var(--color-border); flex: none; }
 .pb-campaign-page .pb-cp-metm { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
@@ -743,7 +743,8 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
 .pb-campaign-page .pb-cp-fgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: 0.5rem; }
 .pb-campaign-page .pb-cp-oldin .pb-cp-fgrid, .pb-campaign-page .pb-cp-oldin > .pb-cp-find { display: grid; }
 .pb-campaign-page .pb-cp-find { position: relative; display: flex; flex-direction: column; border: 1px solid var(--color-border); border-radius: 4px; overflow: hidden; background: var(--pb-cp-well); }
-.pb-campaign-page .pb-cp-find.hidden { opacity: 0.6; border-style: dashed; }
+.pb-campaign-page .pb-cp-find.pb-cp-concealed { border-style: dashed; }
+.pb-campaign-page .pb-cp-find.pb-cp-concealed .pb-cp-fimg { opacity: 0.55; }
 .pb-campaign-page .pb-cp-find.active, .pb-campaign-page .pb-cp-find:hover { border-color: var(--color-border-highlight, var(--pb-cp-accent)); }
 .pb-campaign-page .pb-cp-fimg { height: 6rem; display: grid; place-items: center; font-size: 2rem; color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border); overflow: hidden; }
 .pb-campaign-page .pb-cp-fimg img { width: 100%; height: 100%; object-fit: cover; border: 0; }
@@ -788,6 +789,78 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
 .pb-campaign-page .pb-cp-in { width: 9rem; flex: none; }
 .pb-campaign-page .pb-cp-in.num { width: 3.5rem; }
 .pb-campaign-page .pb-cp-comp textarea { width: 100%; }
+/* ── round 2 (the four reviews, 2026-10-29) ──
+   NB: never use the class "hidden" here — Foundry's core stylesheet hides it for everyone (the GM too). */
+/* header: buttons under the emblem, not over its art */
+.pb-campaign-page .pb-cp-emblem { position: static; width: auto; height: auto; display: flex; flex-direction: column; align-items: center; gap: 0.35rem; font-size: inherit; }
+.pb-campaign-page .pb-cp-emb { width: 5rem; height: 5rem; display: grid; place-items: center; font-size: 3rem; color: var(--color-text-emphatic); }
+.pb-campaign-page .pb-cp-emb > img { width: 100%; height: 100%; object-fit: contain; border: 0; }
+.pb-campaign-page .pb-cp-sqs { position: static; }
+.pb-campaign-page .pb-cp-sq:not(.on) i.fa-link { opacity: 0.55; }
+.pb-campaign-page .pb-cp-sq.on { border-color: var(--pb-cp-accent); color: var(--pb-cp-accent); }
+.pb-campaign-page .pb-cp-card small { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.pb-campaign-page .pb-cp-h { flex-wrap: wrap; row-gap: 0.25rem; }
+.pb-campaign-page .pb-cp-hacts { flex-wrap: wrap; align-items: center; gap: 0.6rem; }
+.pb-campaign-page :is(.pb-cp-gt, .pb-cp-sect, .pb-cp-secm p, .pb-cp-metm p, .pb-cp-dm p, .pb-cp-steps span, .pb-cp-gnote) { overflow-wrap: anywhere; }
+/* party rows: the name alone is cut short; who plays, away and a low-HP warning get their own line */
+.pb-campaign-page .pb-cp-csub { font-size: var(--font-size-11); color: var(--color-text-subtle); display: flex; flex-wrap: wrap; gap: 0 0.5rem; }
+.pb-campaign-page .pb-cp-csub em { font-style: normal; color: var(--color-level-error); font-weight: bold; }
+.pb-campaign-page .pb-cp-bars { grid-template-columns: auto minmax(0, 1.4fr) auto auto minmax(0, 1fr) auto; }
+.pb-campaign-page .pb-cp-bl { font-size: var(--font-size-10); font-weight: bold; color: var(--color-text-subtle); }
+.pb-campaign-page .pb-cp-thumbs a.pb-cp-concealed { opacity: 0.5; border-style: dashed; }
+.pb-campaign-page img.fit { object-fit: contain !important; }
+/* people: a two-way switch for who's listed, bigger control targets */
+.pb-campaign-page .pb-cp-seg { display: inline-flex; border: 1px solid var(--color-border); border-radius: 4px; overflow: hidden; }
+.pb-campaign-page .pb-cp-seg > button { border: 0; border-radius: 0; min-height: 0; height: 1.6rem; padding: 0 0.55rem; font-size: var(--font-size-12); flex: none; width: auto; background: none; }
+.pb-campaign-page .pb-cp-seg > button + button { border-left: 1px solid var(--color-border); }
+.pb-campaign-page .pb-cp-seg > button.active { background: var(--pb-cp-head); color: var(--pb-cp-head-ink); }
+.pb-campaign-page .pb-cp-metacts a { width: 1.5rem; height: 1.5rem; display: grid; place-items: center; border-radius: 3px; }
+.pb-campaign-page .pb-cp-metacts a:hover, .pb-campaign-page .pb-cp-metacts a:focus-visible { background: var(--pb-cp-well); color: var(--pb-cp-accent); }
+/* goals: one indent for everything under the title, checkboxes that keep their size, text that wraps */
+.pb-campaign-page .pb-cp-goal { --pb-cp-ind: 1.6rem; }
+.pb-campaign-page .pb-cp-goal.gm { --pb-cp-ind: 3rem; }
+.pb-campaign-page .pb-cp-grow { align-items: flex-start; }
+.pb-campaign-page .pb-cp-grip { width: 0.8rem; flex: none; padding-top: 0.2rem; text-align: center; }
+.pb-campaign-page .pb-cp-goal input[type=checkbox], .pb-campaign-page .pb-cp-box { width: 1rem; height: 1rem; flex: none; margin: 0.15rem 0 0; }
+.pb-campaign-page .pb-cp-gt { line-height: 1.35; }
+.pb-campaign-page .pb-cp-link { max-width: 12rem; overflow: hidden; text-overflow: ellipsis; flex: none; }
+.pb-campaign-page .pb-cp-gbody { margin-left: var(--pb-cp-ind); display: flex; flex-direction: column; gap: 0.35rem; }
+.pb-campaign-page .pb-cp-gbody:empty { display: none; }
+.pb-campaign-page .pb-cp-gnote { padding-left: 0; }
+.pb-campaign-page .pb-cp-gprog { display: flex; align-items: center; gap: 0.5rem; font-size: var(--font-size-11); color: var(--color-text-subtle); }
+.pb-campaign-page .pb-cp-gprog .pb-cp-gbar { flex: 1; margin-left: 0; }
+.pb-campaign-page .pb-cp-steps { padding-left: 0; }
+.pb-campaign-page .pb-cp-steps li { align-items: flex-start; gap: 0.3rem; }
+.pb-campaign-page .pb-cp-stepl { display: flex; align-items: flex-start; gap: 0.5rem; flex: 1; min-width: 0; cursor: pointer; }
+.pb-campaign-page .pb-cp-stepl span { flex: 1; min-width: 0; line-height: 1.35; }
+.pb-campaign-page .pb-cp-steprename { flex: 1; min-width: 0; }
+.pb-campaign-page .pb-cp-x { visibility: visible; opacity: 0.35; margin-left: 0; width: 1.3rem; height: 1.3rem; display: grid; place-items: center; flex: none; }
+.pb-campaign-page .pb-cp-steps li .pb-cp-x:first-of-type { margin-left: auto; }
+.pb-campaign-page .pb-cp-steps li:hover .pb-cp-x, .pb-campaign-page .pb-cp-x:focus-visible { opacity: 1; }
+.pb-campaign-page .pb-cp-addstep { align-self: flex-start; font-size: var(--font-size-12); color: var(--color-text-subtle); }
+.pb-campaign-page .pb-cp-addstep:hover, .pb-campaign-page .pb-cp-addstep:focus-visible { color: var(--pb-cp-accent); }
+.pb-campaign-page .pb-cp-quick.step { margin-left: 0; opacity: 1; border-color: var(--color-border); padding-left: 0.5rem; }
+.pb-campaign-page .pb-cp-goal.done .pb-cp-steps li span { color: var(--color-text-subtle); }
+.pb-campaign-page .pb-cp-menu.up { top: auto; bottom: 1.3rem; }
+/* one scroller: the page body (the header and tabs stay put; redraws keep its position) */
+.pb-campaign-page .window-content { overflow: hidden; }
+.pb-campaign-page .pb-cp { height: 100%; min-height: 0; }
+.pb-campaign-page .pb-cp-body { min-height: 0; }
+/* findings: badges never overlap, icons are shown whole, the drop zone lights up */
+.pb-campaign-page .pb-cp-fimg { position: relative; }
+.pb-campaign-page .pb-cp-fh { top: auto; bottom: 0.25rem; left: 0.25rem; right: auto; text-transform: none; letter-spacing: 0; }
+.pb-campaign-page .pb-cp-fimg img.fit, .pb-campaign-page .pb-cp-dimg img.fit { padding: 0.35rem; }
+.pb-campaign-page .pb-cp-drop.over { border-color: var(--pb-cp-accent); color: var(--pb-cp-accent); background: var(--pb-cp-well); }
+.pb-campaign-page .pb-cp-drop kbd { font-size: var(--font-size-11); padding: 0 0.25rem; border: 1px solid var(--color-border); border-radius: 3px; }
+.pb-campaign-page .pb-cp-oldin .pb-cp-fgrid { display: grid; }
+/* the secret form: label column + fields column like every Foundry form */
+.pb-campaign-page .pb-cp-comp .form-group > label { flex: 0 0 6.5rem; }
+.pb-campaign-page .pb-cp-comp .form-fields { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; justify-content: flex-start; }
+.pb-campaign-page .pb-cp-comp .form-fields > .pb-cp-opts { flex: 1 1 100%; }
+.pb-campaign-page .pb-cp-comp .form-fields > input[type=text] { flex: 1; }
+.pb-campaign-page .pb-cp-comp .pb-cp-opt { display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; }
+.pb-campaign-page .pb-cp-comp .pb-cp-opt > label { flex: none; font-size: inherit; color: inherit; line-height: inherit; }
+.pb-campaign-page .pb-cp-comp[disabled] { opacity: 0.7; }
 .pb-secret-card { cursor: pointer; border-left: 3px solid var(--pb-accent, var(--color-warm-2)); padding-left: 0.5rem; }
 .pb-secret-card h3 { margin: 0 0 0.25rem; font-size: var(--font-size-14); border: 0; }
 .pb-secret-card p { margin: 0; }

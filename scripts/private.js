@@ -162,7 +162,7 @@ export function drainOps() {
 export async function noteTo(ids, text, level = "info") {
   const to = [...new Set(arr(ids).filter(id => game.users?.get(id)))]
   if (!str(text) || !to.length) return { ok: false }
-  if (to.includes(game.user?.id)) ui.notifications?.[level === "warn" ? "warn" : "info"](text)
+  if (to.includes(game.user?.id)) { ui.notifications?.[level === "warn" ? "warn" : "info"](text); Hooks.callAll("pendantBridgeNote", { level, text }) }
   const others = to.filter(id => id !== game.user?.id && !game.users.get(id)?.isGM)
   if (others.length) {
     const m = await ChatMessage.create({ speaker: { alias: "Campaign" }, content: "", whisper: others, flags: { [MOD]: { hidden: true, note: { text: str(text), level } } } })
@@ -190,6 +190,7 @@ Hooks.on("createChatMessage", (m) => {
   if (f.op) handleOp(m)
   if (f.note && arr(m.whisper).includes(game.user?.id) && (m.author ?? game.users?.get(m.user))?.isGM) {
     ui.notifications?.[f.note.level === "warn" ? "warn" : "info"](f.note.text)
+    Hooks.callAll("pendantBridgeNote", { level: f.note.level, text: f.note.text })      // the page drops what it showed ahead
   }
 })
 Hooks.on("updateChatMessage", (m) => { changed(m) })

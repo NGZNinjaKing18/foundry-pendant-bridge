@@ -67,3 +67,15 @@ test("moveGoal: before / after / end, and into another section", () => {
   assert.equal(moveGoal(g, "b", { who: "Doril" }).find(x => x.id === "b").who, "Doril")
   assert.deepEqual(moveGoal(g, "zz", { before: "a" }).map(x => x.id), ["a", "b", "c"])
 })
+
+const { plainText, newId } = await import("../scripts/campaign-page.js")
+test("item text: links and rolls become their words, entities decoded, paragraphs kept, cut with an ellipsis", () => {
+  const html = "<p>Hit with @UUID[Compendium.dnd5e.items.Item.abc]{Longsword} for [[/r 1d6]] &amp; more&nbsp;damage.</p><p>Second</p>"
+  assert.equal(plainText(html), "Hit with Longsword for 1d6 & more damage.\nSecond")
+  assert.equal(plainText("<p>" + "word ".repeat(400) + "</p>", 50).endsWith("…"), true)
+  assert.equal(plainText(""), "")
+})
+test("new ids are unique", () => {
+  const s = new Set(Array.from({ length: 500 }, () => newId()))
+  assert.equal(s.size, 500)
+})

@@ -28,6 +28,7 @@
 body.pb-look { --pb-accent: #4aa3d8; --color-warm-2: color-mix(in srgb, #4aa3d8 55%, #000); --color-border-highlight: #4aa3d8;
   --color-cool-5: #0e1d2a; --color-cool-5-90: rgba(14,29,42,.9); --font-h1: Georgia, serif; --font-h4: Georgia, serif; --font-body: "Trebuchet MS", sans-serif; }
 body.pb-look .theme-dark { --color-text-emphatic: #e6f3ff; --color-text-secondary: #a9c0d3; }
+/* Foundry core: */ .hidden { display: none !important; }
 body { margin: 0; background: #0d100c; color: var(--color-text-primary); font: 14px/1.4 var(--font-primary); }
 #bar { display: flex; gap: 10px; align-items: center; padding: 8px 12px; background: #151515; border-bottom: 1px solid #333; flex-wrap: wrap; }
 #bar button, #bar select { background: #2a2a2a; color: #ddd; border: 1px solid #444; border-radius: 3px; padding: 3px 9px; font: inherit; cursor: pointer; }
@@ -242,7 +243,7 @@ camp.setCampaignSender((msg) => {
     findPage: (n) => CODEX[String(n).toLowerCase()] || Object.values(CODEX).find(c => c.name.toLowerCase().includes(String(n).toLowerCase())) || null,
   })
   if (!r.error) rs = r.store
-  for (const n of r.notes) if (!n.userId || n.userId === me.id) toast(n.text, n.level)
+  for (const n of r.notes) if (!n.userId || n.userId === msg.userId) { toast(n.text, n.level); Hooks.callAll("pendantBridgeNote", { level: n.level, text: n.text }) }
   if (r.ledger?.op === "add") ledger.push({ id: "character:" + r.ledger.name.toLowerCase(), name: r.ledger.name, cover: null, line: "met · 14 Emberfall", times: 0, first: "", manual: true })
   if (r.ledger?.op === "remove") { const p = ledger.find(x => x.id === r.ledger.personId); if (p?.manual) ledger = ledger.filter(x => x !== p); else toast("They met in play — hide them instead.", "warn") }
   for (const w of r.whispers) toast(`Whisper → ${w.to}: ${w.title}`)
