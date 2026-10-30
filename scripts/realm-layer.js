@@ -26,7 +26,7 @@ const MOD = "pendant-bridge"
 // "a wee bit too close and too big" against RealmScreen's 1:1). World settings, so every viewer gets the same.
 const setting = (k, d) => { try { const v = game.settings.get(MOD, k); return Number.isFinite(v) ? v : d } catch { return d } }
 export const nameScale = () => setting("realmNameScale", 0.85)
-export const nameGap = () => setting("realmNameGap", 4)
+export const nameGap = () => setting("realmNameGap", 2)
 const BASE = 64                 // text is rasterised at this size and scaled; re-sharpened when zooming stops
 const ZMIN = 0.2, ZMAX = 30, FADE = Math.log(1.45)
 
@@ -94,7 +94,8 @@ function ensureRoot() {
   const root = new PIXI.Container()
   root.elevation = 0; root.sortLayer = SORT_LAYER; root.sort = 0
   root.eventMode = "none"; root.interactiveChildren = false
-  const names = ["fills", "borders", "rivers", "roads", "markers", "townNames", "nationNames"]
+  // Names draw UNDER the markers (the user, 2026-10-30): a picture is never covered by text.
+  const names = ["fills", "borders", "rivers", "roads", "nationNames", "townNames", "markers"]
   S.parts = {}
   for (const n of names) S.parts[n] = root.addChild(new PIXI.Container())
   primary.addChild(root)
@@ -188,7 +189,7 @@ function buildTown(r) {
     it.name = S.parts.townNames.addChild(textOf(r.label.text, {
       fill: "#ffffff", fontWeight: String(r.label.weight ?? 600), stroke: "rgba(0,0,0,0.72)", strokeThickness: BASE / 9,
     }))
-    it.name.rotation = ((r.label.rotate || 0) * Math.PI) / 180
+    it.name.anchor.set(0.5, 0)   // hung from its top edge, centred under the marker
   }
   return it
 }
@@ -309,14 +310,22 @@ function update(full = false) {
         const on = markerOn && inBand(z, r.nameZoom)
         it.name.visible = on
         if (!on) continue
-        // MarkerName: the name's middle sits at its offset, pushed out by half its own size along that way.
-        const s = px(L.px * nameScale(), map, r.fitPx) / BASE
-        it.name.scale.set(s)
-        const w = it.name.width, h = it.name.height
-        const len = Math.hypot(L.dx, L.dy) || 1, ux = L.dx / len, uy = L.dy / len
-        const u = px(1, map, r.fitPx), gap = nameGap()
+        // In Foundry a town's name sits centred RIGHT UNDER its marker (the user, 2026-10-30 — not the map's
+        // own name positions), Name gap below the picture's visible bottom. The pictures carry room for their
+        // shadow (lib/markerPng.js: ink 4.5 px, shapes / symbols 4 px, own icons none) and an ink building stands
+        // on its ground line at 58.75 / 64 of its square (worldmap/AltMarkerArt.jsx).
+        it.name.scale.set(px(L.px * nameScale(), map, r.fitPx) / BASE)
+        const u = px(1, map, r.fitPx)
+        const m = r.marker
+        let below = 0
+        if (it.sprite && m) {
+          const pad = m.art ? 4.5 : m.contain ? 0 : 4
+          const inner = Math.max(0, (m.h ?? m.px ?? 16) - 2 * pad)
+          below = m.art ? inner * (58.75 / 64 - 0.5) : inner / 2
+        }
         const [x, y] = toScene([r.x, r.y])
-        it.name.position.set(x + (L.dx + ux * gap) * u + ux * w / 2, y + (L.dy + uy * gap) * u + uy * h / 2)
+        if (!it.sprite) { it.name.anchor.set(0.5, 0.5); it.name.position.set(x, y) }   // a name-only town: its name IS the marker
+        else it.name.position.set(x, y + (below + nameGap()) * u)
       }
     }
   }
@@ -384,7 +393,7 @@ function onMove(e) {
 // ── hooks ─────────────────────────────────────────────────────
 
 Hooks.once("init", () => {
-  for (const [key, def] of [["realmNameScale", 0.85], ["realmNameGap", 4]]) {
+  for (const [key, def] of [["realmNameScale", 0.85], ["realmNameGap", 2]]) {
     game.settings.register(MOD, key, { scope: "world", config: false, type: Number, default: def, onChange: () => redrawRealm() })
   }
 })

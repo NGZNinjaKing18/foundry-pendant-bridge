@@ -76,11 +76,14 @@ const R = await import('/pendant-home/src/renderer/src/lib/foundryRealm.mjs')
 const { mergeZoomVis } = await import('/pendant-home/src/renderer/src/lib/zoomBand.mjs')
 const ZV = mergeZoomVis(null)
 const FIT = 1200   // the map was 1200 px wide on screen at 1× when sent
-const ink = (fill, roof) => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 64 64"><g stroke="#2a211c" stroke-width="1.6" stroke-linejoin="round"><rect x="14" y="30" width="36" height="28" fill="${fill}"/><polygon points="11,30 32,12 53,30" fill="${roof}"/><rect x="28" y="44" width="8" height="14" fill="#2a211c"/></g></svg>`)
+// Stand-ins shaped like lib/markerPng.js realmMarker's ink pictures: the 64-unit drawing (ground line at 58) inside
+// 4.5 RealmScreen px of shadow room on every side, so name placement is measured against the real layout.
+const ink = (fill, roof, px = 20) => { const p = 4.5 * 64 / px; return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="${-p} ${-p} ${64 + 2 * p} ${64 + 2 * p}"><g stroke="#2a211c" stroke-width="1.6" stroke-linejoin="round"><rect x="14" y="30" width="36" height="28" fill="${fill}"/><polygon points="11,30 32,12 53,30" fill="${roof}"/><rect x="28" y="44" width="8" height="14" fill="#2a211c"/></g></svg>`) }
 const town = (id, name, tier, x, y, extra = {}) => {
   const r = R.asDrawnPlace({ id, name, tier, x, y, population: { capital: 450, city: 192, town: 115, village: 23 }[tier], ...extra }, {}, { natColour: '#2f8be0' })
   const rec = R.placeRecord(r, { zoomVis: ZV, alt: true, artFor: (t) => t, id })
-  rec.marker = { art: { rs: ink('#dfe6ee', '#9a5a48'), more: ink('#9dc3ea', '#7a5a68') }, w: rec.marker.px, h: rec.marker.px }
+  const px = rec.marker.px
+  rec.marker = { art: { rs: ink('#dfe6ee', '#9a5a48', px), more: ink('#9dc3ea', '#7a5a68', px) }, w: px + 9, h: px + 9 }
   return { ...rec, fitPx: FIT, views: ['v1', 'v2'] }
 }
 const box = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
