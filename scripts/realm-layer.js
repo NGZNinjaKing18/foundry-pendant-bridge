@@ -12,11 +12,13 @@
 //   towns + their names: map unless "Fixed on screen" · roads: map · rivers + borders: screen unless set
 //   to grow · nation names: fit their land, up to their size, then hold (RealmScreen's own formula)
 // Zoom bands hide things outside them; the nation fill fades across its band, as on the map.
-// Who sees what: views, GM-only and "Show me everything" are worked out here on each client.
+// Who sees what: views, GM-only and "Show me everything" are worked out here on each client; on top of
+// that each viewer can switch off borders / roads for themselves (my-view.js, the eye button).
 // Hover a town: a small card (name, type, population).
 // ──────────────────────────────────────────────────────────────
 
 import { viewsOf, realmRecords, showEverything, inView, renamedText } from "./mapviews.js"
+import { seeing } from "./my-view.js"
 
 const SORT_LAYER = 650
 // RealmScreen's own font (bundled: styles/pendant-bridge.css @font-face, OFL licence in assets/fonts).
@@ -84,6 +86,7 @@ function px(v, map, fitPx) {
 
 function visibleFor(r, current) {
   if (r.gm && !game.user?.isGM) return false
+  if (r.kind === "road" && !seeing("roads")) return false
   if (game.user?.isGM && showEverything()) return true
   return inView(r, current)
 }
@@ -244,15 +247,16 @@ function update(full = false) {
   const z = mapZoom(), k = scale(), d = dims()
   const { current } = viewsOf(canvas.scene)
   // A view showing borders → the ink markers in RealmScreen's colours; none → more of the nation's colour.
-  const borders = S.items.some(it => it.r.kind === "nation" && visibleFor(it.r, current))
+  const borders = seeing("borders") && S.items.some(it => it.r.kind === "nation" && visibleFor(it.r, current))
   for (const it of S.items) {
     const r = it.r
     const shown = visibleFor(r, current)
     if (r.kind === "nation") {
-      if (it.fill) { it.fill.visible = shown; it.fill.alpha = (r.fill.opacity ?? 0.3) * bandFade(z, r.fill.zoom) }
+      const lines = shown && seeing("borders")   // the viewer's eye button: borders + wash off, names stay
+      if (it.fill) { it.fill.visible = lines; it.fill.alpha = (r.fill.opacity ?? 0.3) * bandFade(z, r.fill.zoom) }
       const g = it.border
-      g.visible = shown
-      if (shown && (full || !r.border?.map)) {
+      g.visible = lines
+      if (lines && (full || !r.border?.map)) {
         g.clear()
         g.lineStyle({ width: px(r.border?.px ?? 2, !!r.border?.map, r.fitPx), color: colour(r.border?.color, 0xffd166), alpha: 1, join: "round", cap: "round" })
         for (const { outer, holes } of r.land || []) {

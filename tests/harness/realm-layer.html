@@ -40,7 +40,7 @@ globalThis.Hooks = {
   on: (n, f) => { (hooks[n] ||= []).push(f) }, once: (n, f) => { (hooks[n] ||= []).push(f) },
   callAll: (n, ...a) => { for (const f of hooks[n] || []) f(...a) }, call: (n, ...a) => { for (const f of hooks[n] || []) f(...a) },
 }
-globalThis.game = { user: { id: 'u', isGM: true }, settings: { get: () => false, register() {} } }
+globalThis.game = { user: { id: 'u', isGM: true }, settings: { get: (m, k) => String(k).startsWith('see') ? (window.__see?.[k] ?? true) : false, register() {} } }
 globalThis.foundry = { data: { operators: null }, canvas: { loadTexture: (src) => PIXI.Assets.load(src) } }
 
 const W = 1100, H = 660

@@ -3,8 +3,8 @@
 //
 // While RealmScreen is connected (live.js), every user gets one more control
 // set under Foundry's own (Tokens, Drawings, …), drawn as a DM screen. Its
-// tools are RealmScreen's player tools: "Plan a trip" (does nothing yet) and
-// "Campaigns" (scripts/campaigns.js). Not connected = the control isn't there at all.
+// tools are RealmScreen's player tools: "Plan a trip" (does nothing yet),
+// "Campaigns" (scripts/campaigns.js) and "Views" (scripts/my-view.js, the eye). Not connected = the control isn't there at all.
 //
 // Native-first: added through `getSceneControlButtons`, re-prepared with
 // `ui.controls.render({ reset: true })` when the link comes or goes.
@@ -13,6 +13,7 @@
 import { realmLive } from "./live.js"
 import { openCampaigns } from "./campaigns.js"
 import { openMapViews, openSentList } from "./mapviews-ui.js"
+import { openMyView } from "./my-view.js"
 
 const NAME = "realmscreen"
 
@@ -41,10 +42,19 @@ export function realmControl() {
         button: true,
         onChange: () => { openCampaigns() },   // scripts/campaigns.js
       },
+      // Everyone's own: switch the grid, nation borders and roads off / on for yourself (scripts/my-view.js).
+      views: {
+        name: "views",
+        order: 2,
+        title: "Views",
+        icon: "fa-solid fa-eye",
+        button: true,
+        onChange: () => { openMyView() },
+      },
       // The GM's: which of the World Map views players see, and what RealmScreen sent (scripts/mapviews-ui.js).
       mapViews: {
         name: "mapViews",
-        order: 2,
+        order: 3,
         title: "Map views",
         icon: "fa-solid fa-layer-group",
         button: true,
@@ -53,7 +63,7 @@ export function realmControl() {
       },
       mapSent: {
         name: "mapSent",
-        order: 3,
+        order: 4,
         title: "Sent from RealmScreen",
         icon: "fa-solid fa-list",
         button: true,
