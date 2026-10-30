@@ -10,7 +10,7 @@
 // `.pb-mv`). The rules live in scripts/mapviews.js; this only shows them.
 // ──────────────────────────────────────────────────────────────
 
-import { viewsOf, mapViewsState, mapViewsSet, mapReveal, showEverything, setShowEverything } from "./mapviews.js"
+import { viewsOf, mapViewsState, mapViewsSet, mapReveal, mapRemove, showEverything, setShowEverything } from "./mapviews.js"
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]))
 const KIND_ICON = { settlement: "fa-solid fa-house", road: "fa-solid fa-road", river: "fa-solid fa-water", nation: "fa-solid fa-flag" }
@@ -112,7 +112,7 @@ function sentClass() {
       classes: ["pb-mv"],
       window: { title: "Sent from RealmScreen", icon: "fa-solid fa-list", resizable: true },
       position: { width: 340, height: 420 },
-      actions: { go: SentApp.go },
+      actions: { go: SentApp.go, remove: SentApp.remove, removeAll: SentApp.removeAll },
     }
     async _renderHTML() {
       const el = document.createElement("div")
@@ -121,12 +121,14 @@ function sentClass() {
       const st = mapViewsState({ sceneId: scene.id })
       const name = (id) => st.views.find(v => v.id === id)?.name || id
       el.innerHTML = st.items.length
-        ? `<ul class="pb-mv-sent">${st.items.map(it => `
+        ? `<div class="pb-mv-sent-head"><span>${st.items.length} on this scene</span><button type="button" data-action="removeAll"><i class="fa-solid fa-trash"></i> Remove all</button></div>
+          <ul class="pb-mv-sent">${st.items.map(it => `
             <li data-action="go" data-id="${esc(it.id)}" data-tooltip="Go to it">
               <i class="${KIND_ICON[it.kind] || "fa-solid fa-map"}"></i>
               <span class="pb-mv-name">${esc(it.name || it.kind)}${it.gm ? ` <i class="fa-solid fa-lock" data-tooltip="Hidden from players"></i>` : ""}</span>
               <span class="pb-mv-views">${esc((it.views || []).map(name).join(", ") || "All only")}</span>
               <span class="pb-mv-date">${esc(it.sentAt || "")}</span>
+              <a class="pb-mv-x" data-action="remove" data-id="${esc(it.id)}" data-tooltip="Remove from this scene"><i class="fa-solid fa-xmark"></i></a>
             </li>`).join("")}</ul>`
         : `<p class="hint">Nothing on this scene came from RealmScreen yet. Send towns, roads, rivers and nations from their cards on RealmScreen's map.</p>`
       return el
@@ -135,6 +137,27 @@ function sentClass() {
     static async go(_e, target) {
       const scene = viewedScene()
       try { await mapReveal({ sceneId: scene?.id, id: target.dataset.id }) } catch (e) { warn(e) }
+    }
+    // × on a row: take that thing off this scene (every view). It can be sent again from RealmScreen.
+    static async remove(event, target) {
+      event?.stopPropagation?.()
+      const scene = viewedScene()
+      try { await mapRemove({ sceneId: scene?.id, id: target.dataset.id }) } catch (e) { warn(e) }
+    }
+    // Everything RealmScreen sent to this scene, after a yes.
+    static async removeAll() {
+      const scene = viewedScene()
+      if (!scene) return
+      const items = mapViewsState({ sceneId: scene.id }).items
+      if (!items.length) return
+      const ok = await foundry.applications.api.DialogV2.confirm({
+        window: { title: "Remove everything" },
+        content: `<p>Take all <strong>${items.length}</strong> things RealmScreen sent off <strong>${esc(scene.name)}</strong>? You can send them again from RealmScreen.</p>`,
+        rejectClose: false,
+      }).catch(() => false)
+      if (!ok) return
+      for (const it of items) { try { await mapRemove({ sceneId: scene.id, id: it.id }) } catch (e) { warn(e) } }
+      ui.notifications?.info(`Removed ${items.length} from ${scene.name}.`)
     }
   }
   return SentClass
@@ -157,7 +180,10 @@ function rerender() {
   for (const id of ["pb-map-views", "pb-map-sent"]) foundry.applications?.instances?.get?.(id)?.render()
 }
 const ours = (doc) => !!doc?.flags?.["pendant-bridge"]?.rs
-Hooks.on("updateScene", (scene, changes) => { if (changes?.flags?.["pendant-bridge"] && "mapViews" in changes.flags["pendant-bridge"]) rerender() })
+Hooks.on("updateScene", (scene, changes) => {
+  const f = changes?.flags?.["pendant-bridge"]
+  if (f && ("mapViews" in f || "realm" in f)) rerender()   // views, or the Realm layer's records
+})
 for (const type of ["Drawing", "Tile", "Note"]) {
   Hooks.on(`create${type}`, (doc) => { if (ours(doc)) rerender() })
   Hooks.on(`update${type}`, (doc) => { if (ours(doc)) rerender() })
