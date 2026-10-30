@@ -228,7 +228,7 @@ export async function mapSend(msg) {
   // A record (RealmScreen 2026-10-29+): the Realm layer draws it; its older documents go.
   if (msg.record && typeof msg.record === "object") {
     const rec = { ...msg.record, kind, id, name: msg.name || msg.record.name || null, views, gm, sentAt: msg.sentAt || null }
-    if (Array.isArray(prev?.renames) && prev.renames.length) rec.renames = prev.renames   // names the GM changed in Foundry stay
+    if (Number.isFinite(prev?.nameScale)) rec.nameScale = prev.nameScale   // a nation name size the GM set in Foundry stays
     await deleteDocs(scene, stale)
     await writeRecord(scene, rec)
     return { id, views, record: true }
@@ -249,18 +249,13 @@ export async function mapSend(msg) {
 }
 
 /**
- * A nation name the GM changed in Foundry (Map views › Nation names). `renames` = [[RealmScreen's text, Foundry's
- * text], …] on the nation's record — an array, so one update replaces it on every Foundry version. Kept when the
- * nation is sent again; an empty `to` goes back to RealmScreen's name.
+ * One nation's name size, set by the GM in Foundry (Map views › Nation name size): `nameScale` on its record, times
+ * the size it fits its land at. Kept when the nation is sent again; 1 = as RealmScreen sizes it.
  */
-export const renamedText = (r, text) => (r?.renames || []).find(([from]) => from === text)?.[1] || text
-export async function renameNationLabel(scene, id, from, to) {
+export async function setNationNameScale(scene, id, scale) {
   const r = recordOf(scene, id)
   if (!r || r.kind !== "nation") throw new Error("That nation isn't on this scene.")
-  to = String(to ?? "").trim()
-  const renames = (r.renames || []).filter(([f]) => f !== from)
-  if (to && to !== from) renames.push([from, to])
-  return scene.update({ [`${itemPath(id)}.renames`]: renames })
+  return scene.update({ [`${itemPath(id)}.nameScale`]: Number(scale) || 1 })
 }
 
 /** `map.views { sceneId, id, add?, remove? }` — put a sent thing into / take it out of a view, no re-send. */

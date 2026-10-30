@@ -955,6 +955,6 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
 .pb-mv-range .pb-mv-n { text-align: right; }
 .pb-mv-head { margin: 0 0 4px; font-size: var(--font-size-13, 13px); border: none; }
 .pb-mv-nations { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; max-height: 220px; overflow-y: auto; }
-.pb-mv-nation { display: flex; align-items: center; gap: 6px; }
-.pb-mv-nation input { flex: 1; min-width: 0; }
-.pb-mv-nation a { flex: none; color: var(--color-text-secondary, inherit); }
+.pb-mv-range.pb-mv-nation { grid-template-columns: 80px 1fr 42px 14px; margin: 0; }
+.pb-mv-nation label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pb-mv-nation a { color: var(--color-text-secondary, inherit); }

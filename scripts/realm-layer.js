@@ -17,18 +17,19 @@
 // Hover a town: a small card (name, type, population).
 // ──────────────────────────────────────────────────────────────
 
-import { viewsOf, realmRecords, showEverything, inView, renamedText } from "./mapviews.js"
+import { viewsOf, realmRecords, showEverything, inView } from "./mapviews.js"
 import { seeing } from "./my-view.js"
 
 const SORT_LAYER = 650
 // RealmScreen's own font (bundled: styles/pendant-bridge.css @font-face, OFL licence in assets/fonts).
 const FONT = "'RealmScreen Plex', 'IBM Plex Sans', Signika, sans-serif"
 const MOD = "pendant-bridge"
-// Name size and the gap between a town and its name — the GM tunes them in Map views (the user, 2026-10-30:
+// Town name size, nation name size and the gap between a town and its name — the GM tunes them in Map views (the user, 2026-10-30:
 // "a wee bit too close and too big" against RealmScreen's 1:1). World settings, so every viewer gets the same.
 const setting = (k, d) => { try { const v = game.settings.get(MOD, k); return Number.isFinite(v) ? v : d } catch { return d } }
 export const nameScale = () => setting("realmNameScale", 0.85)
 export const nameGap = () => setting("realmNameGap", 2)
+export const nationScale = () => setting("realmNationScale", 0.85)   // every nation name (each nation can add its own on top)
 const BASE = 64                 // text is rasterised at this size and scaled; re-sharpened when zooming stops
 const ZMIN = 0.2, ZMAX = 30, FADE = Math.log(1.45)
 
@@ -162,7 +163,7 @@ function buildNation(r) {
   }
   const st = r.nameStyle || {}
   for (const l of r.labels || []) {
-    const t = S.parts.nationNames.addChild(textOf(renamedText(r, l.text), {
+    const t = S.parts.nationNames.addChild(textOf(l.text, {
       fill: st.color || "#ffffff", fontWeight: String(st.weight ?? 700), fontStyle: st.italic ? "italic" : "normal",
       stroke: "rgba(0,0,0,0.7)", strokeThickness: BASE * 0.27,
     }))
@@ -269,7 +270,7 @@ function update(full = false) {
       for (const { t, l } of it.labels) {
         t.visible = nameOn
         if (!nameOn) continue
-        const size = nationNameSize(t.text, l.box[0] * d.sceneWidth * k, l.box[1] * d.sceneHeight * k, r.nameStyle || {}) * nameScale()
+        const size = nationNameSize(l.text, l.box[0] * d.sceneWidth * k, l.box[1] * d.sceneHeight * k, r.nameStyle || {}) * nationScale() * (r.nameScale || 1)
         t.scale.set(size / BASE / k)
         const ls = (r.nameStyle?.letterSpacing || 0) * (BASE / Math.max(size, 1))
         if (Math.abs((t.style.letterSpacing || 0) - ls) > 0.05) t.style.letterSpacing = ls
@@ -437,7 +438,7 @@ function lower() {
 // ── hooks ─────────────────────────────────────────────────────
 
 Hooks.once("init", () => {
-  for (const [key, def] of [["realmNameScale", 0.85], ["realmNameGap", 2]]) {
+  for (const [key, def] of [["realmNameScale", 0.85], ["realmNameGap", 2], ["realmNationScale", 0.85]]) {
     game.settings.register(MOD, key, { scope: "world", config: false, type: Number, default: def, onChange: () => redrawRealm() })
   }
 })

@@ -4,15 +4,15 @@
 //
 //   Map views              which view players see (All, or one of the views RealmScreen made), rename /
 //                          move / delete a view, "Show me everything" (this GM only), name size / gap, and
-//                          Nation names (change what a sent nation's name reads on this scene)
+//                          nation name size (all, and each sent nation's own)
 //   Sent from RealmScreen  every World Map thing on this scene, its views and date; click one to go to it
 //
 // Native: ApplicationV2 windows built from Foundry's own markup and CSS variables (styles/pendant-bridge.css
 // `.pb-mv`). The rules live in scripts/mapviews.js; this only shows them.
 // ──────────────────────────────────────────────────────────────
 
-import { viewsOf, mapViewsState, mapViewsSet, mapReveal, mapRemove, showEverything, setShowEverything, realmRecords, renamedText, renameNationLabel } from "./mapviews.js"
-import { nameScale, nameGap } from "./realm-layer.js"
+import { viewsOf, mapViewsState, mapViewsSet, mapReveal, mapRemove, showEverything, setShowEverything, realmRecords, setNationNameScale } from "./mapviews.js"
+import { nameScale, nameGap, nationScale } from "./realm-layer.js"
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]))
 const KIND_ICON = { settlement: "fa-solid fa-house", road: "fa-solid fa-road", river: "fa-solid fa-water", nation: "fa-solid fa-flag" }
@@ -61,29 +61,27 @@ function viewsClass() {
         <hr>
         <label class="pb-mv-check"><input type="checkbox" data-action="everything" ${showEverything() ? "checked" : ""}> Show me everything (only you)</label>
         <hr>
-        <div class="form-group pb-mv-range"><label>Name size</label><input type="range" name="realmNameScale" min="0.5" max="1.5" step="0.05" value="${nameScale()}"><span class="pb-mv-n">${Math.round(nameScale() * 100)}%</span></div>
+        <div class="form-group pb-mv-range"><label>Town names</label><input type="range" name="realmNameScale" min="0.5" max="1.5" step="0.05" value="${nameScale()}"><span class="pb-mv-n">${Math.round(nameScale() * 100)}%</span></div>
         <div class="form-group pb-mv-range"><label>Name gap</label><input type="range" name="realmNameGap" min="0" max="20" step="1" value="${nameGap()}"><span class="pb-mv-n">${nameGap()} px</span></div>
+        <div class="form-group pb-mv-range"><label>Nation names</label><input type="range" name="realmNationScale" min="0.3" max="2" step="0.05" value="${nationScale()}"><span class="pb-mv-n">${Math.round(nationScale() * 100)}%</span></div>
         <p class="hint">Players see the view you pick. Things not in it are hidden for them.</p>
-        ${nationNames(scene)}`
+        ${nationSizes(scene)}`
       return el
     }
     _replaceHTML(result, content) { content.replaceChildren(result) }
 
     // The two name sliders: shown live while dragging, saved (for everyone) when let go.
-    // A nation name box: saved when you leave it or press Enter; empty = RealmScreen's name again.
+    // A nation's own size slider: the same, saved on that nation's record.
     _onRender() {
       for (const input of this.element.querySelectorAll(".pb-mv-nation input")) {
-        const save = () => {
-          const scene = viewedScene()
-          if (!scene || input.value.trim() === input.dataset.now) return
-          renameNationLabel(scene, input.dataset.id, input.dataset.from, input.value).catch(warn)
-        }
-        input.addEventListener("change", save)
-        input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); input.blur() } })
-      }
-      for (const input of this.element.querySelectorAll(".pb-mv-range input")) {
         const out = input.parentElement.querySelector(".pb-mv-n")
-        const say = () => { out.textContent = input.name === "realmNameScale" ? `${Math.round(input.value * 100)}%` : `${input.value} px` }
+        const say = () => { out.textContent = `${Math.round(input.value * 100)}%` }
+        input.addEventListener("input", say)
+        input.addEventListener("change", () => { say(); setNationNameScale(viewedScene(), input.dataset.id, input.value).catch(warn) })
+      }
+      for (const input of this.element.querySelectorAll(".pb-mv-range:not(.pb-mv-nation) input")) {
+        const out = input.parentElement.querySelector(".pb-mv-n")
+        const say = () => { out.textContent = input.name !== "realmNameGap" ? `${Math.round(input.value * 100)}%` : `${input.value} px` }
         input.addEventListener("input", say)
         input.addEventListener("change", () => { say(); game.settings.set("pendant-bridge", input.name, Number(input.value)).catch(warn) })
       }
@@ -121,8 +119,7 @@ function viewsClass() {
       if (ok) return MapViewsApp.run("delete", target)
     }
     static async resetName(_e, target) {
-      const scene = viewedScene()
-      try { await renameNationLabel(scene, target.dataset.id, target.dataset.from, "") } catch (e) { warn(e) }
+      try { await setNationNameScale(viewedScene(), target.dataset.id, 1) } catch (e) { warn(e) }
     }
     static async everything(_e, target) {
       await setShowEverything(!!target.checked)
@@ -132,20 +129,22 @@ function viewsClass() {
   return ViewsClass
 }
 
-// Every name each sent nation shows on this scene (one per piece that has a name), as a box to change it.
-function nationNames(scene) {
+// Each sent nation's own name size, on top of "Nation names" above (100% = as the rest).
+function nationSizes(scene) {
   const rows = realmRecords(scene).filter(r => r.kind === "nation" && (r.labels || []).length)
     .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")))
-    .flatMap(r => [...new Set(r.labels.map(l => l.text))].map(from => {
-      const now = renamedText(r, from), changed = now !== from
-      return `<li class="pb-mv-nation">
-          <input type="text" value="${esc(now)}" placeholder="${esc(from)}" data-id="${esc(r.id)}" data-from="${esc(from)}" data-now="${esc(now)}" aria-label="Name of ${esc(from)}">
-          ${changed ? `<a data-action="resetName" data-id="${esc(r.id)}" data-from="${esc(from)}" data-tooltip="Back to RealmScreen's name: ${esc(from)}"><i class="fa-solid fa-rotate-left"></i></a>` : ""}
+    .map(r => {
+      const v = r.nameScale || 1
+      return `<li class="form-group pb-mv-range pb-mv-nation">
+          <label title="${esc(r.name || "")}">${esc(r.name || r.labels[0].text)}</label>
+          <input type="range" min="0.3" max="3" step="0.05" value="${v}" data-id="${esc(r.id)}" aria-label="${esc(r.name || "")} name size">
+          <span class="pb-mv-n">${Math.round(v * 100)}%</span>
+          ${v !== 1 ? `<a data-action="resetName" data-id="${esc(r.id)}" data-tooltip="Back to 100%"><i class="fa-solid fa-rotate-left"></i></a>` : "<span></span>"}
         </li>`
-    }))
+    })
   if (!rows.length) return ""
-  return `<hr><h4 class="pb-mv-head">Nation names</h4><ul class="pb-mv-nations">${rows.join("")}</ul>
-    <p class="hint">Changes the name on this scene only. Sending the nation again keeps it.</p>`
+  return `<hr><h4 class="pb-mv-head">Each nation's name</h4><ul class="pb-mv-nations">${rows.join("")}</ul>
+    <p class="hint">Sending a nation again keeps its size.</p>`
 }
 
 function sentClass() {
