@@ -8,6 +8,9 @@
 //
 //   • OFF (default): tokens move freely, as Foundry allows. The GM's Resync button — or the next date or hour
 //     change — puts everyone back where RealmScreen has them.
+//   • ON, a token RealmScreen didn't place (an actor token put on the scene, or moved, by hand): its actor's
+//     character APPEARS there in RealmScreen at this date + hour, no trip (`trip.place`). An actor not linked to
+//     anyone yet → the GM picks who it is (the pick links it, once). From then on RealmScreen keeps that token.
 //   • ON: whoever drops one of these tokens gets a trip card: roads, 8 hours a day to start, every choice
 //     RealmScreen's own card has (9–12 hours say "ask your DM" — a warning, not a lock). RealmScreen prices
 //     each choice (Foundry never works a trip out); "Plan this trip" writes it into RealmScreen. Mid-route,
@@ -112,10 +115,45 @@ Hooks.on("updateToken", (doc, changes, options, userId) => {
   if (userId !== game.user?.id || !planTripsOn() || !realmLive()) return     // the mover's own window only
   const f = partyFlag(doc)
   const scene = doc.parent
-  if (!f || !scene) return
+  if (!scene) return
   const { nx, ny } = mapFraction(scene, { x: changes.x ?? doc.x, y: changes.y ?? doc.y, width: doc.width, height: doc.height })
-  openTripCard({ sceneId: scene.id, key: f.key, nx, ny, name: doc.name })
+  if (f) openTripCard({ sceneId: scene.id, key: f.key, nx, ny, name: doc.name })
+  else if (doc.actorId) placeInRealm(doc, nx, ny)            // one of yours, not RealmScreen's: they appear there
 })
+
+// A token put on the scene by hand (Plan a trip on): its character appears there in RealmScreen.
+Hooks.on("createToken", (doc, options, userId) => {
+  if (options?.[SYNC] || userId !== game.user?.id || !planTripsOn() || !realmLive()) return
+  const scene = doc.parent
+  if (!scene || partyFlag(doc) || !doc.actorId) return
+  const { nx, ny } = mapFraction(scene, doc)
+  placeInRealm(doc, nx, ny)
+})
+
+async function placeInRealm(doc, nx, ny, charKey = null) {
+  const actorName = doc.actor?.name || doc.name || "This actor"
+  let r
+  try { r = await ask("place", { sceneId: doc.parent.id, actorId: doc.actorId, actorName, nx, ny, ...(charKey ? { charKey } : {}) }) } catch (e) { ui.notifications?.warn(e.message || String(e)); return }
+  if (!r || r.ignore) return                                    // not a scene RealmScreen moves people on
+  if (r.done) { ui.notifications?.info(r.text || "Placed in RealmScreen."); return }
+  if (!r.needsLink) return
+  if (!game.user?.isGM) { ui.notifications?.info(`${actorName} isn’t linked to anyone in RealmScreen yet — ask your GM.`); return }
+  const pick = await pickWho(actorName, r.choices || [])
+  if (pick) placeInRealm(doc, nx, ny, pick)
+}
+
+// "Who is this in RealmScreen?" — the GM links an actor to a character, once (never by name on its own).
+async function pickWho(actorName, choices) {
+  const DialogV2 = globalThis.foundry?.applications?.api?.DialogV2
+  if (!DialogV2 || !choices.length) { ui.notifications?.warn(`${actorName} isn’t linked to anyone in RealmScreen — link them in Codex Of Faces.`); return null }
+  return DialogV2.prompt({
+    window: { title: "Who is this in RealmScreen?", icon: "fa-solid fa-link" },
+    content: `<p><strong>${esc(actorName)}</strong> isn’t linked to anyone in RealmScreen yet. Who is it? (This links the actor, once.)</p>
+      <div class="form-group"><label>Character</label><div class="form-fields"><select name="who">${choices.map(c => `<option value="${esc(c.key)}">${esc(c.name)}</option>`).join("")}</select></div></div>`,
+    ok: { label: "Link and place", icon: "fa-solid fa-link", callback: (_ev, button) => button.form.elements.who.value },
+    rejectClose: false,
+  }).catch(() => null)
+}
 
 // ── the trip card ─────────────────────────────────────────────
 const HOURS = [8, 9, 10, 12]

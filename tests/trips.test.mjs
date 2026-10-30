@@ -84,3 +84,27 @@ test("a drop opens a card only with the switch on, for the mover, on one of Real
   assert.equal(warned.length, 1)
   assert.deepEqual(sent.at(-1), { type: "party.resync" })
 })
+
+test("a token RealmScreen didn't place: with the switch on, it asks RealmScreen to place its character", async () => {
+  await trips.setPlanTrips(true)
+  live.setLinked(true)
+  sent.length = 0
+  const scene = { id: "s", dimensions: { sceneX: 0, sceneY: 0, sceneWidth: 1000, sceneHeight: 1000, size: 100 } }
+  const mine = { name: "Corvinus", actorId: "act1", actor: { name: "Corvinus Bonaparte" }, x: 450, y: 450, width: 1, height: 1, getFlag: () => null, parent: scene }
+  hooks.createToken.at(-1)(mine, {}, "gm1")
+  const msg = sent.find(m => m.type === "trip.place")
+  assert.ok(msg, "asked RealmScreen")
+  assert.equal(msg.actorId, "act1"); assert.equal(msg.actorName, "Corvinus Bonaparte")
+  assert.ok(Math.abs(msg.nx - 0.5) < 1e-9 && Math.abs(msg.ny - 0.5) < 1e-9)
+  // RealmScreen's own (flagged) or a sync's create, someone else's, or no actor: nothing
+  sent.length = 0
+  hooks.createToken.at(-1)({ ...mine, getFlag: () => ({ key: "k" }) }, {}, "gm1")
+  hooks.createToken.at(-1)(mine, { pendantPartySync: true }, "gm1")
+  hooks.createToken.at(-1)(mine, {}, "other")
+  hooks.createToken.at(-1)({ ...mine, actorId: null }, {}, "gm1")
+  await trips.setPlanTrips(false)
+  hooks.createToken.at(-1)(mine, {}, "gm1")
+  assert.equal(sent.filter(m => m.type === "trip.place").length, 0)
+  // (the answer settles it: done → a notice)
+  trips.tripAnswer({ qid: msg.qid, userId: "gm1", done: true, text: "placed" })
+})
