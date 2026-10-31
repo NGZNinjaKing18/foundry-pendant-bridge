@@ -3,7 +3,8 @@
 //
 // An eye in the RealmScreen control set, for players and the GM alike. Clicking it opens a column of three
 // square buttons beside it (the user's second sketch: no window), each switching off / on for THIS account:
-//   Grid             RealmScreen's world-map grid (the overlay the World Map sends; main.js ovl*)
+//   Grid             every grid on the scene: RealmScreen's world-map grid (the overlay the World Map sends;
+//                    main.js ovl*) AND the scene's own Foundry grid (RealmScreen-made scenes set that one too)
 //   Nation borders   the borders (and their colour wash) RealmScreen sent — only the ones this viewer may see
 //   Road ways        the roads RealmScreen sent — same rule
 // Only hides; it never shows anything the Map views / GM-only rules hide (realm-layer.js visibleFor).
@@ -21,6 +22,13 @@ const setKey = (k) => `see${k[0].toUpperCase()}${k.slice(1)}`
 /** Does this viewer want to see `key` (grid | borders | roads)? */
 export function seeing(key) {
   try { return game.settings.get(MOD, setKey(key)) !== false } catch { return true }
+}
+
+// The scene's own Foundry grid: hidden here; Foundry builds a new mesh whenever it redraws the grid layer,
+// so this runs again then (drawGridLayer) and after the scene's grid changes.
+function applyGrid() {
+  const mesh = canvas?.interface?.grid?.mesh
+  if (mesh) mesh.visible = seeing("grid")
 }
 
 // ── the flyout: one square button per thing, in a column beside the eye ──
@@ -87,7 +95,10 @@ Hooks.once("init", () => {
   for (const s of SEE) {
     game.settings.register(MOD, setKey(s.key), {
       scope: "user", config: false, type: Boolean, default: true,
-      onChange: () => { Hooks.callAll(s.key === "grid" ? "pendantGridSeen" : "pendantRealmRedraw"); paint() },
+      onChange: () => {
+        if (s.key === "grid") { applyGrid(); Hooks.callAll("pendantGridSeen") } else Hooks.callAll("pendantRealmRedraw")
+        paint()
+      },
     })
   }
 })
@@ -99,3 +110,6 @@ Hooks.on("renderSceneControls", () => setTimeout(() => {
   anchor = eye; place()
 }, 0))
 Hooks.on("canvasTearDown", () => closeFly())
+Hooks.on("canvasReady", () => applyGrid())
+Hooks.on("drawGridLayer", () => applyGrid())
+Hooks.on("updateScene", (scene, changes) => { if (scene?.id === canvas?.scene?.id && "grid" in (changes || {})) setTimeout(applyGrid, 0) })
