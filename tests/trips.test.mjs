@@ -123,3 +123,12 @@ test("never asked about: an actor marked Not a RealmScreen person, a party group
   hooks.createToken.at(-1)(tok({ name: "Arin", type: "character", getFlag: () => null }), {}, "gm1")
   assert.equal(sent.filter(m => m.type === "trip.place").length, 1, "a person still is")
 })
+
+test("the picker's answer: only an explicit pick is a character (Skip / closed / a button name never is)", () => {
+  assert.equal(trips.whoFrom({ who: "corvinus bonaparte" }), "corvinus bonaparte")
+  assert.equal(trips.whoFrom({ skip: true }), null)
+  assert.equal(trips.whoFrom("skip"), null, "DialogV2's fallback (the action name) is not a pick")
+  assert.equal(trips.whoFrom(null), null)
+  assert.equal(trips.whoFrom({ who: "" }), null)
+  assert.notEqual(trips.whoFrom({ not: true }), null)
+})

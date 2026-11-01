@@ -158,13 +158,21 @@ async function pickWho(actorName, choices) {
     window: { title: "Who is this in RealmScreen?", icon: "fa-solid fa-link" },
     content: `<p><strong>${esc(actorName)}</strong> isn’t linked to anyone in RealmScreen yet. Who is it? (This links the actor, once.)</p>
       <div class="form-group"><label>Character</label><div class="form-fields"><select name="who">${choices.map(c => `<option value="${esc(c.key)}">${esc(c.name)}</option>`).join("")}</select></div></div>`,
+    // (each button answers with an object: DialogV2 hands back the button's ACTION NAME when a callback returns
+    // nothing — found live 2026-11-01, "Skip" came back as a character called "skip" and was linked + placed)
     buttons: [
-      { action: "link", label: "Link and place", icon: "fa-solid fa-link", default: true, callback: (_ev, button) => button.form.elements.who.value },
-      { action: "not", label: "Not a RealmScreen person", icon: "fa-solid fa-ban", callback: () => NOT_A_PERSON },
-      { action: "skip", label: "Skip", icon: "fa-solid fa-xmark", callback: () => null },
+      { action: "link", label: "Link and place", icon: "fa-solid fa-link", default: true, callback: (_ev, button) => ({ who: button.form.elements.who.value }) },
+      { action: "not", label: "Not a RealmScreen person", icon: "fa-solid fa-ban", callback: () => ({ not: true }) },
+      { action: "skip", label: "Skip", icon: "fa-solid fa-xmark", callback: () => ({ skip: true }) },
     ],
     rejectClose: false,
-  }).catch(() => null)
+  }).then(whoFrom).catch(() => null)
+}
+/** The picker's answer → a character key, NOT_A_PERSON, or null (skipped / closed). Exported for tests. */
+export function whoFrom(r) {
+  if (!r || typeof r !== "object") return null              // closed, or anything that isn't one of our answers
+  if (r.not) return NOT_A_PERSON
+  return typeof r.who === "string" && r.who ? r.who : null
 }
 
 // ── the trip card ─────────────────────────────────────────────
