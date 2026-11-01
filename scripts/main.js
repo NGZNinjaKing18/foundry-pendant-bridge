@@ -32,7 +32,7 @@ import { setTripSender, tripAnswer } from "./trips.js"
 import { timelineStatus, applyFromRealm, broadcastFromRealm, isTimelineWriter } from "./timeline.js"
 import { setMapBuilders, mapViewsState, mapViewsSet, mapSend, mapViewsEdit, mapRemove, mapReveal } from "./mapviews.js"
 import {} from "./realm-layer.js"   // draws the sent World Map itself (records in flags.realm)
-import { seeing } from "./my-view.js"   // each account's own eye switches (the grid overlay obeys "grid")
+import { seeing, views } from "./my-view.js"   // each account's own eye switches (the grid overlay obeys "grid")
 
 const MOD = "pendant-bridge"
 const FS_LEDGER = "fileSortLedger"
@@ -2983,6 +2983,23 @@ async function handleCommand(msg) {
     // ── World-map grid overlay: store a flattened grid as a scene flag and
     // draw it on the canvas (toggled by the GM, optionally shared to players).
     // overlay = { levels[], scale, mapId, versionId, imagePath } | null (clear).
+    // {set?:{grid|borders|roads:bool}, click?:"grid"|…} → what the eye's Views switches see here (debug).
+    // `click` opens the eye's column and clicks that switch the way a person would.
+    case "views.probe": {
+      const out = { before: views.probe() }
+      if (msg.set) for (const [k, v] of Object.entries(msg.set)) await views.set(k, !!v)
+      if (msg.click) out.click = await views.click(String(msg.click))
+      await new Promise(r => setTimeout(r, 300))
+      const scene = canvas?.scene
+      out.after = views.probe()
+      out.overlay = {
+        scene: scene?.id ?? null, payload: !!ovlGetPayload(scene), shared: ovlShared(scene), localShow: ovlState.localShow,
+        visible: scene ? ovlVisible(scene) : null, layer: !!ovlState.layer, destroyed: !!ovlState.layer?.destroyed,
+        children: ovlState.layer?.children?.length ?? null, parent: ovlState.layer?.parent?.name ?? ovlState.layer?.parent?.constructor?.name ?? null,
+      }
+      return bridge.reply(msg.reqId, { type: "views.probe", ok: true, ...out })
+    }
+
     case "overlay.set": {
       if (!game.user?.isGM) throw new Error("Only the GM can set the grid overlay")
       const scene = msg.sceneId ? game.scenes.get(msg.sceneId) : game.scenes.active

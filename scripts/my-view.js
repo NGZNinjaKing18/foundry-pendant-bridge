@@ -113,3 +113,26 @@ Hooks.on("canvasTearDown", () => closeFly())
 Hooks.on("canvasReady", () => applyGrid())
 Hooks.on("drawGridLayer", () => applyGrid())
 Hooks.on("updateScene", (scene, changes) => { if (scene?.id === canvas?.scene?.id && "grid" in (changes || {})) setTimeout(applyGrid, 0) })
+
+// For the bridge's `views.probe` (debug): the state here, set a switch, or click one in the column.
+export const views = {
+  probe: () => ({
+    see: Object.fromEntries(SEE.map(x => [x.key, seeing(x.key)])),
+    stored: Object.fromEntries(SEE.map(x => { try { return [x.key, game.settings.get(MOD, setKey(x.key), { document: true })?._id ?? null] } catch (e) { return [x.key, "err " + e.message] } })),
+    fly: !!fly, flyLit: fly ? [...fly.querySelectorAll("button[data-see]")].map(b => `${b.dataset.see}:${b.classList.contains("active")}`) : null,
+    eye: !!document.querySelector('#scene-controls [data-tool="views"]'),
+    mesh: canvas?.interface?.grid?.mesh ? { visible: canvas.interface.grid.mesh.visible, renderable: canvas.interface.grid.mesh.renderable } : null,
+    gridType: canvas?.scene?.grid?.type ?? null,
+  }),
+  set: (k, v) => game.settings.set(MOD, setKey(k), v),
+  async click(k) {
+    if (!fly) openMyView()
+    const b = fly?.querySelector(`button[data-see="${k}"]`)
+    if (!b) return "no button"
+    const r = b.getBoundingClientRect()
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+    b.click()
+    await new Promise(res => setTimeout(res, 300))
+    return { rect: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)], topElement: hit === b ? "the button" : (hit ? `${hit.tagName}#${hit.id}.${hit.className}` : null) }
+  },
+}
