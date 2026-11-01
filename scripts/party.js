@@ -201,7 +201,9 @@ export async function syncParty(msg) {
     const pos = topLeft(scene, t, doc.width || 1, doc.height || 1)
     const hidden = !!t.hidden
     const u = { _id: doc.id }
-    if (doc.x !== pos.x || doc.y !== pos.y) { u.x = pos.x; u.y = pos.y }
+    // (a forced sync — Resync, a cancelled trip card, a date change — sends the position even when this window
+    // thinks it's already there: found live 2026-11-01, a window holding a stale copy changed nothing)
+    if (msg.force || doc.x !== pos.x || doc.y !== pos.y) { u.x = pos.x; u.y = pos.y }
     if (doc.hidden !== hidden) u.hidden = hidden
     if (!doc.actorId) {
       // Stand-ins carry RealmScreen's name and picture; an actor token keeps its own.
@@ -217,7 +219,7 @@ export async function syncParty(msg) {
   // Placed, not walked: an instant move (no slide). An animated move across the map was refused —
   // the token said "updated" but stayed put (found in the GM's world 2026-10-05, likely walls in the
   // way); the bridge's own token.update, which never animates, moved it fine.
-  if (updates.length) await scene.updateEmbeddedDocuments("Token", updates, { [SYNC]: true, animate: false, animation: { duration: 0 }, teleport: true })
+  if (updates.length) await scene.updateEmbeddedDocuments("Token", updates, { [SYNC]: true, animate: false, animation: { duration: 0 }, teleport: true, ...(msg.force ? { diff: false } : {}) })
   return { created: creates.length, updated: updates.length, removed: stale.length, released: release.length }
 }
 

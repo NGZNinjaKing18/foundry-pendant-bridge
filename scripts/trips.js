@@ -118,14 +118,18 @@ Hooks.on("updateToken", (doc, changes, options, userId) => {
   if (!scene) return
   const { nx, ny } = mapFraction(scene, { x: changes.x ?? doc.x, y: changes.y ?? doc.y, width: doc.width, height: doc.height })
   if (f) openTripCard({ sceneId: scene.id, key: f.key, nx, ny, name: doc.name })
-  else if (doc.actorId) placeInRealm(doc, nx, ny)            // one of yours, not RealmScreen's: they appear there
+  else if (doc.actorId && !notAPerson(doc)) placeInRealm(doc, nx, ny)   // one of yours, not RealmScreen's: they appear there
 })
+
+// An actor the GM said isn't one of RealmScreen's people (the picker's "Not a person") is never asked about again;
+// party groups and vehicles never are (found live 2026-11-01: moving an army token asked "Who is this?" every time).
+const notAPerson = (doc) => { const a = doc?.actor; return !a || a.type === "group" || a.type === "vehicle" || !!a.getFlag?.(MOD, "notPerson") }
 
 // A token put on the scene by hand (Plan a trip on): its character appears there in RealmScreen.
 Hooks.on("createToken", (doc, options, userId) => {
   if (options?.[SYNC] || userId !== game.user?.id || !planTripsOn() || !realmLive()) return
   const scene = doc.parent
-  if (!scene || partyFlag(doc) || !doc.actorId) return
+  if (!scene || partyFlag(doc) || !doc.actorId || notAPerson(doc)) return
   const { nx, ny } = mapFraction(scene, doc)
   placeInRealm(doc, nx, ny)
 })
@@ -139,18 +143,26 @@ async function placeInRealm(doc, nx, ny, charKey = null) {
   if (!r.needsLink) return
   if (!game.user?.isGM) { ui.notifications?.info(`${actorName} isn’t linked to anyone in RealmScreen yet — ask your GM.`); return }
   const pick = await pickWho(actorName, r.choices || [])
-  if (pick) placeInRealm(doc, nx, ny, pick)
+  if (pick === NOT_A_PERSON) {
+    try { await doc.actor?.setFlag?.(MOD, "notPerson", true) } catch { /* the GM can't flag it: it asks again next time */ }
+    ui.notifications?.info(`RealmScreen won’t ask about ${actorName} again.`)
+  } else if (pick) placeInRealm(doc, nx, ny, pick)
 }
 
 // "Who is this in RealmScreen?" — the GM links an actor to a character, once (never by name on its own).
+const NOT_A_PERSON = "\u0000notPerson"
 async function pickWho(actorName, choices) {
   const DialogV2 = globalThis.foundry?.applications?.api?.DialogV2
   if (!DialogV2 || !choices.length) { ui.notifications?.warn(`${actorName} isn’t linked to anyone in RealmScreen — link them in Codex Of Faces.`); return null }
-  return DialogV2.prompt({
+  return DialogV2.wait({
     window: { title: "Who is this in RealmScreen?", icon: "fa-solid fa-link" },
     content: `<p><strong>${esc(actorName)}</strong> isn’t linked to anyone in RealmScreen yet. Who is it? (This links the actor, once.)</p>
       <div class="form-group"><label>Character</label><div class="form-fields"><select name="who">${choices.map(c => `<option value="${esc(c.key)}">${esc(c.name)}</option>`).join("")}</select></div></div>`,
-    ok: { label: "Link and place", icon: "fa-solid fa-link", callback: (_ev, button) => button.form.elements.who.value },
+    buttons: [
+      { action: "link", label: "Link and place", icon: "fa-solid fa-link", default: true, callback: (_ev, button) => button.form.elements.who.value },
+      { action: "not", label: "Not a RealmScreen person", icon: "fa-solid fa-ban", callback: () => NOT_A_PERSON },
+      { action: "skip", label: "Skip", icon: "fa-solid fa-xmark", callback: () => null },
+    ],
     rejectClose: false,
   }).catch(() => null)
 }
@@ -194,8 +206,10 @@ function cardClass() {
         this.quote = r.quote || null
         this.error = null
         // RealmScreen picks the way when it isn't chosen yet: the quicker one.
-        if (!this.picked && this.quote && this.quote.other && !this.quote.other.warn && this.quote.other.elapsed != null && this.quote.elapsed != null
-          && this.quote.other.elapsed < this.quote.elapsed - 1e-6 && this.quote.other.route !== this.opts.route) {
+        // (and never "Roads" when no road goes there — a spot in open country, or towns no road joins)
+        const noRoad = this.quote && this.opts.route === "roads" && !this.quote.warn && !this.quote.viaRoads
+        if (!this.picked && this.quote && this.quote.other && !this.quote.other.warn && this.quote.other.route !== this.opts.route
+          && (noRoad || (this.quote.other.elapsed != null && this.quote.elapsed != null && this.quote.other.elapsed < this.quote.elapsed - 1e-6))) {
           this.picked = true
           this.opts.route = this.quote.other.route
           return this.requote()

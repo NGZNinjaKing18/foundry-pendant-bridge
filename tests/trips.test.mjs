@@ -108,3 +108,18 @@ test("a token RealmScreen didn't place: with the switch on, it asks RealmScreen 
   // (the answer settles it: done → a notice)
   trips.tripAnswer({ qid: msg.qid, userId: "gm1", done: true, text: "placed" })
 })
+
+test("never asked about: an actor marked Not a RealmScreen person, a party group, a vehicle", async () => {
+  await trips.setPlanTrips(true)
+  live.setLinked(true)
+  sent.length = 0
+  const scene = { id: "s", dimensions: { sceneX: 0, sceneY: 0, sceneWidth: 1000, sceneHeight: 1000, size: 100 } }
+  const tok = (actor) => ({ name: "X", actorId: "a", actor, x: 0, y: 0, width: 1, height: 1, getFlag: () => null, parent: scene })
+  hooks.createToken.at(-1)(tok({ name: "Squad D", type: "npc", getFlag: (m, k) => k === "notPerson" }), {}, "gm1")
+  hooks.createToken.at(-1)(tok({ name: "Party", type: "group", getFlag: () => null }), {}, "gm1")
+  hooks.createToken.at(-1)(tok({ name: "Cart", type: "vehicle", getFlag: () => null }), {}, "gm1")
+  hooks.updateToken.at(-1)(tok({ name: "Squad D", type: "npc", getFlag: (m, k) => k === "notPerson" }), { x: 300 }, {}, "gm1")
+  assert.equal(sent.filter(m => m.type === "trip.place").length, 0)
+  hooks.createToken.at(-1)(tok({ name: "Arin", type: "character", getFlag: () => null }), {}, "gm1")
+  assert.equal(sent.filter(m => m.type === "trip.place").length, 1, "a person still is")
+})
