@@ -3,32 +3,27 @@
 //
 // An eye in the RealmScreen control set, for players and the GM alike. Clicking it opens a column of three
 // square buttons beside it (the user's second sketch: no window), each switching off / on for THIS account:
-//   Grid             every grid on the scene: RealmScreen's world-map grid (the overlay the World Map sends;
-//                    main.js ovl*) AND the scene's own Foundry grid (RealmScreen-made scenes set that one too)
+//   Grid             RealmScreen's world-map grid (the overlay the World Map sends; main.js ovl*). This SHOWS
+//                    it as well as hides it — each account, player or GM, decides for itself (off to start).
+//                    Foundry's own scene grid is left alone.
 //   Nation borders   the borders (and their colour wash) RealmScreen sent — only the ones this viewer may see
 //   Road ways        the roads RealmScreen sent — same rule
-// Only hides; it never shows anything the Map views / GM-only rules hide (realm-layer.js visibleFor).
-// A user setting: each account keeps its own pick on every device. Everything is on until they turn it off.
+// Borders / roads only hide: never anything the Map views / GM-only rules hide (realm-layer.js visibleFor).
+// A user setting: each account keeps its own pick on every device. Borders + roads start on, the grid off.
 // ──────────────────────────────────────────────────────────────
 
 const MOD = "pendant-bridge"
 export const SEE = [
-  { key: "grid", label: "Grid", icon: "fa-solid fa-table-cells-large" },
-  { key: "borders", label: "Nation borders", icon: "fa-solid fa-flag" },
-  { key: "roads", label: "Road ways", icon: "fa-solid fa-road" },
+  { key: "grid", label: "Grid", icon: "fa-solid fa-table-cells-large", on: false },
+  { key: "borders", label: "Nation borders", icon: "fa-solid fa-flag", on: true },
+  { key: "roads", label: "Road ways", icon: "fa-solid fa-road", on: true },
 ]
 const setKey = (k) => `see${k[0].toUpperCase()}${k.slice(1)}`
 
 /** Does this viewer want to see `key` (grid | borders | roads)? */
 export function seeing(key) {
-  try { return game.settings.get(MOD, setKey(key)) !== false } catch { return true }
-}
-
-// The scene's own Foundry grid: hidden here; Foundry builds a new mesh whenever it redraws the grid layer,
-// so this runs again then (drawGridLayer) and after the scene's grid changes.
-function applyGrid() {
-  const mesh = canvas?.interface?.grid?.mesh
-  if (mesh) mesh.visible = seeing("grid")
+  const d = SEE.find(x => x.key === key)?.on ?? true
+  try { const v = game.settings.get(MOD, setKey(key)); return typeof v === "boolean" ? v : d } catch { return d }
 }
 
 // ── the flyout: one square button per thing, in a column beside the eye ──
@@ -94,9 +89,9 @@ export function openMyView(event) {
 Hooks.once("init", () => {
   for (const s of SEE) {
     game.settings.register(MOD, setKey(s.key), {
-      scope: "user", config: false, type: Boolean, default: true,
+      scope: "user", config: false, type: Boolean, default: s.on,
       onChange: () => {
-        if (s.key === "grid") { applyGrid(); Hooks.callAll("pendantGridSeen") } else Hooks.callAll("pendantRealmRedraw")
+        Hooks.callAll(s.key === "grid" ? "pendantGridSeen" : "pendantRealmRedraw")
         paint()
       },
     })
@@ -110,9 +105,6 @@ Hooks.on("renderSceneControls", () => setTimeout(() => {
   anchor = eye; place()
 }, 0))
 Hooks.on("canvasTearDown", () => closeFly())
-Hooks.on("canvasReady", () => applyGrid())
-Hooks.on("drawGridLayer", () => applyGrid())
-Hooks.on("updateScene", (scene, changes) => { if (scene?.id === canvas?.scene?.id && "grid" in (changes || {})) setTimeout(applyGrid, 0) })
 
 // For the bridge's `views.probe` (debug): the state here, set a switch, or click one in the column.
 export const views = {

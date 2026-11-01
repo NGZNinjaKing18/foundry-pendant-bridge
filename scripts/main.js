@@ -2993,7 +2993,7 @@ async function handleCommand(msg) {
       const scene = canvas?.scene
       out.after = views.probe()
       out.overlay = {
-        scene: scene?.id ?? null, payload: !!ovlGetPayload(scene), shared: ovlShared(scene), localShow: ovlState.localShow,
+        scene: scene?.id ?? null, payload: !!ovlGetPayload(scene), shared: ovlShared(scene),
         visible: scene ? ovlVisible(scene) : null, layer: !!ovlState.layer, destroyed: !!ovlState.layer?.destroyed,
         children: ovlState.layer?.children?.length ?? null, parent: ovlState.layer?.parent?.name ?? ovlState.layer?.parent?.constructor?.name ?? null,
       }
@@ -6662,8 +6662,7 @@ function ahRerenderSheets() {
 // and draw on the canvas, aligned to the scene background. Pure geometry below
 // is a verbatim port of the app's grid math (gridGeom/cellCenter, 'center'
 // origin for every flattened level) so the overlay reproduces the app exactly.
-// Visibility: the GM can show it for themselves only (a client-local flag) or
-// for EVERYONE (a scene flag that auto-syncs to every client). No socket needed.
+// Visibility: each account switches it on/off for itself (the eye's Grid switch, my-view.js).
 
 const OVL_MAX_EFFDIV = 8000, OVL_SQRT3 = Math.sqrt(3)
 const OVL_HEX_FLAT = [], OVL_HEX_POINT = []
@@ -6671,7 +6670,7 @@ for (let k = 0; k < 6; k++) {
   OVL_HEX_FLAT.push([Math.cos(k * Math.PI / 3), Math.sin(k * Math.PI / 3)])
   OVL_HEX_POINT.push([Math.cos((k * 60 - 90) * Math.PI / 180), Math.sin((k * 60 - 90) * Math.PI / 180)])
 }
-const ovlState = { layer: null, localShow: false }
+const ovlState = { layer: null }
 let ovlRaf = 0
 
 function ovlColor(hex, fallback) {
@@ -6707,8 +6706,9 @@ function ovlCellPoly(g, cx, cy) {
 
 function ovlGetPayload(scene) { try { return scene?.getFlag(MOD, "overlay") || null } catch { return null } }
 function ovlShared(scene) { try { return scene?.getFlag(MOD, "overlayShared") === true } catch { return false } }
-// …and only while this account hasn't switched the grid off with the eye (scripts/my-view.js).
-function ovlVisible(scene) { return seeing("grid") && (ovlShared(scene) || (game.user?.isGM && ovlState.localShow)) }
+// Who sees it: each account, with the Grid switch in the eye's column (scripts/my-view.js) — players too.
+// (The old GM-only Off / Just me / Everyone pill is gone; a scene's old "everyone" flag no longer matters.)
+function ovlVisible(scene) { return seeing("grid") }
 function ovlParent() { return canvas?.interface || canvas?.stage || null }
 
 function ovlEnsureLayer() {
@@ -6805,36 +6805,9 @@ function ovlDraw() {
 
 // GM-only floating toggle (bottom-left, above the connection pill). Cycles
 // Off → Just me → Everyone. Only shown when the active scene carries an overlay.
-function ovlUpdateToggle() {
-  const scene = canvas?.scene
-  const has = !!(scene && ovlGetPayload(scene))
-  let el = document.getElementById("pendant-bridge-overlay-toggle")
-  if (!game.user?.isGM || !has) { if (el) el.remove(); return }
-  if (!el) {
-    el = document.createElement("div")
-    el.id = "pendant-bridge-overlay-toggle"
-    el.style.cssText = "position:fixed;left:8px;bottom:40px;z-index:60;padding:4px 9px;border-radius:6px;font:600 11px/1.2 sans-serif;cursor:pointer;user-select:none;border:1px solid;"
-    el.addEventListener("click", ovlCycle)
-    document.body.appendChild(el)
-  }
-  const state = ovlShared(scene) ? "all" : (ovlState.localShow ? "me" : "off")
-  const skin = state === "all" ? ["rgba(20,46,28,0.9)", "rgba(110,200,140,0.6)", "#9fe6b6"]
-    : state === "me" ? ["rgba(28,18,46,0.9)", "rgba(150,100,220,0.6)", "#d6bcff"]
-    : ["rgba(24,24,30,0.85)", "rgba(140,140,160,0.4)", "#b9b9c6"]
-  el.style.background = skin[0]; el.style.borderColor = skin[1]; el.style.color = skin[2]
-  el.textContent = state === "all" ? "▦ Grid: everyone" : state === "me" ? "▦ Grid: just me" : "▦ Grid: off"
-  el.title = "World-map grid overlay — click to cycle Off → Just me → Everyone"
-}
-async function ovlCycle() {
-  const scene = canvas?.scene; if (!scene) return
-  const state = ovlShared(scene) ? "all" : (ovlState.localShow ? "me" : "off")
-  try {
-    if (state === "off") ovlState.localShow = true
-    else if (state === "me") { ovlState.localShow = true; if (game.user?.isGM) await scene.setFlag(MOD, "overlayShared", true) }
-    else { ovlState.localShow = false; if (game.user?.isGM) await scene.unsetFlag(MOD, "overlayShared") }
-  } catch (e) { console.warn("[pendant-bridge] overlay toggle failed", e) }
-  ovlScheduleDraw(); ovlUpdateToggle()
-}
+// The old GM pill (Off / Just me / Everyone) is replaced by the eye's Grid switch (my-view.js): take it
+// off the page if an older version left it there.
+function ovlUpdateToggle() { document.getElementById("pendant-bridge-overlay-toggle")?.remove() }
 
 function ovlInit() {
   Hooks.on("canvasReady", () => { ovlState.layer = null; ovlScheduleDraw(); ovlUpdateToggle() })
