@@ -22,7 +22,7 @@ const music = await import("../scripts/music-panel.js")
 const sent = []
 music.setMusicSender((m) => { sent.push(m); return true })
 
-const state = { tracks: [{ id: "a", name: "Tavern <b>", vol: 0.42, web: false }], requests: [{ id: "r1", url: "https://youtu.be/x", userName: "Ana" }], auto: false }
+const state = { tracks: [{ id: "a", name: "Tavern <b>", vol: 0.42, web: false, canPause: true }, { id: "w", name: "Radio", vol: 0.5, web: true, canPause: false, paused: false }], requests: [{ id: "r1", url: "https://youtu.be/x", user: "p1", userName: "Ana" }], auto: false }
 
 test("players see the playing tracks but not the requests or the switch", () => {
   const p = music.panelHtml(state, { gm: false })
@@ -34,6 +34,18 @@ test("players see the playing tracks but not the requests or the switch", () => 
   assert.match(g, /data-req="r1"/)
   assert.match(g, /data-pbm="auto"/)
   assert.match(music.panelHtml(null), /Nothing is playing/)
+})
+
+test("pause shows only where it works; the link button says what it does", () => {
+  const p = music.panelHtml(state, { gm: false, me: "p1" })
+  assert.equal((p.match(/data-pbm="pause"/g) || []).length, 1, "the web page that can't pause has no button")
+  assert.match(p, /Ask GM/)
+  assert.match(p, /Waiting for your GM/)
+  assert.doesNotMatch(music.panelHtml(state, { gm: false, me: "p2" }), /Waiting for your GM/, "only your own requests")
+  assert.match(music.panelHtml({ ...state, auto: true }, { gm: false }), /Play now/)
+  assert.match(music.panelHtml(state, { gm: true }), /Play now/)
+  const paused = music.panelHtml({ tracks: [{ id: "a", name: "T", vol: 0.5, paused: true }] })
+  assert.match(paused, /data-pbm="play"/)
 })
 
 test("only the linked window forwards a player's action, naming who sent it", () => {

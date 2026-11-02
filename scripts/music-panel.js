@@ -43,42 +43,76 @@ const nameOf = (id) => { try { return game.users?.get?.(id)?.name || "Someone" }
 const newAid = () => `${game.user?.id || "u"}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
 
 // ── drawing (pure, exported for tests) ────────────────────────
-export function panelHtml(s, { gm = false } = {}) {
+const linkLabel = (url) => { try { const u = new URL(url); return u.hostname.replace(/^www\./, "") + (u.pathname.length > 1 ? u.pathname.slice(0, 18) + (u.pathname.length > 18 ? "…" : "") : "") } catch { return String(url || "") } }
+
+export function panelHtml(s, { gm = false, me = null } = {}) {
   const tracks = Array.isArray(s?.tracks) ? s.tracks : []
-  const reqs = gm && Array.isArray(s?.requests) ? s.requests : []
+  const allReqs = Array.isArray(s?.requests) ? s.requests : []
   const auto = !!s?.auto
   const list = tracks.length
     ? `<ol class="pb-music-tracks">${tracks.map(t => {
       const pct = Math.round((Number(t.vol) || 0) * 100)
-      return `<li class="pb-music-track" data-id="${esc(t.id)}">` +
+      // Pause only where it really works: files always, a web page only when its player can be paused.
+      const pause = t.canPause === false ? ""
+        : t.paused
+          ? `<button type="button" class="icon fa-solid fa-play" data-pbm="play" data-tooltip="Resume" aria-label="Resume ${esc(t.name)}"></button>`
+          : `<button type="button" class="icon fa-solid fa-pause" data-pbm="pause" data-tooltip="Pause" aria-label="Pause ${esc(t.name)}"></button>`
+      return `<li class="pb-music-track${t.paused ? " pb-music-paused" : ""}" data-id="${esc(t.id)}">` +
         `<div class="pb-music-row"><i class="fa-solid ${t.web ? "fa-globe" : "fa-music"}" inert></i>` +
-        `<span class="pb-music-name" title="${esc(t.name)}">${esc(t.name)}</span>` +
+        `<span class="pb-music-name" title="${esc(t.name)}">${esc(t.name)}</span>${t.paused ? `<span class="pb-music-tag">Paused</span>` : ""}` +
+        pause +
         `<button type="button" class="icon fa-solid fa-stop" data-pbm="stop" data-tooltip="Stop" aria-label="Stop ${esc(t.name)}"></button></div>` +
         `<div class="pb-music-row"><i class="fa-solid ${t.mute ? "fa-volume-xmark" : "fa-volume-low"}" inert></i>` +
         `<input type="range" min="0" max="100" step="1" value="${pct}" data-pbm="vol" aria-label="Volume of ${esc(t.name)}">` +
         `<span class="pb-music-pct">${pct}%</span></div></li>`
     }).join("")}</ol>`
     : `<p class="hint pb-music-empty">Nothing is playing.</p>`
-  const requests = reqs.length
-    ? `<h4 class="pb-music-sub">Asked to play</h4><ol class="pb-music-reqs">${reqs.map(r =>
-      `<li class="pb-music-req" data-req="${esc(r.id)}"><div class="pb-music-req-text"><strong>${esc(r.userName)}</strong> ` +
-      `<a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer" title="${esc(r.url)}">${esc(r.url)}</a></div>` +
-      `<button type="button" data-pbm="yes"><i class="fa-solid fa-play" inert></i> Play</button>` +
-      `<button type="button" data-pbm="no"><i class="fa-solid fa-xmark" inert></i> No</button></li>`).join("")}</ol>`
-    : ""
-  const how = gm
-    ? `<label class="pb-music-auto checkbox"><input type="checkbox" data-pbm="auto"${auto ? " checked" : ""}> Players’ links start right away</label>`
-    : `<p class="hint">${auto ? "Links start right away." : "Your GM OKs a link before it plays."}</p>`
+
+  // Adding a link: the GM (or "start right away") plays it now; otherwise the player asks the GM.
+  const now = gm || auto
+  const add = `<h4 class="pb-music-sub">${now ? "Play a link" : "Ask to play a link"}</h4>` +
+    `<form class="pb-music-add"><input type="url" name="url" placeholder="YouTube or Spotify link" aria-label="Link" required>` +
+    `<button type="submit">${now ? `<i class="fa-solid fa-play" inert></i> Play now` : `<i class="fa-solid fa-paper-plane" inert></i> Ask GM`}</button></form>` +
+    `<p class="hint">${gm ? "Starts for everyone straight away." : now ? "Starts for everyone straight away." : "Your GM gets it and starts it when they press Play."}</p>`
+
+  let reqs = ""
+  if (gm) {
+    reqs = allReqs.length
+      ? `<h4 class="pb-music-sub">Players asking to play</h4><ol class="pb-music-reqs">${allReqs.map(r =>
+        `<li class="pb-music-req" data-req="${esc(r.id)}"><div class="pb-music-req-text"><strong>${esc(r.userName)}</strong> ` +
+        `<a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer" title="${esc(r.url)}">${esc(linkLabel(r.url))}</a></div>` +
+        `<button type="button" data-pbm="yes"><i class="fa-solid fa-play" inert></i> Play</button>` +
+        `<button type="button" data-pbm="no"><i class="fa-solid fa-xmark" inert></i> No</button></li>`).join("")}</ol>`
+      : ""
+    reqs += `<label class="pb-music-auto checkbox"><input type="checkbox" data-pbm="auto"${auto ? " checked" : ""}> Players’ links play straight away (no asking)</label>`
+  } else {
+    const mine = allReqs.filter(r => me && r.user === me)
+    if (mine.length) reqs = `<h4 class="pb-music-sub">Waiting for your GM</h4><ol class="pb-music-reqs">${mine.map(r =>
+      `<li class="pb-music-req"><div class="pb-music-req-text"><i class="fa-solid fa-hourglass-half" inert></i> ${esc(linkLabel(r.url))}</div></li>`).join("")}</ol>`
+  }
+
   return `<header class="pb-music-head"><h3><i class="fa-solid fa-music" inert></i> RealmScreen music</h3>` +
     `<button type="button" class="icon fa-solid fa-list" data-pbm="foundry" data-tooltip="Foundry’s playlists" aria-label="Show Foundry’s playlists"></button></header>` +
-    list +
-    `<form class="pb-music-add"><input type="url" name="url" placeholder="Paste a YouTube / Spotify link…" aria-label="Link to queue" required>` +
-    `<button type="submit"><i class="fa-solid fa-plus" inert></i> Queue</button></form>` +
-    how + requests
+    list + add + reqs
 }
 
 // ── talking to RealmScreen ────────────────────────────────────
+// What a press changes, drawn at once — RealmScreen's own state follows a moment later.
+function shown(act, extra) {
+  if (!state) return
+  const tracks = (state.tracks || []).map(t => (t.id !== extra.id ? t
+    : act === "pause" ? { ...t, paused: true }
+    : act === "play" ? { ...t, paused: false }
+    : act === "vol" ? { ...t, vol: extra.vol } : t)).filter(t => !(act === "stop" && t.id === extra.id))
+  let requests = state.requests || []
+  if (act === "answer") requests = requests.filter(r => r.id !== extra.reqId)
+  if (act === "add" && !game.user?.isGM && !state.auto) requests = [...requests, { id: "local-" + Date.now(), url: extra.url, user: game.user?.id, userName: game.user?.name }]
+  state = { ...state, tracks, requests, ...(act === "auto" ? { auto: !!extra.on } : {}) }
+}
+
 function send(act, extra = {}) {
+  shown(act, extra)
+  if (act !== "vol") redraw()
   const msg = { act, aid: newAid(), ...extra }
   if (linkedHere() && sender) { forward(msg, game.user?.id); return }
   if (!realmLive()) { ui.notifications?.warn("RealmScreen isn’t connected."); return }
@@ -99,24 +133,32 @@ function onClick(ev) {
   const req = b.closest("[data-req]")?.dataset.req
   switch (b.dataset.pbm) {
     case "stop": if (id) send("stop", { id }); break
+    case "pause": if (id) send("pause", { id }); break
+    case "play": if (id) send("play", { id }); break
     case "yes": if (req) send("answer", { reqId: req, ok: true }); break
     case "no": if (req) send("answer", { reqId: req, ok: false }); break
     case "foundry": setShowFoundry(true); redraw(); break
     case "realm": setShowFoundry(false); redraw(); break
   }
 }
+// The slider is heard while it moves: a send every 150 ms, and the last value on release.
+let volT = 0, volLast = 0
+function sendVol(r) {
+  const id = r.closest("[data-id]")?.dataset.id
+  if (id) send("vol", { id, vol: Math.max(0, Math.min(100, Number(r.value) || 0)) / 100 })
+}
 function onInput(ev) {
   const r = ev.target
   if (r?.dataset?.pbm !== "vol") return
   const pct = r.closest(".pb-music-track")?.querySelector(".pb-music-pct")
   if (pct) pct.textContent = `${r.value}%`
+  clearTimeout(volT)
+  const wait = 150 - (Date.now() - volLast)
+  volT = setTimeout(() => { volLast = Date.now(); sendVol(r) }, Math.max(0, wait))
 }
 function onChange(ev) {
   const r = ev.target
-  if (r?.dataset?.pbm === "vol") {
-    const id = r.closest("[data-id]")?.dataset.id
-    if (id) send("vol", { id, vol: Math.max(0, Math.min(100, Number(r.value) || 0)) / 100 })
-  } else if (r?.dataset?.pbm === "auto") send("auto", { on: !!r.checked })
+  if (r?.dataset?.pbm === "vol") { clearTimeout(volT); volLast = Date.now(); sendVol(r) } else if (r?.dataset?.pbm === "auto") send("auto", { on: !!r.checked })
 }
 function onSubmit(ev) {
   const f = ev.target.closest?.(".pb-music-add")
@@ -126,11 +168,16 @@ function onSubmit(ev) {
   if (!url) return
   send("add", { url })
   f.reset()
-  if (!game.user?.isGM && !state?.auto) ui.notifications?.info("Sent to your GM.")
 }
 
 // A slider being dragged (or a link half typed) isn't redrawn under the hand.
-const busy = (box) => box.contains(document.activeElement) && document.activeElement.matches("input")
+// (Focus alone isn't enough: a slider keeps focus after release, and the panel would stop updating.)
+let dragging = false
+const busy = (box) => {
+  const a = document.activeElement
+  if (!box.contains(a)) return false
+  return a?.dataset?.pbm === "vol" ? dragging : (a?.type === "url" && !!a.value)
+}
 
 function place(root) {
   if (!root) return
@@ -161,9 +208,10 @@ function place(root) {
     box.addEventListener("input", onInput)
     box.addEventListener("change", onChange)
     box.addEventListener("submit", onSubmit)
+    box.addEventListener("pointerdown", (e) => { if (e.target?.dataset?.pbm === "vol") dragging = true })
     root.prepend(box)
   } else if (busy(box)) return
-  box.innerHTML = panelHtml(state, { gm: !!game.user?.isGM })
+  box.innerHTML = panelHtml(state, { gm: !!game.user?.isGM, me: game.user?.id || null })
 }
 
 const roots = () => document.querySelectorAll("#playlists, #playlists-popout .window-content, .playlists-sidebar")
@@ -209,6 +257,7 @@ export function onMusicSocket(m, senderId) {
 }
 
 Hooks.once("ready", () => {
+  window.addEventListener("pointerup", () => { if (dragging) { dragging = false; setTimeout(redraw, 0) } })
   try { game.socket?.on(CHANNEL, (m, senderId) => onMusicSocket(m, typeof senderId === "string" ? senderId : null)) } catch { /* no socket */ }
   if (!linkedHere()) emit({ t: "music.ask" })
   redraw()
