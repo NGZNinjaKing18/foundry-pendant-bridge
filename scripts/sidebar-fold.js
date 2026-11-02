@@ -8,8 +8,8 @@
 //
 // Which tabs fold is a world setting the GM picks in Module Settings ▸
 // "Folded sidebar tabs". Until the GM saves a pick, the built-in pick is used
-// (Items, Roll Tables, Card Stacks, Macros, Playlists, Dice So Nice,
-// conversations). Tidying only — a folded tab is still reachable.
+// (Items, Roll Tables, Card Stacks, Macros, Dice So Nice, conversations).
+// Playlists stays out: while connected it is the RealmScreen music panel. Tidying only — a folded tab is still reachable.
 //
 // Native-first: Foundry's own tab <li>s are moved into the group, the button
 // copies a real tab button's classes, nothing is replaced.
@@ -22,7 +22,7 @@ const KEY = "sidebarFold"
 const OPEN_KEY = `${MOD}.sidebarFoldOpen`
 
 // The built-in pick: core tab ids, plus module tabs found by id or tooltip.
-export const DEFAULT_IDS = ["items", "tables", "cards", "macros", "playlists"]
+export const DEFAULT_IDS = ["items", "tables", "cards", "macros"]
 const DEFAULT_MATCH = /dice|convers/i
 const NEVER = new Set(["chat", "settings"])   // always kept on the strip
 

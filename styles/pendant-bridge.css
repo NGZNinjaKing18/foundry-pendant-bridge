@@ -997,3 +997,30 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
 .pb-trip .pb-trip-facts span { font-size: var(--font-size-11, 11px); color: var(--color-text-secondary, inherit); }
 .pb-trip .form-footer { display: flex; gap: 6px; margin-top: 6px; }
 .pb-trip .form-footer button { flex: 1; }
+
+/* ── RealmScreen music in the Playlists tab (scripts/music-panel.js) — Foundry's own buttons/inputs ── */
+.pb-music-on > :not(.pb-music) { display: none !important; }
+.pb-music { display: flex; flex-direction: column; gap: 6px; padding: 6px 8px; overflow-y: auto; flex: 1; }
+.pb-music .pb-music-head { display: flex; align-items: center; gap: 6px; }
+.pb-music .pb-music-head h3 { flex: 1; margin: 0; border: 0; font-size: var(--font-size-14, 14px); }
+.pb-music .pb-music-head h3 i { margin-right: 4px; color: var(--color-text-secondary, inherit); }
+.pb-music .pb-music-head button { flex: none; width: 24px; height: 24px; min-height: 0; padding: 0; }
+.pb-music ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.pb-music .pb-music-track, .pb-music .pb-music-req { padding: 4px 6px; border: 1px solid var(--color-border, color-mix(in srgb, currentColor 20%, transparent)); border-radius: 3px; }
+.pb-music .pb-music-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.pb-music .pb-music-row > i { flex: none; width: 14px; text-align: center; color: var(--color-text-secondary, inherit); }
+.pb-music .pb-music-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pb-music .pb-music-row button { flex: none; width: 22px; height: 22px; min-height: 0; padding: 0; }
+.pb-music .pb-music-row input[type="range"] { flex: 1; min-width: 0; margin: 0; }
+.pb-music .pb-music-pct { flex: none; width: 3em; text-align: right; font-size: var(--font-size-12, 12px); color: var(--color-text-secondary, inherit); font-variant-numeric: tabular-nums; }
+.pb-music .pb-music-add { display: flex; gap: 4px; margin: 0; }
+.pb-music .pb-music-add input { flex: 1; min-width: 0; }
+.pb-music .pb-music-add button { flex: none; width: auto; padding: 0 8px; }
+.pb-music .hint { margin: 0; font-size: var(--font-size-12, 12px); color: var(--color-text-secondary, inherit); }
+.pb-music .pb-music-sub { margin: 4px 0 0; font-size: var(--font-size-12, 12px); text-transform: uppercase; letter-spacing: .05em; color: var(--color-text-secondary, inherit); border: 0; }
+.pb-music .pb-music-req { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.pb-music .pb-music-req-text { flex: 1 1 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-size-12, 12px); }
+.pb-music .pb-music-req button { flex: 1; min-height: 0; height: 24px; }
+.pb-music .pb-music-auto { display: flex; align-items: center; gap: 6px; font-size: var(--font-size-12, 12px); }
+.pb-music-back { flex: none; margin: 6px 8px 0; }
+.pb-music-note i { margin-right: 4px; color: var(--color-text-secondary, inherit); }

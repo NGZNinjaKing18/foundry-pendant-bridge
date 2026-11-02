@@ -29,6 +29,7 @@ import { setPages, whisperCampaign } from "./campaign-page.js"
 import {} from "./group-stack.js"    // dnd5e group tokens: stacked art, pile order, pull-out fan
 import { syncParty, syncTrails, setPartySender, partySwitch, partyGroups } from "./party.js"
 import { setTripSender, tripAnswer } from "./trips.js"
+import { setMusicSender, setMusicState, musicNote } from "./music-panel.js"   // RealmScreen music in the Playlists tab
 import { timelineStatus, applyFromRealm, broadcastFromRealm, isTimelineWriter } from "./timeline.js"
 import { setMapBuilders, mapViewsState, mapViewsSet, mapSend, mapViewsEdit, mapRemove, mapReveal } from "./mapviews.js"
 import {} from "./realm-layer.js"   // draws the sent World Map itself (records in flags.realm)
@@ -604,6 +605,7 @@ setClockSender((m) => bridge.send(m))
 setCampaignSender((m) => bridge.send(m))
 setPartySender((m) => bridge.send(m))
 setTripSender((m) => bridge.send(m))
+setMusicSender((m) => bridge.send(m))
 
 // ──────────────────────────────────────────────────────────────
 // Snapshot / serialization helpers
@@ -3788,6 +3790,12 @@ async function handleCommand(msg) {
       return bridge.reply(msg.reqId, { type: "map.realm", ok: true, version: 1 })
     case "map.reveal":
       return bridge.reply(msg.reqId, { type: "map.revealed", ok: true, ...(await mapReveal(msg)) })
+    // ── RealmScreen music in the Playlists tab (scripts/music-panel.js) ──
+    // { state: { tracks, requests, auto } } → every client's panel · { text, to? } → a whisper (GMs, or one player)
+    case "music.state":
+      return bridge.reply(msg.reqId, { type: "music.state", ...setMusicState(msg.state || null) })
+    case "music.note":
+      return bridge.reply(msg.reqId, { type: "music.note", ...(await musicNote(msg)) })
     case "clock.get": {
       return bridge.reply(msg.reqId, { type: "clock.get", clock: currentClock() })
     }

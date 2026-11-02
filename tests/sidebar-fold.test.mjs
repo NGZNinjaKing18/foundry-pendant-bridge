@@ -17,7 +17,7 @@ const strip = [
 
 test("built-in pick folds the asked-for tabs, module tabs by name", () => {
   assert.deepEqual(pickFolded(strip, null),
-    ["dice-so-nice", "items", "tables", "cards", "macros", "playlists", "talk"])
+    ["dice-so-nice", "items", "tables", "cards", "macros", "talk"])
 })
 
 test("the GM's saved pick wins, in strip order", () => {
