@@ -22,7 +22,7 @@
 // ──────────────────────────────────────────────────────────────
 
 const MOD = "pendant-bridge"
-import { realmLive, setLinked } from "./live.js"
+import { realmLive, setLinked, linkedHere } from "./live.js"
 
 let clock = null            // the clock being shown (null = none)
 let sender = null           // (msg) => bool — the bridge's WebSocket send
@@ -105,7 +105,19 @@ function onStepClick(ev) {
   if (!b) return
   ev.preventDefault()
   const msg = { type: "clock.step", days: n(b.dataset.days), hours: n(b.dataset.hours) }
-  if (!sender || !sender(msg)) ui.notifications?.warn("RealmScreen isn’t connected, so the date can’t move from here.")
+  if (linkedHere() && sender && sender(msg)) return
+  // Another GM window holds the RealmScreen link (found live 2026-11-01: two GMs logged in, and the buttons in the
+  // other one did nothing) — ask it over the module socket; it checks the ask came from a GM.
+  if (realmLive()) { try { game.socket?.emit(CHANNEL, { t: "clock.ask", user: game.user?.id || null, msg }) } catch { /* socket not ready */ } return }
+  ui.notifications?.warn("RealmScreen isn’t connected, so the date can’t move from here.")
+}
+const CHANNEL = `module.${MOD}`
+/** A GM's step from another window, for the window holding the link. Exported for tests. */
+export function onClockAsk(m) {
+  if (!m || m.t !== "clock.ask" || !linkedHere() || !sender) return false
+  if (!game.users?.get?.(m.user)?.isGM) return false
+  const st = m.msg || {}
+  return !!sender({ type: "clock.step", days: n(st.days), hours: n(st.hours) })
 }
 
 // The dial only shows while RealmScreen is connected (live.js decides, the same
@@ -176,6 +188,7 @@ Hooks.once("init", () => {
 })
 Hooks.once("ready", () => {
   applyClock(readSetting())
+  try { game.socket?.on(CHANNEL, (m) => { if (m && m.t === "clock.ask") onClockAsk(m) }) } catch { /* no socket */ }
 })
 Hooks.on("pendantBridgeLive", () => redraw())
 
