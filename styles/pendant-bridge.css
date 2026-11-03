@@ -1080,3 +1080,25 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
 .pb-music .pb-music-queue .pb-music-n { font-weight: 600; text-align: center; color: var(--color-text-subtle, inherit); font-variant-numeric: tabular-nums; }
 .pb-music .pb-music-queue li:first-child .pb-music-n { color: var(--color-warm-2, inherit); }
 .pb-music .pb-music-queue button { width: 22px; height: 22px; min-height: 0; padding: 0; color: var(--color-text-secondary, inherit); }
+
+/* ── Theorize a trip (scripts/theorize.js) — Foundry's own variables, both themes ── */
+.pb-theo-readout { position: fixed; z-index: 100; pointer-events: none; min-width: 230px; max-width: 310px; padding: 8px 10px;
+  background: var(--color-cool-5-90, rgba(11, 10, 19, .9)); color: var(--color-text-primary, #e7e4dc);
+  border: 1px solid var(--color-border, #444); border-left: 3px solid var(--color-warm-2, #ff6400); border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .5); font-size: var(--font-size-13, 13px); }
+.pb-theo-readout .hint { margin: 0 0 5px; font-size: var(--font-size-12, 12px); color: var(--color-text-secondary, #a9a6a0); }
+.pb-theo-big { font-size: var(--font-size-18, 18px); font-weight: bold; }
+.pb-theo-big.stale { opacity: .6; }
+.pb-theo-row { display: flex; justify-content: space-between; gap: 10px; font-size: var(--font-size-12, 12px); padding: 1px 0; }
+.pb-theo-row i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.pb-theo-bad { margin: 4px 0 0; font-size: var(--font-size-12, 12px); color: var(--color-level-error, #e0574f); }
+.pb-theo-warn { margin: 4px 0 0; font-size: var(--font-size-12, 12px); color: var(--color-level-warning, #e0b14f); }
+.pb-theo-paces { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 7px; font-size: var(--font-size-11, 11px); color: var(--color-text-secondary, #a9a6a0); }
+.pb-theo-paces span { border: 1px solid var(--color-border, #444); border-radius: 3px; padding: 0 5px; }
+.pb-theo-paces span.on { color: var(--color-warm-2, #ff6400); border-color: var(--color-warm-2, #ff6400); }
+.pb-theo-hint { position: fixed; z-index: 100; left: 50%; top: 10px; transform: translateX(-50%); max-width: calc(100vw - 420px); padding: 5px 14px; text-align: center;
+  background: var(--color-cool-5-90, rgba(11, 10, 19, .9)); color: var(--color-text-secondary, #a9a6a0); border: 1px solid var(--color-border, #444); border-radius: 6px; font-size: var(--font-size-13, 13px); pointer-events: none; }
+.pb-theo-hint b { color: var(--color-text-primary, #e7e4dc); }
+.pb-theo-hint kbd { font-size: var(--font-size-11, 11px); padding: 0 4px; }
+.pb-theo .pb-theo-legs { margin: 6px 0; padding-top: 5px; border-top: 1px solid var(--color-border, color-mix(in srgb, currentColor 20%, transparent)); }
+.pb-theo-chat p { margin: 2px 0; }

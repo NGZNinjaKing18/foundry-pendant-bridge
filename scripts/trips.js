@@ -61,11 +61,13 @@ function ask(op, payload) {
     const qid = newQid()
     const timer = setTimeout(() => { pending.delete(qid); reject(new Error("RealmScreen didn’t answer. Is your GM’s RealmScreen open?")) }, ASK_MS)
     pending.set(qid, { resolve, reject, timer })
-    const msg = { qid, userId: game.user?.id || null, ...payload }
+    const msg = { qid, userId: game.user?.id || null, ...payload, gm: !!game.user?.isGM }
     if (linkedHere() && sender) sender({ type: `trip.${op}`, ...msg })
     else emit({ t: "trip.ask", op, qid, user: game.user?.id || null, payload: msg })
   })
 }
+/** Theorize a trip (scripts/theorize.js) asks RealmScreen the same way: `roads`, `line`. */
+export const askRealm = (op, payload) => ask(op, payload)
 function settle(qid, body) {
   const p = pending.get(qid)
   if (!p) return
@@ -93,7 +95,8 @@ Hooks.once("ready", () => {
   try {
     game.socket?.on(CHANNEL, (m) => {
       if (!m || typeof m.t !== "string" || !m.t.startsWith("trip.")) return
-      if (m.t === "trip.ask" && linkedHere() && sender && m.op && m.payload) sender({ type: `trip.${m.op}`, ...m.payload, qid: m.qid, userId: m.user || m.payload.userId || null })
+      // (`gm` is worked out HERE from who asked — a player's window can't claim it; RealmScreen shows players only their roads)
+      if (m.t === "trip.ask" && linkedHere() && sender && m.op && m.payload) sender({ type: `trip.${m.op}`, ...m.payload, qid: m.qid, userId: m.user || m.payload.userId || null, gm: !!game.users?.get?.(m.user)?.isGM })
       else if (m.t === "trip.resync" && linkedHere() && sender) sender({ type: "party.resync" })
       else if (m.t === "trip.ans" && m.to === game.user?.id) settle(m.qid, m.body)
     })
@@ -194,7 +197,9 @@ function cardClass() {
     constructor(drop, options = {}) {
       super({ ...options, id: `pb-trip-${String(drop.key).replace(/[^\w-]/g, "_").slice(0, 60)}` })
       this.drop = drop
-      this.opts = { by: "foot", hpd: 8, route: "roads", hour: null, mode: "insert" }
+      this.opts = { by: drop.by || "foot", hpd: drop.hpd || 8, route: "roads", hour: null, mode: "insert" }
+      // a line drawn with Theorize a trip: the trip goes exactly along it ("Your line"), unless they pick another way
+      if (Array.isArray(drop.path) && drop.path.length > 1) { this.opts.route = "drawn"; this.opts.path = drop.path; this.picked = true }
       this.quote = null
       this.error = null
       this.busy = true
@@ -238,9 +243,10 @@ function cardClass() {
       }
       if (!q) { el.innerHTML = `<p class="hint"><i class="fa-solid fa-spinner fa-spin"></i> Asking RealmScreen…</p>`; return el }
       const other = q.other || {}
-      const label = (route) => (route === "roads" ? "Roads" : "Straight")
-      const wayTime = (route) => (route === o.route ? (q.warn ? "no way" : q.days) : (other.warn ? (other.warn === "noRoute" ? "no way" : "—") : other.days))
-      const noRoad = (route) => route === "roads" && (route === o.route ? (!q.warn && !q.viaRoads) : (!other.warn && !other.viaRoads))
+      const label = (route) => (route === "roads" ? "Roads" : route === "drawn" ? "Your line" : "Straight")
+      const wayTime = (route) => (route === o.route ? (q.warn ? "no way" : q.days) : route !== other.route ? "" : (other.warn ? (other.warn === "noRoute" ? "no way" : "—") : other.days))
+      const noRoad = (route) => route === "roads" && (route === o.route ? (!q.warn && !q.viaRoads) : route === other.route && (!other.warn && !other.viaRoads))
+      const ways = this.opts.path ? ["drawn", "roads", "straight"] : ["roads", "straight"]
       const radio = (name, value, cur, text, extra = "") => `<label class="pb-trip-opt${String(value) === String(cur) ? " active" : ""}"><input type="radio" name="${name}" value="${esc(value)}" ${String(value) === String(cur) ? "checked" : ""} ${extra}> ${text}</label>`
       const saves = (h) => (q.saves && q.saves[h]) || 0
       const legs = Array.isArray(q.legs) ? q.legs : []
@@ -260,7 +266,7 @@ function cardClass() {
         ${this.error ? `<p class="pb-trip-bad">${esc(this.error)}</p>` : ""}
         <div class="form-group"><label>By</label><div class="form-fields"><select name="by">${(q.paces || []).map(p => `<option value="${esc(p.key)}" ${p.key === o.by ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select></div></div>
         <div class="form-group"><label>Way</label><div class="form-fields pb-trip-radios">
-          ${["roads", "straight"].map(r => radio("route", r, o.route, `${label(r)} · ${esc(noRoad(r) ? "no road" : wayTime(r))}`, noRoad(r) ? "disabled" : "")).join("")}</div></div>
+          ${ways.map(r => { const t = noRoad(r) ? "no road" : wayTime(r); return radio("route", r, o.route, `${label(r)}${t ? ` · ${esc(t)}` : ""}`, noRoad(r) ? "disabled" : "") }).join("")}</div></div>
         <div class="form-group"><label>Hours a day</label><div class="form-fields pb-trip-radios">
           ${HOURS.map(h => radio("hpd", h, o.hpd, `${h} h`)).join("")}</div>
           <p class="hint">${o.hpd > 8 ? `<i class="fa-solid fa-triangle-exclamation"></i> Over 8 hours: ask your DM. ${saves(o.hpd)} Constitution save${saves(o.hpd) === 1 ? "" : "s"} a day, or exhaustion.` : "A normal day’s travel — no saves."}</p></div>

@@ -4,6 +4,7 @@
 // While RealmScreen is connected (live.js), every user gets one more control
 // set under Foundry's own (Tokens, Drawings, …), drawn as a DM screen. Its
 // tools are RealmScreen's player tools: "Plan a trip" (the GM's switch — scripts/trips.js) + "Resync" (GM),
+// "Theorize a trip" (everyone — scripts/theorize.js),
 // "Campaigns" (scripts/campaigns.js) and "Views" (scripts/my-view.js, the eye). Not connected = the control isn't there at all.
 //
 // Native-first: added through `getSceneControlButtons`, re-prepared with
@@ -15,6 +16,7 @@ import { openCampaigns } from "./campaigns.js"
 import { openMapViews, openSentList } from "./mapviews-ui.js"
 import { openMyView } from "./my-view.js"
 import { planTripsOn, setPlanTrips, resync } from "./trips.js"
+import { theorizeOn, setTheorize } from "./theorize.js"
 
 const NAME = "realmscreen"
 
@@ -47,6 +49,16 @@ export function realmControl() {
         button: true,
         visible: !!game.user?.isGM,
         onChange: () => { resync(); ui.notifications?.info("Putting everyone back where RealmScreen has them.") },
+      },
+      // Everyone's (scripts/theorize.js): draw a possible route from a token you control, RealmScreen prices it.
+      theorize: {
+        name: "theorize",
+        order: 0.75,
+        title: "Theorize a trip — draw a route from a token and see what it would take",
+        icon: "fa-solid fa-draw-polygon",
+        toggle: true,
+        active: theorizeOn(),
+        onChange: (_event, active) => { setTheorize(!!active) },
       },
       campaigns: {
         name: "campaigns",
