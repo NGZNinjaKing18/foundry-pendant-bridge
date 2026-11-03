@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Music Panel Harness</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Signika:wght@400;600&family=Roboto+Slab:wght@500;700&display=swap">
+<link rel="stylesheet" href="../../styles/pendant-bridge.css">
+<style>
+/* Dev harness (not loaded by Foundry): the REAL scripts/music-panel.js panelHtml + the real CSS in a
+   stand-in for Foundry's Playlists sidebar (300 px), as the GM and as a player. Serve the Downloads
+   folder (launch config "campaign-page-harness") and open
+   /foundry-pendant-bridge/tests/harness/music-panel.html. Colours stand in for Foundry's themes
+   (approximated from foundry2.css, V14). */
+:root {
+  --color-warm-2: #ee9b3a; --color-level-success: #3ba55d; --color-level-error: #d65a4a;
+  --font-primary: "Signika", sans-serif; --font-body: "Signika", sans-serif; --font-h3: "Roboto Slab", serif; --font-h4: "Roboto Slab", serif;
+  --font-size-11: 11px; --font-size-12: 12px; --font-size-13: 13px; --font-size-14: 14px;
+}
+.theme-dark { --color-text-emphatic: #f0f0e0; --color-text-primary: #e7e1d4; --color-text-secondary: #b5aea0; --color-text-subtle: #8a847a;
+  --color-border: #4a4842; --color-border-highlight: #ee9b3a; --background: #1c1b22; color: var(--color-text-primary); color-scheme: dark; }
+.theme-light { --color-text-emphatic: #191813; --color-text-primary: #2b2a24; --color-text-secondary: #4b4a44; --color-text-subtle: #6e6c62;
+  --color-border: #7a7971; --color-border-highlight: #c9711a; --background: #e9dfc9; color: var(--color-text-primary); color-scheme: light; }
+body { margin: 0; background: #0d100c; color: #ddd; font: 14px/1.4 var(--font-primary); }
+#bar { display: flex; gap: 10px; align-items: center; padding: 8px 12px; background: #151515; border-bottom: 1px solid #333; flex-wrap: wrap; }
+#bar select { background: #2a2a2a; color: #ddd; border: 1px solid #444; border-radius: 3px; padding: 3px 9px; font: inherit; }
+#stage { display: flex; gap: 28px; padding: 20px; flex-wrap: wrap; align-items: flex-start; }
+.col h2 { font: 600 13px var(--font-primary); color: #9a9; margin: 0 0 6px; text-transform: uppercase; letter-spacing: .06em; }
+/* Foundry's sidebar stand-in (Foundry's own CSS styles these in the real thing) */
+.sidebar { width: 300px; height: 720px; background: var(--background); border: 1px solid #000; border-radius: 6px; box-shadow: 0 0 20px #000; display: flex; flex-direction: column; overflow: hidden; }
+.sidebar button { background: rgba(127,127,127,.12); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 3px; font: inherit; font-size: 13px; cursor: pointer; min-height: 26px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+.sidebar button:hover { border-color: var(--color-border-highlight); }
+.sidebar button.icon { background: none; border-color: transparent; }
+.sidebar button.fa-solid { font-family: "Font Awesome 6 Free"; font-weight: 900; }
+.sidebar input[type=url] { background: rgba(0,0,0,.25); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 3px; padding: 3px 6px; font: inherit; box-sizing: border-box; }
+.theme-light input[type=url] { background: rgba(255,255,255,.5); }
+.sidebar input[type=checkbox] { accent-color: var(--color-warm-2); }
+.sidebar h3 { font-family: var(--font-h3); } .sidebar h4 { font-family: var(--font-h4); }
+</style>
+</head>
+<body>
+<div id="bar">
+  <strong>Music panel harness</strong>
+  <span>Theme</span><select id="theme"><option>dark</option><option>light</option></select>
+  <span>Tracks</span><select id="data"><option value="full">Playing, asking, queued</option><option value="empty">Nothing playing</option></select>
+</div>
+<div id="stage"></div>
+<script type="module">
+globalThis.Hooks = { once() {}, on() {} }
+globalThis.game = { user: { id: 'u-gm', isGM: true, name: 'Gamemaster' }, users: { get: () => null }, socket: null, settings: { get: () => null } }
+const { panelHtml } = await import('../../scripts/music-panel.js')
+const FULL = {
+  tracks: [
+    { id: 'a', name: 'Witch Bolt - Marigold [Dungeons & Dragons]', vol: 0.72, mute: false, web: true, paused: false, canPause: true },
+    { id: 'b', name: 'Tavern ambience', vol: 0.35, mute: false, web: false, paused: true, canPause: true },
+  ],
+  requests: [
+    { id: 'r1', url: 'https://www.youtube.com/watch?v=eYz3-YTetag', how: 'swap', user: 'u-p1', userName: 'Rose', at: Date.now() },
+    { id: 'r2', url: 'https://open.spotify.com/track/6iQ5SqqY4uFECbwLKDp6Ie', how: 'queue', user: 'u-p2', userName: 'Loonara', at: Date.now() },
+  ],
+  queue: [
+    { id: 'q1', url: 'https://open.spotify.com/track/1abc', user: 'u-p1', userName: 'Rose' },
+    { id: 'q2', url: 'https://www.youtube.com/watch?v=battle', user: 'u-gm', userName: 'Gamemaster' },
+  ],
+  auto: false,
+}
+const EMPTY = { tracks: [], requests: [], queue: [], auto: false }
+const draw = () => {
+  const theme = document.getElementById('theme').value
+  const s = document.getElementById('data').value === 'full' ? FULL : EMPTY
+  const col = (title, html) => `<div class="col"><h2>${title} — ${theme}</h2><section class="sidebar theme-${theme}"><div class="pb-music-on" style="display:flex;flex-direction:column;flex:1;min-height:0"><div class="pb-music">${html}</div></div></section></div>`
+  document.getElementById('stage').innerHTML = col('GM', panelHtml(s, { gm: true, me: 'u-gm' })) + col('Player (Rose)', panelHtml(s, { gm: false, me: 'u-p1' }))
+  for (const r of document.querySelectorAll('input[type=range][data-pbm=vol]')) r.addEventListener('input', () => {
+    const tr = r.closest('.pb-music-track'); const pct = tr?.querySelector('.pb-music-pct'); if (pct && !tr.classList.contains('pb-music-paused')) pct.textContent = r.value + '%'
+    tr?.style.setProperty('--pct', r.value + '%')
+  })
+}
+for (const id of ['theme', 'data']) document.getElementById(id).addEventListener('change', draw)
+draw()
+</script>
+</body>
+</html>
