@@ -36,14 +36,17 @@ test("players see the playing tracks but not the requests or the switch", () => 
   assert.match(music.panelHtml(null), /Nothing is playing/)
 })
 
-test("pause shows only where it works; the link button says what it does", () => {
+test("pause shows only where it works; a link comes in as Swap or Queue, and says who decides", () => {
   const p = music.panelHtml(state, { gm: false, me: "p1" })
   assert.equal((p.match(/data-pbm="pause"/g) || []).length, 1, "the web page that can't pause has no button")
-  assert.match(p, /Ask GM/)
+  assert.match(p, /data-how="swap"/)
+  assert.match(p, /data-how="queue"/)
+  assert.match(p, /Ask to play a link/)
+  assert.match(p, /Your GM says yes first/)
   assert.match(p, /Waiting for your GM/)
   assert.doesNotMatch(music.panelHtml(state, { gm: false, me: "p2" }), /Waiting for your GM/, "only your own requests")
-  assert.match(music.panelHtml({ ...state, auto: true }, { gm: false }), /Play now/)
-  assert.match(music.panelHtml(state, { gm: true }), /Play now/)
+  assert.doesNotMatch(music.panelHtml({ ...state, auto: true }, { gm: false }), /says yes first/)
+  assert.match(music.panelHtml(state, { gm: true }), /Play a link/)
   const paused = music.panelHtml({ tracks: [{ id: "a", name: "T", vol: 0.5, paused: true }] })
   assert.match(paused, /data-pbm="play"/)
 })
@@ -62,4 +65,18 @@ test("only the linked window forwards a player's action, naming who sent it", ()
 test("RealmScreen's state reaches every client over the socket", () => {
   music.setMusicState(state)
   assert.deepEqual(emitted.at(-1), { t: "music.state", state })
+})
+
+test("the GM sees what a player chose; Up next lists the queue, Play next is the GM's, × is the GM's or the asker's", () => {
+  const s2 = { tracks: [], requests: [{ id: "r1", url: "https://youtu.be/x", how: "queue", user: "p1", userName: "Ana" }, { id: "r2", url: "https://youtu.be/y", how: "swap", user: "p1", userName: "Ana" }],
+    queue: [{ id: "q1", url: "https://youtu.be/z", user: "p1", userName: "Ana" }, { id: "q2", url: "https://youtu.be/w", user: "p2", userName: "Bo" }] }
+  const g = music.panelHtml(s2, { gm: true })
+  assert.match(g, /Queue it/)
+  assert.match(g, /Swap in/)
+  assert.match(g, /Up next/)
+  assert.match(g, /data-pbm="next"/)
+  assert.equal((g.match(/data-pbm="unqueue"/g) || []).length, 2)
+  const p = music.panelHtml(s2, { gm: false, me: "p1" })
+  assert.doesNotMatch(p, /data-pbm="next"/)
+  assert.equal((p.match(/data-pbm="unqueue"/g) || []).length, 1, "only your own")
 })

@@ -9,8 +9,10 @@
 //   • everyone sees ONLY the tracks playing — never RealmScreen's library;
 //   • anyone can move a track's volume or stop it (RealmScreen whispers the GM
 //     who did what);
-//   • anyone can paste a web link to queue. It waits for the GM's OK (the GM's
-//     panel lists it with Play / No) unless the GM ticks "Links start right away".
+//   • anyone can paste a web link and choose how it comes in: Swap (what is playing
+//     fades out, theirs starts) or Queue (it starts when the current track ends —
+//     "Up next", which the GM can skip to). A player's waits for the GM's OK (the
+//     GM's panel lists it with what they chose) unless the GM ticks "go straight in".
 //
 // The music itself plays in RealmScreen (out through Discord); this is only a
 // remote. RealmScreen decides everything (music/foundryMusic.mjs there).
@@ -45,9 +47,11 @@ const newAid = () => `${game.user?.id || "u"}-${Date.now().toString(36)}-${Math.
 // ── drawing (pure, exported for tests) ────────────────────────
 const linkLabel = (url) => { try { const u = new URL(url); return u.hostname.replace(/^www\./, "") + (u.pathname.length > 1 ? u.pathname.slice(0, 18) + (u.pathname.length > 18 ? "…" : "") : "") } catch { return String(url || "") } }
 
+const HOW_LABEL = { swap: "Swap", queue: "Queue" }
 export function panelHtml(s, { gm = false, me = null } = {}) {
   const tracks = Array.isArray(s?.tracks) ? s.tracks : []
   const allReqs = Array.isArray(s?.requests) ? s.requests : []
+  const queue = Array.isArray(s?.queue) ? s.queue : []
   const auto = !!s?.auto
   const list = tracks.length
     ? `<ol class="pb-music-tracks">${tracks.map(t => {
@@ -57,43 +61,56 @@ export function panelHtml(s, { gm = false, me = null } = {}) {
         : t.paused
           ? `<button type="button" class="icon fa-solid fa-play" data-pbm="play" data-tooltip="Resume" aria-label="Resume ${esc(t.name)}"></button>`
           : `<button type="button" class="icon fa-solid fa-pause" data-pbm="pause" data-tooltip="Pause" aria-label="Pause ${esc(t.name)}"></button>`
-      return `<li class="pb-music-track${t.paused ? " pb-music-paused" : ""}" data-id="${esc(t.id)}">` +
-        `<div class="pb-music-row"><i class="fa-solid ${t.web ? "fa-globe" : "fa-music"}" inert></i>` +
-        `<span class="pb-music-name" title="${esc(t.name)}">${esc(t.name)}</span>${t.paused ? `<span class="pb-music-tag">Paused</span>` : ""}` +
-        pause +
-        `<button type="button" class="icon fa-solid fa-stop" data-pbm="stop" data-tooltip="Stop" aria-label="Stop ${esc(t.name)}"></button></div>` +
-        `<div class="pb-music-row"><i class="fa-solid ${t.mute ? "fa-volume-xmark" : "fa-volume-low"}" inert></i>` +
-        `<input type="range" min="0" max="100" step="1" value="${pct}" data-pbm="vol" aria-label="Volume of ${esc(t.name)}">` +
-        `<span class="pb-music-pct">${pct}%</span></div></li>`
+      return `<li class="pb-music-track${t.paused ? " pb-music-paused" : ""}" data-id="${esc(t.id)}" style="--pct:${pct}%">` +
+        `<div class="pb-music-tile" inert><i class="fa-solid ${t.paused ? "fa-pause" : t.web ? "fa-globe" : "fa-music"}"></i>${t.paused ? "" : `<span class="pb-music-eq"><i></i><i></i><i></i></span>`}</div>` +
+        `<div class="pb-music-main"><span class="pb-music-name" title="${esc(t.name)}">${esc(t.name)}</span>` +
+        `<div class="pb-music-vol"><input type="range" min="0" max="100" step="1" value="${pct}" data-pbm="vol" aria-label="Volume of ${esc(t.name)}">` +
+        `<span class="pb-music-pct">${t.paused ? `<span class="pb-music-tag">Paused</span>` : `${pct}%`}</span></div></div>` +
+        `<div class="pb-music-btns">${pause}<button type="button" class="icon fa-solid fa-stop" data-pbm="stop" data-tooltip="Stop" aria-label="Stop ${esc(t.name)}"></button></div></li>`
     }).join("")}</ol>`
-    : `<p class="hint pb-music-empty">Nothing is playing.</p>`
+    : `<div class="pb-music-empty"><i class="fa-solid fa-volume-xmark" inert></i><p>Nothing is playing.</p></div>`
 
-  // Adding a link: the GM (or "start right away") plays it now; otherwise the player asks the GM.
+  // The queue: what starts when the current track ends. The GM can skip to it; the GM or whoever queued it can take one out.
+  const upNext = queue.length
+    ? `<h4 class="pb-music-sub">Up next${gm ? `<button type="button" data-pbm="next" data-tooltip="Start it now — what is playing makes way"><i class="fa-solid fa-forward-step" inert></i> Play next</button>` : ""}</h4>` +
+      `<ol class="pb-music-queue">${queue.map((x, i) =>
+        `<li data-q="${esc(x.id)}"><span class="pb-music-n">${i + 1}</span>` +
+        `<div class="pb-music-req-text"><strong>${esc(x.userName || "Someone")}</strong><a href="${esc(x.url)}" target="_blank" rel="noopener noreferrer" title="${esc(x.url)}">${esc(linkLabel(x.url))}</a></div>` +
+        (gm || (me && x.user === me) ? `<button type="button" class="icon fa-solid fa-xmark" data-pbm="unqueue" data-tooltip="Take out of the queue" aria-label="Take ${esc(linkLabel(x.url))} out of the queue"></button>` : "<span></span>") +
+        `</li>`).join("")}</ol>`
+    : ""
+
+  // Adding a link: Swap (what is playing fades out, this starts) or Queue (it starts when the current track ends).
+  // The GM's own, or "start right away", happen at once; a player's otherwise waits for the GM.
   const now = gm || auto
   const add = `<h4 class="pb-music-sub">${now ? "Play a link" : "Ask to play a link"}</h4>` +
-    `<form class="pb-music-add"><input type="url" name="url" placeholder="YouTube or Spotify link" aria-label="Link" required>` +
-    `<button type="submit">${now ? `<i class="fa-solid fa-play" inert></i> Play now` : `<i class="fa-solid fa-paper-plane" inert></i> Ask GM`}</button></form>` +
-    `<p class="hint">${gm ? "Starts for everyone straight away." : now ? "Starts for everyone straight away." : "Your GM gets it and starts it when they press Play."}</p>`
+    `<form class="pb-music-add"><div class="pb-music-url"><i class="fa-solid fa-link" inert></i><input type="url" name="url" placeholder="YouTube or Spotify link" aria-label="Link" required></div>` +
+    `<div class="pb-music-hows"><button type="submit" data-how="swap" data-tooltip="What is playing fades out and this starts"><i class="fa-solid fa-right-left" inert></i> Swap</button>` +
+    `<button type="submit" data-how="queue" data-tooltip="Starts when the current track ends"><i class="fa-solid fa-list-ol" inert></i> Queue</button></div></form>` +
+    `<p class="hint">Swap replaces what’s playing. Queue plays it when the current track ends.${now ? "" : " Your GM says yes first."}</p>`
 
   let reqs = ""
   if (gm) {
     reqs = allReqs.length
-      ? `<h4 class="pb-music-sub">Players asking to play</h4><ol class="pb-music-reqs">${allReqs.map(r =>
-        `<li class="pb-music-req" data-req="${esc(r.id)}"><div class="pb-music-req-text"><strong>${esc(r.userName)}</strong> ` +
-        `<a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer" title="${esc(r.url)}">${esc(linkLabel(r.url))}</a></div>` +
-        `<button type="button" data-pbm="yes"><i class="fa-solid fa-play" inert></i> Play</button>` +
-        `<button type="button" data-pbm="no"><i class="fa-solid fa-xmark" inert></i> No</button></li>`).join("")}</ol>`
+      ? `<h4 class="pb-music-sub">Players asking</h4><ol class="pb-music-reqs">${allReqs.map(r => {
+        const how = HOW_LABEL[r.how]
+        return `<li class="pb-music-req" data-req="${esc(r.id)}"><span class="pb-music-who" inert>${esc(String(r.userName || "?").slice(0, 1).toUpperCase())}</span>` +
+          `<div class="pb-music-req-text"><span><strong>${esc(r.userName)}</strong>${how ? `<span class="pb-music-how">${how}</span>` : ""}</span>` +
+          `<a href="${esc(r.url)}" target="_blank" rel="noopener noreferrer" title="${esc(r.url)}">${esc(linkLabel(r.url))}</a></div>` +
+          `<div class="pb-music-req-btns"><button type="button" data-pbm="yes">${r.how === "swap" ? `<i class="fa-solid fa-right-left" inert></i> Swap in` : r.how === "queue" ? `<i class="fa-solid fa-list-ol" inert></i> Queue it` : `<i class="fa-solid fa-play" inert></i> Play`}</button>` +
+          `<button type="button" data-pbm="no"><i class="fa-solid fa-xmark" inert></i> No</button></div></li>`
+      }).join("")}</ol>`
       : ""
-    reqs += `<label class="pb-music-auto checkbox"><input type="checkbox" data-pbm="auto"${auto ? " checked" : ""}> Players’ links play straight away (no asking)</label>`
+    reqs += `<label class="pb-music-auto checkbox"><input type="checkbox" data-pbm="auto"${auto ? " checked" : ""}> Players’ links go straight in (no asking)</label>`
   } else {
     const mine = allReqs.filter(r => me && r.user === me)
     if (mine.length) reqs = `<h4 class="pb-music-sub">Waiting for your GM</h4><ol class="pb-music-reqs">${mine.map(r =>
-      `<li class="pb-music-req"><div class="pb-music-req-text"><i class="fa-solid fa-hourglass-half" inert></i> ${esc(linkLabel(r.url))}</div></li>`).join("")}</ol>`
+      `<li class="pb-music-req pb-music-mine"><div class="pb-music-req-text"><span><i class="fa-solid fa-hourglass-half" inert></i>${esc(linkLabel(r.url))}${HOW_LABEL[r.how] ? `<span class="pb-music-how">${HOW_LABEL[r.how]}</span>` : ""}</span></div></li>`).join("")}</ol>`
   }
 
   return `<header class="pb-music-head"><h3><i class="fa-solid fa-music" inert></i> RealmScreen music</h3>` +
     `<button type="button" class="icon fa-solid fa-list" data-pbm="foundry" data-tooltip="Foundry’s playlists" aria-label="Show Foundry’s playlists"></button></header>` +
-    list + add + reqs
+    list + upNext + add + reqs
 }
 
 // ── talking to RealmScreen ────────────────────────────────────
@@ -105,9 +122,14 @@ function shown(act, extra) {
     : act === "play" ? { ...t, paused: false }
     : act === "vol" ? { ...t, vol: extra.vol } : t)).filter(t => !(act === "stop" && t.id === extra.id))
   let requests = state.requests || []
+  let queue = state.queue || []
   if (act === "answer") requests = requests.filter(r => r.id !== extra.reqId)
-  if (act === "add" && !game.user?.isGM && !state.auto) requests = [...requests, { id: "local-" + Date.now(), url: extra.url, user: game.user?.id, userName: game.user?.name }]
-  state = { ...state, tracks, requests, ...(act === "auto" ? { auto: !!extra.on } : {}) }
+  const asks = act === "add" && !game.user?.isGM && !state.auto
+  if (asks) requests = [...requests, { id: "local-" + Date.now(), url: extra.url, how: extra.how, user: game.user?.id, userName: game.user?.name }]
+  if (act === "add" && !asks && extra.how === "queue") queue = [...queue, { id: "local-" + Date.now(), url: extra.url, user: game.user?.id, userName: game.user?.name }]
+  if (act === "unqueue") queue = queue.filter(x => x.id !== extra.qid)
+  if (act === "next") queue = queue.slice(1)
+  state = { ...state, tracks, requests, queue, ...(act === "auto" ? { auto: !!extra.on } : {}) }
 }
 
 function send(act, extra = {}) {
@@ -131,7 +153,10 @@ function onClick(ev) {
   ev.preventDefault()
   const id = b.closest("[data-id]")?.dataset.id
   const req = b.closest("[data-req]")?.dataset.req
+  const qid = b.closest("[data-q]")?.dataset.q
   switch (b.dataset.pbm) {
+    case "next": send("next"); break
+    case "unqueue": if (qid) send("unqueue", { qid }); break
     case "stop": if (id) send("stop", { id }); break
     case "pause": if (id) send("pause", { id }); break
     case "play": if (id) send("play", { id }); break
@@ -150,8 +175,10 @@ function sendVol(r) {
 function onInput(ev) {
   const r = ev.target
   if (r?.dataset?.pbm !== "vol") return
-  const pct = r.closest(".pb-music-track")?.querySelector(".pb-music-pct")
-  if (pct) pct.textContent = `${r.value}%`
+  const tr = r.closest(".pb-music-track")
+  const pct = tr?.querySelector(".pb-music-pct")
+  if (pct && !tr.classList.contains("pb-music-paused")) pct.textContent = `${r.value}%`
+  tr?.style.setProperty("--pct", `${r.value}%`)
   clearTimeout(volT)
   const wait = 150 - (Date.now() - volLast)
   volT = setTimeout(() => { volLast = Date.now(); sendVol(r) }, Math.max(0, wait))
@@ -166,7 +193,9 @@ function onSubmit(ev) {
   ev.preventDefault()
   const url = String(f.elements.url?.value || "").trim()
   if (!url) return
-  send("add", { url })
+  // which button sent it (Enter in the box = Swap, the first one)
+  const how = ev.submitter?.dataset?.how === "queue" ? "queue" : "swap"
+  send("add", { url, how })
   f.reset()
 }
 
