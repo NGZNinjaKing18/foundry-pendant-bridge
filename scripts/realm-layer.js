@@ -331,8 +331,14 @@ function update(full = false) {
           below = m.art ? inner * (58.75 / 64 - 0.5) : inner / 2
         }
         const [x, y] = toScene([r.x, r.y])
-        if (!it.sprite) { it.name.anchor.set(0.5, 0.5); it.name.position.set(x, y) }   // a name-only town: its name IS the marker
-        else it.name.position.set(x, y + (below + nameGap()) * u)
+        if (!it.sprite) {
+          // No marker (Text / Blank — the map picture has its own town drawn there): the name sits where RealmScreen
+          // puts it, at its offset from the spot with its near edge on it (MarkerName), not on the painted town.
+          const dx = L.dx || 0, dy = L.dy || 0, d = Math.hypot(dx, dy)
+          const ux = d ? dx / d : 0, uy = d ? dy / d : 0
+          it.name.anchor.set(0.5 - ux / 2, 0.5 - uy / 2)
+          it.name.position.set(x + dx * u, y + dy * u)
+        } else it.name.position.set(x, y + (below + nameGap()) * u)
       }
     }
   }

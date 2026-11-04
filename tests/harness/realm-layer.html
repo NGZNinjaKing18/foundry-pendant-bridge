@@ -107,6 +107,8 @@ const recs = [
   town('t6', 'Dalemartia', 'village', 0.3, 0.6, { labelAnchor: 'bottom' }),
   town('t7', 'Glimton', 'town', 0.6, 0.38, { scaleWithMap: false }),   // ignored, as on the map: a type's look (withTypeLook) always makes towns grow
   { ...town('t8', 'Tomb of Seven', 'village', 0.4, 0.75), gm: true },
+  // Blank / Text (the map picture has its own town there): no marker; the name hangs at its offset (here 1 px below).
+  { ...R.placeRecord(R.asDrawnPlace({ id: 't9', name: 'SplitLight', tier: 'town', x: 0.25, y: 0.35, glyphMode: 'blank', nameDx: 0, nameDy: 1 }, {}, {}), { zoomVis: ZV, id: 't9' }), fitPx: FIT, views: ['v1', 'v2'] },
 ]
 for (const r of recs) flags['pendant-bridge'].realm.items[r.id] = r
 
