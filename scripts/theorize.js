@@ -2,11 +2,12 @@
 // Theorize a trip — draw a possible route from a token and see what it would take (pendant-home
 // _handoffs/theorize-trip-mockup.html, approved 2026-11-02).
 //
-// RealmScreen controls › Theorize a trip (a switch). Then click a token you control (the GM: any): a line
-// follows the cursor. Click to bend it. Click ON a road and the line locks to it and follows it as you move
-// (click on the road again = a stop, stay on it; click off it = leave the road there). Right-click or
-// Backspace takes back the last click; double-click or Enter finishes; Esc cancels. 1 / 2 / 3 = Foot / Horse
-// / Ship, R = rushing (10 hours a day).
+// Start from a token you control (the GM: any): its right-click HUD button, the "Theorize a trip" key
+// (Shift+R to start; Configure Controls), or RealmScreen controls › Theorize a trip and a click on the token. A line
+// follows the cursor. Click (or F, as Foundry's own ruler) to bend it. Hover a road and it lights up; click ON it
+// and the line locks to it and follows it as you move (click on the road again = a stop, stay on it; click off it
+// = leave the road there). Drag a corner to move it. Right-click, Alt+F or Backspace takes back the last click;
+// double-click or Enter finishes; Esc cancels. Pace + rushing: the bar at the bottom (or 1 / 2 / 3, R).
 //
 // RealmScreen prices the line as it lies (`trip.line`: painted ground, roads on it, water, the map's own
 // cell size) and hands back the roads to snap to (`trip.roads` — a player gets only the roads players may
@@ -36,15 +37,49 @@ let on = false
 export const theorizeOn = () => on
 export function setTheorize(v) {
   on = !!v
+  S.auto = false
   if (!on) cancel()
   hint()
 }
+/** Start from a token without the switch (its HUD button, the key): on for this one line, off again after. */
+export function theorizeFrom(token) {
+  if (!token || !realmLive()) { ui.notifications?.warn("RealmScreen isn’t connected — ask your GM to open it."); return }
+  if (!on) { on = true; S.auto = true }
+  start(token)
+}
+const autoOff = () => { if (S.auto) { S.auto = false; on = false; hint() } }
 Hooks.once("init", () => {
   game.settings.register(MOD, "theorizeShare", {
     name: "Others see my theorized line",
     hint: "While you draw with Theorize a trip, everyone else on the scene sees your line live.",
     scope: "client", config: true, type: Boolean, default: true,
   })
+})
+Hooks.once("init", () => {
+  game.keybindings?.register?.(MOD, "theorize", {
+    name: "Theorize a trip",
+    hint: "Draw a possible route from the selected token; RealmScreen prices it.",
+    editable: [{ key: "KeyR", modifiers: ["Shift"] }],
+    onDown: () => {
+      const t = canvas.tokens?.controlled?.[0]
+      if (!t || !realmLive() || S.drawing) return false
+      theorizeFrom(t)
+      return true
+    },
+  })
+})
+// The token HUD (right-click a token): a Theorize button with Foundry's own HUD buttons.
+Hooks.on("renderTokenHUD", (hud, html) => {
+  if (!realmLive()) return
+  const root = html instanceof HTMLElement ? html : html?.[0]
+  const col = root?.querySelector?.(".col.left") || root?.querySelector?.(".left")
+  const token = hud.object
+  if (!col || !token || (!game.user?.isGM && !token.document?.isOwner) || col.querySelector(".pb-theo-hud")) return
+  const b = document.createElement("button")
+  b.type = "button"; b.className = "control-icon pb-theo-hud"; b.dataset.tooltip = "Theorize a trip"
+  b.innerHTML = `<i class="fa-solid fa-draw-polygon"></i>`
+  b.addEventListener("click", (ev) => { ev.preventDefault(); ev.stopPropagation(); hud.close?.(); theorizeFrom(token) })
+  col.appendChild(b)
 })
 const shareOn = () => { try { return game.settings.get(MOD, "theorizeShare") !== false } catch { return true } }
 
@@ -163,7 +198,10 @@ function draw() {
     g.moveTo(part[0][0], part[0][1]); for (const p of part.slice(1)) g.lineTo(p[0], p[1])
   }
   // corners
-  if (!S.kept) for (const pc of S.pieces) { const e = pc.pts[pc.pts.length - 1]; g.lineStyle({ width: 1.5 * k, color: 0x111111 }); g.beginFill(0xffffff); g.drawCircle(e[0], e[1], 4.5 * k); g.endFill() }
+  if (!S.kept) S.pieces.forEach((pc, i) => {
+    const e = pc.pts[pc.pts.length - 1], can = draggable(i), hot = i === S.hotCorner || i === S.dragging
+    g.lineStyle({ width: (hot ? 2.5 : 1.5) * k, color: hot ? ACCENT : 0x111111 }); g.beginFill(0xffffff); g.drawCircle(e[0], e[1], (can ? 6 : 4.5) * k); g.endFill()
+  })
   // day marks: a ring and the day's number where each travel day ends
   for (const [i, f] of ((q && q.days) || []).entries()) {
     const p = pointAt(pts, L, f * L[L.length - 1])
@@ -175,8 +213,13 @@ function draw() {
   // snapping: a ring on the road under the cursor; while locked, a thin tie from the cursor to the road
   if (S.drawing && S.cursor) {
     if (!S.lock) {
-      const nr = nearestRoad(S.cursor)
-      if (nr && nr.n.d * scale() < SNAP_PX) { g.lineStyle({ width: 2 * k, color: 0xffd27a }); g.drawCircle(nr.n.pt[0], nr.n.pt[1], 8 * k) }
+      const nr = S.dragging == null ? nearestRoad(S.cursor) : null
+      if (nr && nr.n.d * scale() < SNAP_PX) {
+        const r = S.roads[nr.i]
+        g.lineStyle({ width: 7 * k, color: 0xffd27a, alpha: 0.35, cap: "round", join: "round" })
+        g.moveTo(r.pts[0][0], r.pts[0][1]); for (const p of r.pts.slice(1)) g.lineTo(p[0], p[1])
+        g.lineStyle({ width: 2 * k, color: 0xffd27a }); g.drawCircle(nr.n.pt[0], nr.n.pt[1], 8 * k)
+      }
     } else {
       const r = S.roads[S.lock.r], n = nearestOn(r.pts, r.L, S.cursor)
       g.lineStyle({ width: 1 * k, color: 0xffd27a, alpha: 0.7 }); g.moveTo(S.cursor[0], S.cursor[1]); g.lineTo(n.pt[0], n.pt[1])
@@ -184,7 +227,7 @@ function draw() {
   }
 }
 let rafT = 0
-const schedule = () => { cancelAnimationFrame(rafT); rafT = requestAnimationFrame(() => { draw(); readout() }) }
+const schedule = () => { cancelAnimationFrame(rafT); rafT = requestAnimationFrame(() => { draw(); readout(); tag(); dock() }) }
 
 // ── the read-out (HTML, follows the cursor) + the hint bar ────
 const fmt = (h) => { if (!Number.isFinite(h)) return "—"; const m = Math.round(h * 60); if (m < 60) return `${m} min`; const H = Math.floor(m / 60), M = m % 60; return M ? `${H} h ${M} min` : `${H} h` }
@@ -204,18 +247,55 @@ function readout() {
     ${rows}
     ${q.blocked ? `<p class="pb-theo-bad"><i class="fa-solid fa-triangle-exclamation"></i> ${esc(q.blocked)} — bend around it.</p>` : ""}
     ${S.rush && q.savesPerDay ? `<p class="pb-theo-warn">Rushing: ${q.savesPerDay} Con save${q.savesPerDay === 1 ? "" : "s"} a day</p>` : ""}`}
-    <div class="pb-theo-paces">${(S.paces.length ? S.paces : [{ key: "foot", label: "On foot" }, { key: "horse", label: "Horse" }, { key: "ship", label: "Ship" }]).map((p, i) => `<span class="${p.key === S.pace ? "on" : ""}">${i + 1} ${esc(p.label)}</span>`).join("")}<span class="${S.rush ? "on" : ""}">R Rushing</span></div>`
+    <div class="hint">${esc((S.paces.find(p => p.key === S.pace) || {}).label || S.pace)}${S.rush ? ", rushing" : ""}</div>`
   R.hidden = false
   const x = Math.min(window.innerWidth - R.offsetWidth - 10, S.client[0] + 18), y = Math.min(window.innerHeight - R.offsetHeight - 10, S.client[1] + 18)
   R.style.left = `${Math.max(4, x)}px`; R.style.top = `${Math.max(4, y)}px`
+}
+// A few words beside the cursor about what a click does here: follow a road, leave it, move a corner.
+function tag() {
+  const T = el("pb-theo-tag", "pb-theo-tag")
+  if (!S.drawing || !S.client || !S.cursor) { T.hidden = true; return }
+  let words = ""
+  if (S.dragging != null || S.hotCorner != null) words = "Drag to move this corner"
+  else if (S.lock) {
+    const r = S.roads[S.lock.r], n = nearestOn(r.pts, r.L, S.cursor)
+    words = n.d * scale() < SNAP_PX ? `Click: a stop on ${r.name || "the road"}` : `Click: leave ${r.name || "the road"} here`
+  } else {
+    const nr = nearestRoad(S.cursor)
+    if (nr && nr.n.d * scale() < SNAP_PX) words = `Click to follow ${S.roads[nr.i].name || "this road"}`
+  }
+  T.hidden = !words
+  if (!words) return
+  T.textContent = words
+  T.style.left = `${S.client[0] + 16}px`; T.style.top = `${S.client[1] - 30}px`
+}
+// The pace + hours, as buttons at the bottom (they used to be keys only).
+const PACES0 = [{ key: "foot", label: "On foot" }, { key: "horse", label: "Horse" }, { key: "ship", label: "Ship" }]
+function dock() {
+  const D = el("pb-theo-dock", "pb-theo-dock")
+  if (!S.drawing) { D.hidden = true; return }
+  const ps = S.paces.length ? S.paces : PACES0
+  D.innerHTML = `${ps.map(p => `<button type="button" data-pace="${esc(p.key)}" class="${p.key === S.pace ? "active" : ""}">${esc(p.label)}</button>`).join("")}<span class="pb-theo-sep"></span><button type="button" data-rush="1" class="${S.rush ? "active" : ""}" data-tooltip="Travel ${Math.max(10, S.baseHpd + 2)} hours a day (Con saves)">Rushing</button>`
+  if (!D.dataset.wired) {
+    D.dataset.wired = "1"
+    D.addEventListener("pointerdown", (ev) => ev.stopPropagation())
+    D.addEventListener("click", (ev) => {
+      const b = ev.target.closest("button"); if (!b) return
+      if (b.dataset.pace) S.pace = b.dataset.pace
+      if (b.dataset.rush) S.rush = !S.rush
+      changed()
+    })
+  }
+  D.hidden = false
 }
 function hint() {
   const H = el("pb-theo-hint", "pb-theo-hint")
   if (!on) { H.hidden = true; return }
   H.hidden = false
   H.innerHTML = !S.drawing ? `<i class="fa-solid fa-draw-polygon"></i> <b>Theorize a trip</b> — click a token to start from it`
-    : S.lock ? `Following <b>${esc(S.roads[S.lock.r]?.name || "the road")}</b> — <b>click on it</b> for a stop · <b>click off it</b> to leave · <kbd>⌫</kbd> back · <kbd>Enter</kbd> done`
-      : `Click to bend · <b>click a road</b> to follow it · <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> pace · <kbd>R</kbd> rushing · right-click / <kbd>⌫</kbd> back · double-click / <kbd>Enter</kbd> done · <kbd>Esc</kbd> cancel`
+    : S.lock ? `Following <b>${esc(S.roads[S.lock.r]?.name || "the road")}</b> — <b>click on it</b> for a stop · <b>click off it</b> to leave · right-click / <kbd>Alt</kbd>+<kbd>F</kbd> back · <kbd>Enter</kbd> done`
+      : `Click or <kbd>F</kbd> to bend · <b>click a lit road</b> to follow it · drag a corner to move it · right-click / <kbd>Alt</kbd>+<kbd>F</kbd> back · double-click / <kbd>Enter</kbd> done · <kbd>Esc</kbd> cancel`
 }
 
 // ── asking RealmScreen (newest line wins; one question at a time) ──
@@ -278,6 +358,26 @@ function click(p) {
   }
   hint(); changed()
 }
+// A corner between two free stretches can be dragged (one that starts or ends a stretch of road can't —
+// that point belongs to the road).
+function draggable(i) {
+  const a = S.pieces[i], b = S.pieces[i + 1]
+  return !!a && a.road == null && (!b || b.road == null) && !(i === S.pieces.length - 1 && S.lock)
+}
+function cornerAt(p) {
+  const r = 9 / scale()
+  for (let i = S.pieces.length - 1; i >= 0; i--) {
+    if (!draggable(i)) continue
+    const e = S.pieces[i].pts[S.pieces[i].pts.length - 1]
+    if (Math.hypot(e[0] - p[0], e[1] - p[1]) < r) return i
+  }
+  return null
+}
+function moveCorner(i, p) {
+  const a = S.pieces[i], b = S.pieces[i + 1]
+  a.pts[a.pts.length - 1] = p.slice()
+  if (b) b.pts[0] = p.slice()
+}
 function back() {
   if (S.lock) S.lock = null
   else if (S.pieces.length) S.pieces.pop()
@@ -289,8 +389,8 @@ function back() {
 }
 export function cancel() {
   if (S.drawing) unshare()
-  Object.assign(S, { drawing: false, pieces: [], lock: null, cursor: null, client: null, quote: null, error: null })
-  hint(); schedule()
+  Object.assign(S, { drawing: false, pieces: [], lock: null, cursor: null, client: null, quote: null, error: null, dragging: null, hotCorner: null })
+  autoOff(); hint(); schedule()
 }
 // What stays on the board after finishing (until the next line, Esc, or the switch off).
 function clearKept() { if (S.kept) { S.kept = null; unshare() } }
@@ -302,8 +402,8 @@ async function finish() {
   try { q = (await askRealm("line", { sceneId: S.sceneId, key: S.key, path: pts.map(p => toNorm(p, d)), pace: S.pace, hpd: hpd() })).line || null } catch (e) { err = e.message || String(e) }
   const drop = { sceneId: S.sceneId, key: S.key, name: S.name, by: S.pace, hpd: hpd(), path: pts.map(p => toNorm(p, d)), end: toNorm(pts[pts.length - 1], d) }
   S.kept = { pts, quote: q }
-  Object.assign(S, { drawing: false, pieces: [], lock: null, cursor: null, client: null })
-  hint(); schedule()
+  Object.assign(S, { drawing: false, pieces: [], lock: null, cursor: null, client: null, dragging: null, hotCorner: null })
+  autoOff(); hint(); schedule()
   if (shareOn()) share()
   openCard({ drop, q, err, per: drop.hpd })
 }
@@ -393,7 +493,12 @@ function onDown(ev) {
   if (!on || !onCanvas(ev)) return
   down = { x: ev.clientX, y: ev.clientY, button: ev.button }
   if (ev.button !== 0) return                      // right-drag still pans
-  if (S.drawing) { ev.stopPropagation(); ev.preventDefault(); return }
+  if (S.drawing) {
+    ev.stopPropagation(); ev.preventDefault()
+    const i = cornerAt(scenePoint(ev))
+    if (i != null) S.dragging = i                 // (a corner grabbed: moving drags it; letting go without moving is a click)
+    return
+  }
   const t = tokenAt(scenePoint(ev))
   if (t) { ev.stopPropagation(); ev.preventDefault(); start(t) }
 }
@@ -401,6 +506,12 @@ function onUp(ev) {
   if (!on || !down) return
   const moved = Math.hypot(ev.clientX - down.x, ev.clientY - down.y) > CLICK_PX, b = down.button
   down = null
+  if (S.dragging != null) {                       // a corner grabbed: moved = it's moved; not moved = nothing (no double corner)
+    S.dragging = null
+    ev.stopPropagation()
+    changed()
+    return
+  }
   if (!S.drawing || moved || !onCanvas(ev)) return
   if (b === 2) { back(); return }
   if (b !== 0) return
@@ -412,6 +523,11 @@ function onUp(ev) {
 function onMove(ev) {
   if (!on || !S.drawing || !onCanvas(ev)) return
   S.cursor = scenePoint(ev); S.client = [ev.clientX, ev.clientY]
+  if (S.dragging != null && down) moveCorner(S.dragging, S.cursor)
+  const hot = S.dragging != null ? S.dragging : cornerAt(S.cursor)
+  S.hotCorner = hot
+  const view = canvas.app?.view
+  if (view) view.style.cursor = S.dragging != null ? "grabbing" : hot != null ? "grab" : ""
   changed()                                        // redraw, and RealmScreen prices the line under the cursor as it goes
 }
 function onKey(ev) {
@@ -420,7 +536,9 @@ function onKey(ev) {
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || ev.target?.isContentEditable) return
   if (!S.drawing) { if (ev.key === "Escape" && S.kept) { clearKept(); card?.close?.(); schedule() } return }
   const k = ev.key
-  if (k === "Escape") cancel()
+  // Foundry's own ruler keys: F places a waypoint (here: a corner at the cursor), Alt+F takes the last one back
+  if (ev.code === "KeyF" && !ev.ctrlKey && !ev.metaKey) { if (ev.altKey) back(); else if (S.cursor) click(S.cursor) }
+  else if (k === "Escape") cancel()
   else if (k === "Enter") finish()
   else if (k === "Backspace") back()
   else if (k === "1" || k === "2" || k === "3") { const p = (S.paces.length ? S.paces : [{ key: "foot" }, { key: "horse" }, { key: "ship" }])[Number(k) - 1]; if (p) { S.pace = p.key; changed() } }

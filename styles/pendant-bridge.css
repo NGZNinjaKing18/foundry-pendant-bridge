@@ -1102,3 +1102,10 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
 .pb-theo-hint kbd { font-size: var(--font-size-11, 11px); padding: 0 4px; }
 .pb-theo .pb-theo-legs { margin: 6px 0; padding-top: 5px; border-top: 1px solid var(--color-border, color-mix(in srgb, currentColor 20%, transparent)); }
 .pb-theo-chat p { margin: 2px 0; }
+.pb-theo-tag { position: fixed; z-index: 101; pointer-events: none; padding: 2px 8px; border-radius: 4px; white-space: nowrap;
+  background: var(--color-cool-5-90, rgba(11, 10, 19, .9)); color: #ffd27a; border: 1px solid color-mix(in srgb, #ffd27a 45%, transparent); font-size: var(--font-size-12, 12px); }
+.pb-theo-dock { position: fixed; z-index: 100; left: 50%; bottom: 70px; transform: translateX(-50%); display: flex; align-items: center; gap: 4px; padding: 5px 6px;
+  background: var(--color-cool-5-90, rgba(11, 10, 19, .9)); border: 1px solid var(--color-border, #444); border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, .45); }
+.pb-theo-dock button { flex: none; width: auto; min-height: 0; height: 26px; padding: 0 10px; font-size: var(--font-size-12, 12px); }
+.pb-theo-dock button.active { border-color: var(--color-warm-2, #ff6400); color: var(--color-warm-2, #ff6400); }
+.pb-theo-dock .pb-theo-sep { width: 1px; align-self: stretch; margin: 2px 4px; background: var(--color-border, #444); }
