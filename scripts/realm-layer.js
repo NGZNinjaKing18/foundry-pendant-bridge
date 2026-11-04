@@ -118,6 +118,10 @@ function texture(src) {
   S.tex.set(src, entry)
   Promise.resolve(load ? load(src) : PIXI.Texture.from(src)).then(t => {
     entry.tex = t
+    // Marker pictures come big (sharp zoomed in, RealmScreen lib/markerPng.js detailFor): mipmaps keep them smooth
+    // zoomed out. Only our own Realm marker files reach here.
+    const bt = t?.baseTexture
+    if (bt && PIXI.MIPMAP_MODES && bt.mipmap !== PIXI.MIPMAP_MODES.ON) { bt.mipmap = PIXI.MIPMAP_MODES.ON; bt.update?.() }
     for (const sp of entry.waiting) if (!sp.destroyed) { sp.texture = t; sp.visible = sp._want !== false }
     entry.waiting = []
     schedule()
