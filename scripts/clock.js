@@ -86,7 +86,7 @@ function clockHtml(c, gm) {
     : ""
   const head = gm ? `<div class="pb-clock-camp">${esc(c.session ? c.campaignName : "World date")}</div>` : ""
   const day = c.dateDay || c.date, year = c.dateDay ? c.dateYear : ""
-  return `${head}${dialSvg(c)}<div class="pb-clock-date" title="${esc(c.date)}">${esc(day)}</div>` +
+  return `${head}${dialSvg(c)}<div class="pb-clock-date" title="${esc(c.date)}" data-tooltip="Open the calendar">${esc(day)}</div>` +
     `${year ? `<div class="pb-clock-year">${esc(year)}</div>` : ""}<div class="pb-clock-part">${esc(c.part)} · ${esc(c.time)}</div>${steps}`
 }
 
@@ -100,7 +100,14 @@ function chatBarHtml(c) {
 }
 
 // ── placing ───────────────────────────────────────────────────
+// Clicking the date (dial or chat bar) opens the calendar (scripts/calendar.js).
+function onDateClick(ev) {
+  if (!ev.target.closest?.(".pb-clock-date, .pb-clock-year, .pb-chatclock-text")) return false
+  Hooks.callAll("pendantBridgeOpenCalendar")
+  return true
+}
 function onStepClick(ev) {
+  if (onDateClick(ev)) return
   const b = ev.target.closest?.("button[data-days]")
   if (!b) return
   ev.preventDefault()
@@ -152,6 +159,7 @@ function placeChat(root) {
   if (!bar) {
     bar = document.createElement("header")
     bar.className = "pb-chatclock"
+    bar.addEventListener("click", onDateClick)
     root.prepend(bar)
   }
   bar.innerHTML = chatBarHtml(clock)

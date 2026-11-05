@@ -84,7 +84,7 @@ export function noteCampaigns({ userId, to, text, level } = {}) {
 // ── acting: a player's request → RealmScreen ──────────────────
 // Sent as a whisper to the GMs (scripts/private.js), so `userId` and `isGM` come from the
 // message's REAL author — Foundry's server stamps it; nobody can claim to be someone else.
-const RELAYED = new Set(["campaign.page", "campaign.start"])
+const RELAYED = new Set(["campaign.page", "campaign.start", "calendar.edit"])   // calendar.edit: RealmScreen accepts it from GMs only
 export function passMsg(type, data, userId) {
   const u = game.users?.get(userId)
   if (!u || !sender || !RELAYED.has(type)) return false

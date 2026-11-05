@@ -1109,3 +1109,86 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
 .pb-theo-dock button { flex: none; width: auto; min-height: 0; height: 26px; padding: 0 10px; font-size: var(--font-size-12, 12px); }
 .pb-theo-dock button.active { border-color: var(--color-warm-2, #ff6400); color: var(--color-warm-2, #ff6400); }
 .pb-theo-dock .pb-theo-sep { width: 1px; align-self: stretch; margin: 2px 4px; background: var(--color-border, #444); }
+
+/* ── RealmScreen calendar (scripts/calendar.js): window + sidebar tab ──
+   Foundry's own variables only, so it follows the light/dark theme and a campaign look. */
+.pb-calendar {
+  --pb-cal-accent: var(--pb-accent, var(--color-warm-2));
+  --pb-cal-well: var(--table-row-color-even, rgba(127,127,127,.08));
+  --pb-cal-off: color-mix(in srgb, var(--color-text-primary) 3%, transparent);
+}
+.pb-calendar .window-content { padding: 0; }
+.pb-calendar .pb-cal { display: flex; flex-direction: column; height: 100%; min-height: 0; gap: 0; }
+.pb-calendar .pb-cal > .hint { padding: 1rem; }
+.pb-calendar .pb-cal-tools { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--color-border); }
+.pb-calendar .pb-cal-tools > button { flex: 0 0 auto; width: auto; min-width: 28px; }
+.pb-calendar .pb-cal-mon { margin: 0; border: 0; font-size: var(--font-size-16); min-width: 10rem; text-align: center; color: var(--color-text-emphatic); }
+.pb-calendar .pb-cal-mon span { color: var(--color-text-secondary); font-weight: normal; }
+.pb-calendar .pb-cal-sp { flex: 1; }
+.pb-calendar .pb-cal-legend { display: flex; gap: 8px; font-size: var(--font-size-11); color: var(--color-text-secondary); }
+.pb-calendar .pb-cal-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; background: var(--k); margin-right: 3px; }
+.pb-calendar .pb-cal-body { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 230px; min-height: 0; }
+.pb-calendar .pb-cal-gridwrap { display: flex; flex-direction: column; padding: 6px 8px; min-height: 0; overflow: auto; }
+.pb-calendar .pb-cal-dow { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 3px; text-align: center; font-size: var(--font-size-11); color: var(--color-text-secondary); padding-bottom: 3px; }
+.pb-calendar .pb-cal-dow div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pb-calendar .pb-cal-grid { flex: 1; display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); grid-auto-rows: minmax(74px, 1fr); gap: 3px; }
+.pb-calendar .pb-cal-cell { position: relative; border: 1px solid var(--color-border); border-radius: 4px; padding: 2px 4px; display: flex; flex-direction: column; gap: 2px; overflow: hidden; cursor: pointer; background: var(--pb-cal-well); min-width: 0; }
+.pb-calendar .pb-cal-cell.blank { border-color: transparent; background: none; cursor: default; }
+.pb-calendar .pb-cal-cell.past { background: var(--pb-cal-off); }
+.pb-calendar .pb-cal-cell.fest { border-style: dashed; }
+.pb-calendar .pb-cal-cell.sel { border-color: var(--pb-cal-accent); box-shadow: inset 0 0 0 1px var(--pb-cal-accent); }
+.pb-calendar .pb-cal-cell.drop { background: color-mix(in srgb, var(--pb-cal-accent) 18%, transparent); }
+.pb-calendar .pb-cal-cell:focus-visible { outline: 2px solid var(--pb-cal-accent); outline-offset: -2px; }
+.pb-calendar .pb-cal-dn { display: flex; align-items: center; gap: 4px; font-size: var(--font-size-12); color: var(--color-text-secondary); }
+.pb-calendar .pb-cal-dn b { font-weight: 600; }
+.pb-calendar .pb-cal-cell.today .pb-cal-dn b { background: var(--pb-cal-accent); color: var(--color-light-1, #fff); border-radius: 3px; padding: 0 4px; }
+.pb-calendar .pb-cal-flag { font-size: 9.5px; line-height: 1.2; letter-spacing: .03em; border: 1px solid var(--pb-cal-accent); border-radius: 3px; padding: 0 3px; color: var(--color-text-emphatic); }
+.pb-calendar .pb-cal-chip { display: flex; align-items: center; gap: 4px; font-size: var(--font-size-11); line-height: 1.35; border-left: 3px solid var(--k); background: color-mix(in srgb, var(--k) 16%, transparent); border-radius: 2px; padding: 0 4px; white-space: nowrap; overflow: hidden; color: var(--color-text-primary); }
+.pb-calendar .pb-cal-chip span { overflow: hidden; text-overflow: ellipsis; }
+.pb-calendar .pb-cal-chip.gmonly { border-left-style: dashed; }
+.pb-calendar .pb-cal-chip[draggable="true"] { cursor: grab; }
+.pb-calendar .pb-cal-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; margin-left: auto; background: var(--pb-cal-accent); }
+.pb-calendar .pb-cal-dot.waiting { background: none; border: 1.5px solid var(--color-warm-2); }
+.pb-calendar .pb-cal-dot.saving { animation: pb-cal-pulse .8s infinite alternate; }
+@keyframes pb-cal-pulse { from { opacity: .3; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .pb-calendar .pb-cal-dot.saving { animation: none; } }
+.pb-calendar .pb-cal-more { font-size: var(--font-size-10, 10px); color: var(--color-text-subtle); }
+.pb-calendar .pb-cal-add { position: absolute; right: 2px; bottom: 2px; width: 20px; height: 20px; min-height: 0; padding: 0; line-height: 1; font-size: 10px; opacity: 0; }
+.pb-calendar .pb-cal-cell:hover .pb-cal-add, .pb-calendar .pb-cal-cell.sel .pb-cal-add, .pb-calendar .pb-cal-add:focus-visible { opacity: 1; }
+.pb-calendar .pb-cal-day { border-left: 1px solid var(--color-border); padding: 8px 10px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.pb-calendar .pb-cal-day h3 { margin: 0; border: 0; font-size: var(--font-size-14); color: var(--color-text-emphatic); }
+.pb-calendar .pb-cal-day .hint { margin: 0; }
+.pb-calendar .pb-cal-only { margin-top: auto !important; }
+.pb-calendar .pb-cal-item { border: 1px solid var(--color-border); border-left: 3px solid var(--k); border-radius: 4px; padding: 5px 7px; display: flex; flex-direction: column; gap: 3px; font-size: var(--font-size-12); background: var(--pb-cal-well); }
+.pb-calendar .pb-cal-item p { margin: 0; color: var(--color-text-secondary); white-space: pre-wrap; }
+.pb-calendar .pb-cal-meta { display: flex; flex-wrap: wrap; gap: 3px 8px; font-size: var(--font-size-11); color: var(--color-text-secondary); }
+.pb-calendar .pb-cal-who { border: 1px solid var(--color-border); border-radius: 3px; padding: 0 4px; }
+.pb-calendar .pb-cal-who.gm { color: var(--color-level-error); border-color: var(--color-level-error); }
+.pb-calendar .pb-cal-acts, .pb-calendar .pb-cal-row, .pb-calendar .pb-cal-kinds { display: flex; gap: 4px; }
+.pb-calendar .pb-cal-acts button, .pb-calendar .pb-cal-kinds button { flex: 1; font-size: var(--font-size-11); min-height: 22px; padding: 0 6px; }
+.pb-calendar .pb-cal-row { justify-content: flex-end; }
+.pb-calendar .pb-cal-row button { flex: 0 0 auto; width: auto; }
+.pb-calendar .pb-cal-kinds button.active { border-color: var(--pb-cal-accent); background: color-mix(in srgb, var(--pb-cal-accent) 20%, transparent); }
+.pb-calendar .pb-cal-form { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--pb-cal-accent); border-radius: 5px; padding: 7px; }
+.pb-calendar .pb-cal-form .form-group { margin: 0; gap: 2px; }
+.pb-calendar .pb-cal-form .form-group > label { flex: none; font-size: var(--font-size-11); color: var(--color-text-secondary); }
+.pb-calendar .pb-cal-check { display: flex; gap: 6px; align-items: flex-start; font-size: var(--font-size-12); }
+.pb-calendar .pb-cal-foot { display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-top: 1px solid var(--color-border); font-size: var(--font-size-11); color: var(--color-text-secondary); }
+.pb-calendar .pb-cal-live { width: 7px; height: 7px; border-radius: 50%; background: var(--color-level-success); }
+.pb-calendar .pb-cal-live.off { background: var(--color-warm-2); }
+.pb-calendar .pb-cal-addday { flex: none; }
+
+.pb-caltab { padding: 6px 8px; overflow-y: auto; }
+.pb-caltab .pb-caltab-body { display: flex; flex-direction: column; gap: 8px; }
+.pb-caltab h4 { margin: 0; }
+.pb-caltab .pb-caltab-now { border: 1px solid var(--color-border); border-radius: 5px; padding: 6px 8px; display: flex; flex-direction: column; gap: 1px; background: var(--table-row-color-even, rgba(127,127,127,.08)); }
+.pb-caltab .pb-caltab-now h4 { font-size: var(--font-size-11); color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: .05em; border: 0; }
+.pb-caltab .pb-caltab-date { font-size: var(--font-size-16); font-weight: 600; color: var(--color-text-emphatic); }
+.pb-caltab .pb-caltab-camps, .pb-caltab .pb-caltab-list { list-style: none; margin: 0; padding: 0; }
+.pb-caltab .pb-caltab-camps li { display: flex; justify-content: space-between; gap: 6px; font-size: var(--font-size-12); color: var(--color-text-secondary); }
+.pb-caltab .pb-caltab-h { font-size: var(--font-size-11); color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid var(--color-border); padding-bottom: 2px; }
+.pb-caltab .pb-caltab-list a { display: grid; grid-template-columns: 5.4rem minmax(0, 1fr); gap: 6px; font-size: var(--font-size-12); padding: 2px 0; border-radius: 3px; }
+.pb-caltab .pb-caltab-list a:hover { background: color-mix(in srgb, var(--color-warm-2) 14%, transparent); text-shadow: none; }
+.pb-caltab .pb-caltab-when { color: var(--color-text-secondary); text-align: right; font-size: var(--font-size-11); padding-top: 1px; }
+.pb-caltab .pb-caltab-what { border-left: 3px solid var(--k); padding-left: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-primary); }
+.pb-chatclock-text, .pb-clock-date { cursor: pointer; }

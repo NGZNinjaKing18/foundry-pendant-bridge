@@ -22,6 +22,7 @@ import {
 import { setLook, previewLook, currentLook } from "./look.js"
 import { beginStats, collectStats } from "./boxscore.js"
 import { setClock, currentClock, setClockSender, setClockLive } from "./clock.js"
+import { setCalendar, calendarAck } from "./calendar.js"   // RealmScreen's calendar: sidebar tab + window
 import {} from "./sidebar-fold.js"   // folds some sidebar tabs while RealmScreen is connected
 import {} from "./scene-control.js"  // the RealmScreen (DM screen) control set
 import { setCampaigns, noteCampaigns, setCampaignSender } from "./campaigns.js"
@@ -3746,6 +3747,17 @@ async function handleCommand(msg) {
     case "clock.set": {
       const r = await setClock(msg.clock || null)
       return bridge.reply(msg.reqId, { type: "clock.set", ...r })
+    }
+    // ── RealmScreen calendar (scripts/calendar.js) ──
+    // { calendar } — the GM's full copy (months laid out, entries dated with who sees them);
+    // each player gets their part in their private whisper. { clientId, ok, text, to } —
+    // RealmScreen's answer to one GM change from the Calendar window.
+    case "calendar.set": {
+      const r = await setCalendar(msg.calendar || null)
+      return bridge.reply(msg.reqId, { type: "calendar.set", ...r })
+    }
+    case "calendar.ack": {
+      return bridge.reply(msg.reqId, { type: "calendar.ack", ...calendarAck(msg) })
     }
     // ── RealmScreen campaign party on the overland scene (scripts/party.js) ──
     // { sceneId, tokens: [{ key, campaignId, name, nx, ny, src, hidden }] } — the

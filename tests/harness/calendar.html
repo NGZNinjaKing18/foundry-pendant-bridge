@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calendar Harness</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Signika:wght@400;600&family=Roboto+Slab:wght@500;700&display=swap">
+<link rel="stylesheet" href="../../styles/pendant-bridge.css">
+<style>
+/* Dev harness (not loaded by Foundry): the REAL scripts/calendar.js + private.js slices in a tiny
+   stand-in for Foundry, fed and answered by the REAL RealmScreen model
+   (pendant-home lib/foundryCalendarModel.mjs: buildCalendarPayload + applyCalendarEdit).
+   Serve the Downloads folder (launch config "campaign-page-harness") and open
+   /foundry-pendant-bridge/tests/harness/calendar.html. Made-up calendar and people. */
+:root {
+  --color-warm-2: #ee9b3a; --color-level-success: #3ba55d; --color-level-error: #d65a4a; --color-light-1: #fff;
+  --color-cool-5: #0b0a13; --font-primary: "Signika", sans-serif; --font-body: "Signika", sans-serif;
+  --font-size-10: 10px; --font-size-11: 11px; --font-size-12: 12px; --font-size-13: 13px; --font-size-14: 14px; --font-size-16: 16px;
+}
+.theme-dark { --color-text-emphatic: #f0f0e0; --color-text-primary: #e7e1d4; --color-text-secondary: #b5aea0; --color-text-subtle: #8a847a;
+  --color-border: #4a4842; --table-row-color-even: rgba(255,255,255,.05); --background: #1c1b22; color: var(--color-text-primary); color-scheme: dark; }
+.theme-light { --color-text-emphatic: #191813; --color-text-primary: #2b2a24; --color-text-secondary: #4b4a44; --color-text-subtle: #6e6c62;
+  --color-border: #9a978c; --table-row-color-even: rgba(0,0,0,.05); --background: #e9dfc9; color: var(--color-text-primary); color-scheme: light; }
+body { margin: 0; background: #0d100c; font: 14px/1.4 var(--font-primary); color: #ddd; }
+#bar { display: flex; gap: 10px; align-items: center; padding: 8px 12px; background: #151515; border-bottom: 1px solid #333; flex-wrap: wrap; }
+#bar button, #bar select { background: #2a2a2a; color: #ddd; border: 1px solid #444; border-radius: 3px; padding: 3px 9px; font: inherit; cursor: pointer; }
+#log { margin-left: auto; font: 12px monospace; color: #9c9; max-width: 45vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#stage { display: flex; gap: 14px; padding: 14px; align-items: flex-start; }
+.application { background: var(--background); color: var(--color-text-primary); border: 1px solid #000; border-radius: 6px; box-shadow: 0 0 20px #000; display: flex; flex-direction: column; overflow: hidden; flex: none; }
+.application.pb-caltab { order: 2; width: 290px !important; height: 640px !important; padding: 0; }
+.window-header { background: #0e0d13; color: #ddd; padding: 6px 10px; display: flex; gap: 8px; align-items: center; border-bottom: 1px solid #333; }
+.window-header .t { flex: 1; }
+.window-content { overflow: auto; flex: 1; }
+a { cursor: pointer; } button { background: rgba(127,127,127,.12); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 3px; padding: 3px 9px; font: inherit; cursor: pointer; min-height: 26px; }
+.application input[type=text], .application textarea, .application select { background: rgba(0,0,0,.15); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 3px; padding: 3px 6px; font: inherit; width: 100%; box-sizing: border-box; }
+.form-group { display: flex; gap: 8px; } .form-group.stacked { flex-direction: column; }
+.hint { color: var(--color-text-subtle); font-size: 12px; margin: 0; }
+h2, h3, h4 { font-family: "Roboto Slab", serif; }
+.dlg-back { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: grid; place-items: center; z-index: 50; }
+.dlg { width: 400px; background: #1c1b22; color: #e7e1d4; border: 1px solid #000; border-radius: 6px; }
+.dlg form { padding: 10px 14px; } .dlg footer { display: flex; gap: 6px; justify-content: flex-end; padding: 8px 14px; border-top: 1px solid #333; }
+.toast { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: #222; color: #ddd; border: 1px solid var(--color-warm-2); padding: 6px 12px; border-radius: 4px; z-index: 60; font-size: 13px; }
+.toast.warn { border-color: #d65a4a; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <strong>Calendar harness</strong>
+  <span>Viewing as</span><select id="who"></select>
+  <span>Theme</span><select id="theme"><option>dark</option><option>light</option></select>
+  <span>RealmScreen</span><select id="rs"><option value="on">connected</option><option value="off">closed</option></select>
+  <button id="rsEdit">Change it in RealmScreen</button>
+  <span id="log"></span>
+</div>
+<div id="stage"></div>
+<script type="module">
+const MOD = "pendant-bridge"
+const $ = (s) => document.querySelector(s)
+const log = (t) => { $("#log").textContent = t; console.log("[harness]", t) }
+const hooks = {}
+globalThis.Hooks = { on: (n, f) => { (hooks[n] ??= []).push(f) }, once: (n, f) => { (hooks[n] ??= []).push(f) }, callAll: (n, ...a) => { for (const f of hooks[n] || []) f(...a) } }
+class Coll extends Array { get(id) { return this.find(x => x.id === id) } }
+const users = Coll.from([
+  { id: "gm", name: "Gamemaster", isGM: true, active: true },
+  { id: "u1", name: "Sam", isGM: false, active: true },
+  { id: "u2", name: "Ana", isGM: false, active: true },
+  { id: "u3", name: "Jo", isGM: false, active: true },
+])
+const store = new Map([["uiConfig", { colorScheme: { applications: "dark", interface: "dark" } }]])
+let me = users[0]
+const allMsgs = []
+let msgN = 0
+const canGet = (m, u) => u.isGM || !m.whisper.length || m.whisper.includes(u.id)
+globalThis.game = {
+  get user() { return me }, users, actors: Coll.from([]), scenes: Coll.from([]), journal: Coll.from([]),
+  get messages() { return Coll.from(allMsgs.filter(m => canGet(m, me))) },
+  modules: new Map([[MOD, { version: "harness" }]]),
+  settings: { reg: {}, register(m, k, cfg) { this.reg[k] = cfg; if (!store.has(k)) store.set(k, cfg.default ?? null) }, get(m, k) { return store.get(k) }, async set(m, k, v) { store.set(k, JSON.parse(JSON.stringify(v))); this.reg[k]?.onChange?.(v); return v } },
+  socket: { on() {}, emit() {} },
+}
+const toast = (t, cls = "") => { const d = document.createElement("div"); d.className = "toast " + cls; d.textContent = t; document.body.append(d); setTimeout(() => d.remove(), 2600) }
+globalThis.ui = { notifications: { info: (t) => toast(t), warn: (t) => toast(t, "warn") } }
+class Msg {
+  constructor(d) { Object.assign(this, JSON.parse(JSON.stringify(d))); this.id = "m" + (++msgN); this.author = me; this.timestamp = Date.now(); this.whisper ||= [] }
+  async update(ch) { for (const [k, v] of Object.entries(ch)) { const p = k.split("."); let o = this; while (p.length > 1) { const x = p.shift(); o = o[x] ??= {} } o[p[0]] = v } Hooks.callAll("updateChatMessage", this) }
+  async delete() { const i = allMsgs.indexOf(this); if (i >= 0) allMsgs.splice(i, 1); Hooks.callAll("deleteChatMessage", this) }
+}
+globalThis.ChatMessage = { async create(d) { const m = new Msg(d); allMsgs.push(m); Hooks.callAll("createChatMessage", m); return m } }
+const instances = new Map()
+class ApplicationV2 {
+  constructor(options = {}) {
+    const chain = []; for (let c = this.constructor; c && c !== Object; c = Object.getPrototypeOf(c)) if (Object.hasOwn(c, "DEFAULT_OPTIONS")) chain.unshift(c.DEFAULT_OPTIONS)
+    this.options = Object.assign({}, ...chain, options)
+    this.options.actions = Object.assign({}, ...chain.map(o => o.actions || {}))
+    this.options.classes = chain.flatMap(o => o.classes || [])
+  }
+  get id() { return this.options.id || this.constructor.tabName }
+  get title() { return this.options.window?.title || "" }
+  get rendered() { return !!this.element?.isConnected }
+  async render() {
+    if (!this.element) {
+      const el = document.createElement("div")
+      el.className = ["application", ...(this.options.classes || [])].join(" ")
+      el.style.width = (this.options.position?.width || 600) + "px"
+      el.style.height = (this.options.position?.height || 600) + "px"
+      el.innerHTML = `<header class="window-header"><i class="${this.options.window?.icon || ""}"></i><span class="t"></span><a data-close>✕</a></header><section class="window-content"></section>`
+      $("#stage").append(el)
+      this.element = el
+      el.addEventListener("click", (ev) => {
+        if (ev.target.closest("[data-close]")) { el.remove(); this.element = null; instances.delete(this.id); return }
+        const t = ev.target.closest("[data-action]")
+        if (!t || !el.contains(t)) return
+        const h = this.options.actions[t.dataset.action]
+        if (h) h.call(this, ev, t); else console.warn("no action", t.dataset.action)
+      })
+      instances.set(this.id, this)
+    }
+    this.element.querySelector(".window-header .t").textContent = this.title
+    const r = await this._renderHTML()
+    this._replaceHTML(r, this.element.querySelector(".window-content"))
+    this._onRender?.()
+    return this
+  }
+  bringToFront() {}
+}
+const DialogV2 = {
+  confirm({ window, content }) {
+    return new Promise((res) => {
+      const back = document.createElement("div"); back.className = "dlg-back"
+      back.innerHTML = `<div class="dlg"><header class="window-header"><span class="t">${window?.title || ""}</span></header><form>${content}</form><footer><button type="button" data-a="no">No</button><button type="button" data-a="yes">Yes</button></footer></div>`
+      back.querySelector("footer").onclick = (ev) => { const a = ev.target.dataset.a; if (!a) return; back.remove(); res(a === "yes") }
+      document.body.append(back)
+    })
+  },
+}
+const TABS = { chat: {}, journal: {}, settings: {} }
+globalThis.CONFIG = { ui: {} }
+globalThis.foundry = { applications: { api: { ApplicationV2, DialogV2 }, instances, sidebar: { Sidebar: { TABS }, AbstractSidebarTab: class extends ApplicationV2 {} } }, utils: {} }
+
+// ── the real bridge ─────────────────────────────────────────
+const live = await import("../../scripts/live.js")
+const camps = await import("../../scripts/campaigns.js")
+const calm = await import("../../scripts/calendar.js")
+// ── the real RealmScreen model ──────────────────────────────
+const app = await import("../../../pendant-home/src/renderer/src/lib/foundryCalendarModel.mjs")
+Hooks.callAll("init")
+ui.realmcal = new CONFIG.ui.realmcal()
+log(`Sidebar tabs: ${Object.keys(foundry.applications.sidebar.Sidebar.TABS).join(", ")}`)
+
+// A made-up calendar shaped like a real one: 13 months of 28 days, a festival day after month 6.
+const MONTHS = ["Frostwane", "Thawmoot", "Seedfall", "Greening", "Mistwake", "Bloomrise", "Highsun", "Rainreach", "Embertide", "Reaping", "Stores", "Darkfall", "Longnight"]
+const cal = {
+  id: "calH", name: "Harness Calendar", currentYear: 2, currentSegIdx: 5, currentDay: 18, currentHour: 9, hoursPerDay: 24,
+  cycle: { enabled: true, dayNames: ["Firstday", "Twoday", "Midweek", "Thorsday", "Fryday", "Restday", "Holyday"], epochOffset: 0 },
+  groupLevels: [{ members: MONTHS.map((n, i) => ({ id: "m" + i, name: n, size: 28 })) }],
+  intercalary: [{ id: "fx", name: "Midyear", size: 1, afterMemberId: "m6", eraYear: null, mid: false }],
+  events: [
+    { id: "e1", name: "Find the tent outside town", memberId: "m5", day: 8, year: 2, note: "Still warm.", seenBy: { campaignId: "ash" } },
+    { id: "e2", name: "The skeleton and the experiments", memberId: "m5", day: 9, year: 2, seenBy: { campaignId: "ash" } },
+    { id: "e3", name: "Rose meets the envoy", memberId: "m5", day: 10, year: 2, seenBy: { campaignId: "bra" } },
+    { id: "e4", name: "Rumour: the crown was swapped", memberId: "m5", day: 11, year: 2, kind: "note", color: "#8fd0a3", seenBy: { users: ["u3"] } },
+    { id: "e5", name: "A visitor arrives in secret", memberId: "m5", day: 15, year: 2, playerHidden: true, note: "Players must not know yet." },
+    { id: "e6", name: "Arrive at the hunting lodge", memberId: "m5", day: 17, year: 2, seenBy: { campaignId: "ash" } },
+    { id: "e7", name: "Ambush on the river road", memberId: "m5", day: 23, year: 2, playerHidden: true },
+    { id: "e8", name: "Coronation in the capital", memberId: "m5", day: 26, year: 2, publicEarly: true, note: "Announced across the realm." },
+    { id: "e9", name: "Market day", memberId: "m5", day: 2, year: 2 },
+  ],
+  holidays: [{ id: "h1", name: "Lantern Night", memberId: "m5", day: 21, recurring: true, year: null, description: "Lanterns on every door." }],
+  characters: [{ id: "c1", name: "Garret", birthday: { memberId: "m5", day: 4 } }],
+  sessions: [{ id: "s1", number: 15, title: "", date: { year: 2, segIdx: 5, dayNum: 9 }, campaignId: "ash" }, { id: "s2", number: 16, title: "", date: { year: 2, segIdx: 5, dayNum: 17 }, campaignId: "ash" }],
+}
+let data = { calendars: [cal] }
+const campaigns = [
+  { id: "ash", name: "Ashfall", now: { calendarId: "calH", year: 2, segIdx: 5, day: 18, hour: 9 } },
+  { id: "bra", name: "Bramble Court", now: { calendarId: "calH", year: 2, segIdx: 5, day: 12, hour: 9 } },
+]
+const roster = { active: null, campaigns: [{ id: "ash", users: ["u1", "u2"] }, { id: "bra", users: ["u3"] }] }
+const asGM = async (fn) => { const was = me; me = users[0]; try { return await fn() } finally { me = was } }
+const resetSlice = () => Hooks.callAll("updateChatMessage", { flags: { [MOD]: { slice: {} } } })
+async function push() {
+  const c = data.calendars[0]
+  await asGM(() => calm.setCalendar(app.buildCalendarPayload({ cal: c, campaigns, roster })))
+  await new Promise(r => setTimeout(r, 400))         // private.js writes the slices (150 ms debounce)
+  resetSlice()
+}
+// RealmScreen: what lib/foundryCalendar.js does with a calendar.edit.
+camps.setCampaignSender((msg) => {
+  if (msg.type !== "calendar.edit") return true
+  setTimeout(async () => {
+    if (!msg.isGM) return asGM(() => calm.calendarAck({ clientId: msg.clientId, ok: false, text: "Only the GM can change the calendar.", to: [msg.userId] }))
+    const r = app.applyCalendarEdit(data, msg.calendarId || "calH", msg)
+    log(`RealmScreen got ${msg.op} → ${r.ok ? "saved " + r.name : r.why}`)
+    if (r.ok) data = r.data
+    await asGM(() => calm.calendarAck({ clientId: msg.clientId, ok: r.ok, text: r.ok ? "" : r.why, to: [msg.userId] }))
+    if (r.ok) await push()
+  }, 600)
+  return true
+})
+live.setLinked(true)
+await push()
+const cKey = () => app.buildCalendarPayload({ cal: data.calendars[0], campaigns, roster }).world
+calm.openCalendar()
+ui.realmcal.render()
+
+for (const u of users) $("#who").append(new Option(u.isGM ? "GM" : `${u.name} (${u.id === "u3" ? "Bramble Court" : "Ashfall"})`, u.id))
+$("#who").onchange = async (e) => {
+  me = users.get(e.target.value); resetSlice()
+  for (const a of [...instances.values()]) { a.element?.remove(); a.element = null } instances.clear()
+  calm.openCalendar(); ui.realmcal.render()
+}
+$("#theme").onchange = (e) => { for (const el of document.querySelectorAll(".application")) { el.classList.remove("theme-dark", "theme-light"); el.classList.add("themed", "theme-" + e.target.value) } }
+$("#rs").onchange = (e) => { live.setLinked(e.target.value === "on"); log(e.target.value === "on" ? "RealmScreen connected" : "RealmScreen closed (after the grace period)") }
+let step = 0
+$("#rsEdit").onclick = async () => {
+  if (step === 0) { data.calendars[0].events.push({ id: "e10", name: "Ford the river at dusk", memberId: "m5", day: 19, year: 2, seenBy: { campaignId: "ash" } }); log("RealmScreen added the ford on 19 (Ashfall)") }
+  else if (step === 1) { campaigns[0].now.day = 19; log("RealmScreen: Ashfall moved on to day 19") }
+  else { log("no more example changes"); return }
+  step++
+  await push()
+}
+// Theme the windows dark by default (Foundry adds .themed.theme-dark).
+setTimeout(() => $("#theme").onchange({ target: { value: "dark" } }), 50)
+window.__h = { calm, app, get data() { return data }, push, users, setMe: (id) => { $("#who").value = id; $("#who").onchange({ target: { value: id } }) }, allMsgs }
+</script>
+</body>
+</html>
