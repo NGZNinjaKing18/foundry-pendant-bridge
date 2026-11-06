@@ -421,6 +421,125 @@
   .ah-panel .ah-act:active, .ah-panel .ah-ghostbtn:active { transform: none; }
 }
 
+/* ══════════════════════════════════════════════════════════════
+   Anti-Hammer — NEW LOOK (client setting "ahLook" = new → .ah-panel.ah-v2)
+   Same Body · Bag · Loose · Storage and the same interactions; drawn with the host sheet's own
+   Foundry theme colours (light + dark), no maroon bands, no shrink-to-fit transform — the panel
+   reflows instead. Every classic --ah-* token is re-pointed at the theme so menus/pickers follow.
+   ══════════════════════════════════════════════════════════════ */
+.ah-panel.ah-v2 {
+  --ah2-ink:  var(--color-text-primary, #e7e1d4);
+  --ah2-dim:  var(--color-text-secondary, #b5aea0);
+  --ah2-mute: var(--color-text-subtle, #8a847a);
+  --ah2-line: color-mix(in srgb, var(--ah2-ink) 16%, transparent);
+  --ah2-line-2: color-mix(in srgb, var(--ah2-ink) 28%, transparent);
+  --ah2-surface: color-mix(in srgb, var(--ah2-ink) 5%, transparent);
+  --ah2-surface-2: color-mix(in srgb, var(--ah2-ink) 10%, transparent);
+  --ah2-cell: color-mix(in srgb, var(--ah2-ink) 6%, transparent);
+  --ah2-cell-line: color-mix(in srgb, var(--ah2-ink) 14%, transparent);
+  --ah2-accent: var(--color-warm-2, #c9893a);
+  --ah2-good: var(--color-level-success, #4f9a4f);
+  --ah2-bad: var(--color-level-error, #c4504a);
+  /* item kinds — mid tones that read on light parchment AND dark sheets */
+  --ah2-k-weapon: #c0603f; --ah2-k-armor: #6f88b0; --ah2-k-tool: #b48a32; --ah2-k-consumable: #5c9c58;
+  --ah2-k-treasure: #c9a227; --ah2-k-gear: #8f78b8; --ah2-k-other: #8a8578;
+  /* classic tokens → theme, so every shared sub-element (pickers, menus, chips) follows the sheet */
+  --ah-ink: var(--ah2-ink); --ah-dim: var(--ah2-dim); --ah-mute: var(--ah2-mute); --ah-faint: var(--ah2-mute);
+  --ah-line: var(--ah2-line); --ah-line-2: var(--ah2-line-2); --ah-raise: var(--ah2-surface); --ah-raise-2: var(--ah2-surface-2);
+  --ah-sink: var(--ah2-cell); --ah-pop: Canvas; --ah-action: var(--ah2-accent);
+  --ah-action-ink: var(--ah2-ink); --ah-action-bg: color-mix(in srgb, var(--ah2-accent) 16%, transparent); --ah-action-line: color-mix(in srgb, var(--ah2-accent) 55%, transparent);
+  --ah-good: var(--ah2-good); --ah-good-ink: var(--ah2-ink); --ah-good-bg: color-mix(in srgb, var(--ah2-good) 16%, transparent); --ah-good-line: color-mix(in srgb, var(--ah2-good) 55%, transparent);
+  --ah-bad: var(--ah2-bad); --ah-bad-ink: var(--ah2-ink); --ah-bad-bg: color-mix(in srgb, var(--ah2-bad) 15%, transparent); --ah-bad-line: color-mix(in srgb, var(--ah2-bad) 55%, transparent);
+  --ah-store-ink: var(--ah2-ink); --ah-store-bg: var(--ah2-surface-2); --ah-store-line: var(--ah2-line-2);
+  --ah-ink-inverse: #fff; --ah-shadow-pop: 0 10px 26px rgba(0, 0, 0, 0.35);
+  container-type: inline-size;
+  color: var(--ah2-ink);
+  font-family: var(--font-primary, "Signika"), system-ui, sans-serif;
+  padding: 4px 0 12px;
+}
+.ah-panel.ah-v2.is-over { box-shadow: none; }
+/* reflow, never shrink: Body beside Bag when there's room, stacked when there isn't */
+.ah-panel.ah-v2 .ah-fit, .ah-panel.ah-v2 .ah-fit-inner { width: auto; height: auto !important; transform: none !important; overflow: visible; }
+.ah-panel.ah-v2 .ah-zones-row { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 16px; align-items: start; }
+@container (max-width: 660px) { .ah-panel.ah-v2 .ah-zones-row { grid-template-columns: minmax(0, 1fr); } }
+.ah-panel.ah-v2 .ah-zone { width: auto; max-width: none; margin: 0; border: none; min-width: 0; }
+.ah-panel.ah-v2 .ah-zone-loose, .ah-panel.ah-v2 .ah-zone-storage { width: auto; margin-top: 16px; border: none; }
+/* section headers: quiet, like the sheet's own list headers — title left, tools right */
+.ah-panel.ah-v2 .ah-zone > .ah-sec { background: none; box-shadow: none; border-radius: 0; padding: 0 0 5px; margin: 0 0 8px; border-bottom: 1px solid var(--ah2-line); gap: 8px; }
+.ah-panel.ah-v2 .ah-zone > .ah-sec .ah-sec-h { color: var(--ah2-ink); font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+.ah-panel.ah-v2 .ah-zone > .ah-sec .ah-sec-i { color: var(--ah2-accent); }
+.ah-panel.ah-v2 .ah-zone > .ah-sec .ah-sec-meta { color: var(--ah2-mute); text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 12px; }
+.ah-panel.ah-v2 .ah-zone > .ah-sec .ah-act, .ah-panel.ah-v2 .ah-zone > .ah-sec .ah-ghostbtn {
+  font-size: 11px; text-transform: none; letter-spacing: 0; padding: 2px 8px; line-height: 1.5;
+  border: 1px solid var(--ah2-line-2); border-radius: 3px; background: var(--ah2-surface); color: var(--ah2-ink); }
+.ah-panel.ah-v2 .ah-zone > .ah-sec .ah-act { border-color: var(--ah-action-line); }
+.ah-panel.ah-v2 .ah-zone > .ah-sec .ah-act:hover, .ah-panel.ah-v2 .ah-zone > .ah-sec .ah-ghostbtn:hover { background: var(--ah2-surface-2); color: var(--ah2-ink); border-color: var(--ah2-accent); }
+.ah-panel.ah-v2 .ah-zone > .ah-sec .ah-ghostbtn.on { background: var(--ah-action-bg); color: var(--ah2-ink); }
+.ah-panel.ah-v2 .ah-zone-body > .ah-doll, .ah-panel.ah-v2 .ah-zone-bag > .ah-bagcol { padding: 0; }
+/* body: same figure + two columns, lighter cards, names may wrap to two lines */
+.ah-panel.ah-v2 .ah-gcol { width: 136px; gap: 4px; }
+.ah-panel.ah-v2 .ah-gfig { background: none; border: none; }
+.ah-panel.ah-v2 .ah-doll-img { opacity: 0.55; max-height: 300px; }
+.ah-panel.ah-v2 .ah-gb { border: 1px solid var(--ah2-line); border-top-width: 1px; border-top-color: var(--ah2-line) !important; border-radius: 3px; background: var(--ah2-surface); padding: 4px 6px; gap: 6px; min-height: 38px; }
+.ah-panel.ah-v2 .ah-gb.filled { background: var(--ah2-surface-2); }
+.ah-panel.ah-v2 .ah-gb.empty { background: none; border-style: dashed; }
+.ah-panel.ah-v2 .ah-gb.empty .ah-art { background: none; border-color: var(--ah2-line); }
+.ah-panel.ah-v2 .ah-gb-nm { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: 11.5px; line-height: 1.2; }
+.ah-panel.ah-v2 .ah-gb-sl { color: var(--ah2-mute); font-size: 10px; }
+.ah-panel.ah-v2 .ah-gb.hand { border-left-width: 3px; }
+.ah-panel.ah-v2 .ah-art { width: 26px; height: 26px; border-radius: 3px; border-color: color-mix(in srgb, var(--ah2-ink) 22%, transparent); }
+.ah-panel.ah-v2 .ah-art-ic { color: var(--ah2-mute); }
+/* bag: one load bar, then the containers wrap like cards */
+.ah-panel.ah-v2 .ah-meter { height: 6px; border-radius: 3px; box-shadow: none; background: var(--ah2-cell); margin-bottom: 10px; }
+.ah-panel.ah-v2 .ah-overflow { border-radius: 3px; color: var(--ah2-ink); }
+.ah-panel.ah-v2 .ah-overflow b { color: var(--ah2-bad); }
+.ah-panel.ah-v2 .ah-bins { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; }
+.ah-panel.ah-v2 .ah-bin, .ah-panel.ah-v2 .ah-mount { flex: 0 1 auto; min-width: 0; max-width: 100%; border-radius: 4px; background: var(--ah2-surface); border-color: var(--ah2-line); padding: 7px 8px 6px; }
+.ah-panel.ah-v2 .ah-bin.str { background: none; }
+.ah-panel.ah-v2 .ah-bin-head { font-size: 12px; color: var(--ah2-dim); margin-bottom: 6px; gap: 6px; }
+.ah-panel.ah-v2 .ah-bin-sw { display: none; }
+.ah-panel.ah-v2 .ah-bin-nm { color: var(--ah2-ink); }
+.ah-panel.ah-v2 .ah-bin-cap { color: var(--ah2-mute); }
+.ah-panel.ah-v2 .ah-bin-grid { max-width: 100%; overflow-x: auto; }
+.ah-panel.ah-v2 .ah2-cell { fill: var(--ah2-cell); stroke: var(--ah2-cell-line); stroke-width: 1; }
+.ah-panel.ah-v2 .ah2-it .ah2-fill { fill: var(--ic); fill-opacity: 0.32; stroke: none; }
+.ah-panel.ah-v2 .ah2-it .ah2-edge { fill: none; stroke: var(--ic); stroke-width: 2; stroke-linecap: round; pointer-events: none; }
+.ah-panel.ah-v2 .ah2-it:hover .ah2-fill, .ah-panel.ah-v2 .ah2-it.ah2-hl .ah2-fill { fill-opacity: 0.6; }
+.ah-panel.ah-v2 .ah2-it:hover .ah2-edge, .ah-panel.ah-v2 .ah2-it.ah2-hl .ah2-edge { stroke-width: 3; }
+.ah-panel.ah-v2 .ah2-qty { font-size: 10px; font-weight: 700; fill: #fff; stroke: rgba(0, 0, 0, 0.7); stroke-width: 2.6; paint-order: stroke; pointer-events: none; }
+/* each bag lists what's in it, right under its grid */
+.ah-panel.ah-v2 .ah2-binlist { display: flex; flex-direction: column; gap: 1px; margin-top: 6px; padding-top: 5px; border-top: 1px solid var(--ah2-line); max-width: 100%; }
+.ah-panel.ah-v2 .ah2-row { display: flex; align-items: center; gap: 6px; min-height: 24px; padding: 1px 4px 1px 2px; border-left: 2px solid var(--ic); border-radius: 0 3px 3px 0; font-size: 12px; cursor: grab; }
+.ah-panel.ah-v2 .ah2-row:hover, .ah-panel.ah-v2 .ah2-row.ah2-hl { background: color-mix(in srgb, var(--ic) 16%, transparent); }
+.ah-panel.ah-v2 .ah2-row .ah-art { width: 20px; height: 20px; }
+.ah-panel.ah-v2 .ah2-nm { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ah-panel.ah-v2 .ah2-q { color: var(--ah2-mute); font-variant-numeric: tabular-nums; }
+.ah-panel.ah-v2 .ah2-sp { flex: 0 0 auto; min-width: 16px; text-align: right; color: var(--ah2-mute); font-size: 11px; font-variant-numeric: tabular-nums; }
+.ah-panel.ah-v2 .ah2-ch { flex: 0 0 auto; font-size: 10px; color: var(--ah2-good); font-variant-numeric: tabular-nums; }
+.ah-panel.ah-v2 .ah2-btn { flex: 0 0 auto; font: inherit; font-size: 10.5px; line-height: 1.4; padding: 0 6px; border-radius: 3px; border: 1px solid var(--ah-good-line); background: var(--ah-good-bg); color: var(--ah2-ink); cursor: pointer; }
+.ah-panel.ah-v2 .ah2-btn:hover { background: color-mix(in srgb, var(--ah2-good) 30%, transparent); }
+.ah-panel.ah-v2 .ah2-ico { flex: 0 0 auto; width: 20px; height: 20px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: none; border-radius: 3px; background: none; color: var(--ah2-mute); cursor: pointer; opacity: 0; }
+.ah-panel.ah-v2 .ah2-row:hover .ah2-ico, .ah-panel.ah-v2 .ah2-ico:focus-visible { opacity: 1; }
+.ah-panel.ah-v2 .ah2-ico:hover { background: var(--ah2-surface-2); color: var(--ah2-ink); }
+.ah-panel.ah-v2 .ah2-none { font-size: 11px; font-style: italic; color: var(--ah2-mute); padding: 2px; }
+/* loose: everything visible at once, grouped by kind (no pills to open) */
+.ah-panel.ah-v2 .ah-zone-loose > .ah-tray-chips { padding: 0; max-height: none; overflow: visible; display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+.ah-panel.ah-v2 .ah2-grp { display: flex; align-items: flex-start; gap: 10px; }
+.ah-panel.ah-v2 .ah2-grp-h { flex: 0 0 84px; padding-top: 5px; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ah2-mute); }
+.ah-panel.ah-v2 .ah2-grp-b { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.ah-panel.ah-v2 .ah2-chip { gap: 6px; padding: 2px 6px 2px 3px; border: 1px solid var(--ah2-line); border-left: 3px solid var(--ic); border-radius: 3px; background: var(--ah2-surface); font-size: 12px; }
+.ah-panel.ah-v2 .ah2-chip:hover, .ah-panel.ah-v2 .ah2-chip.ah2-hl { background: color-mix(in srgb, var(--ic) 16%, transparent); border-color: var(--ah2-line-2); border-left-color: var(--ic); transform: none; }
+.ah-panel.ah-v2 .ah2-chip .ah-art { width: 20px; height: 20px; }
+.ah-panel.ah-v2 .ah2-chip .ah-tray-nm { font-size: 12px; }
+.ah-panel.ah-v2 .ah2-tag { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.05em; padding: 0 4px; border-radius: 2px; border: 1px solid var(--ah-bad-line); color: var(--ah2-ink); background: var(--ah-bad-bg); }
+.ah-panel.ah-v2 .ah2-tag.free { border-color: var(--ah-good-line); background: var(--ah-good-bg); }
+.ah-panel.ah-v2 .ah-tray-empty { color: var(--ah2-mute); font-style: italic; }
+/* storage: an empty section is one quiet line, not a big drop box */
+.ah-panel.ah-v2 .ah-zone-storage .ah-bag-empty, .ah-panel.ah-v2 .ah-bag-empty { min-height: 0; display: block; text-align: left; border: none; padding: 2px 0; color: var(--ah2-mute); }
+.ah-panel.ah-v2 .ah-bin-name { color: var(--ah2-ink); }
+.ah-panel.ah-v2 .ah-bin-loc { color: var(--ah2-dim); }
+.ah-panel.ah-v2 .ah-doll-note { color: var(--ah2-mute); }
+
 /* ── RealmScreen campaign look (scripts/look.js) ─────────────────
    Only the elements the look ADDS live here; colours/fonts come from Foundry's
    own variables, overridden in the injected <style id="pb-look">. */
@@ -1192,3 +1311,146 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
 .pb-caltab .pb-caltab-when { color: var(--color-text-secondary); text-align: right; font-size: var(--font-size-11); padding-top: 1px; }
 .pb-caltab .pb-caltab-what { border-left: 3px solid var(--k); padding-left: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-primary); }
 .pb-chatclock-text, .pb-clock-date { cursor: pointer; }
+/* ── new look: feel ─────────────────────────────────────────────
+   compact empty body slots · only fitting slots light up while you hold something · a ghost that IS
+   the item (shape + picture) · one item menu · packed/loose load bar · landing + "full" rewards */
+.ah-panel.ah-v2 [data-item], .ah-panel.ah-v2 [data-tray] { touch-action: none; }
+.ah-panel.ah-v2 .ah-gb.empty:not(.hand) { min-height: 0; padding: 2px 6px; opacity: 0.75; }
+.ah-panel.ah-v2 .ah-gb.empty:not(.hand) .ah-art { width: 18px; height: 18px; }
+.ah-panel.ah-v2 .ah-gb.empty:not(.hand) .ah-gb-sl { display: none; }
+.ah-panel.ah-v2 .ah-gb.empty:not(.hand):hover { opacity: 1; }
+.ah-panel.ah-v2 .ah-gb.filled:not([data-pick]) { cursor: pointer; }
+.ah-panel.ah-v2 .ah-gb.filled:not([data-pick]):hover { border-color: var(--ah2-line-2); background: var(--ah2-surface-2); }
+.ah-panel.ah-v2.ah2-drag .ah-gb:not(.valid):not(.swap) { opacity: 0.32; }
+.ah-panel.ah-v2.ah2-drag .ah-gb.valid, .ah-panel.ah-v2.ah2-drag .ah-gb.swap { opacity: 1; min-height: 38px; }
+.ah-panel.ah-v2.ah2-drag .ah-gb.valid .ah-gb-sl { display: block; }
+.ah-panel.ah-v2.ah2-drag .ah2-row, .ah-panel.ah-v2.ah2-drag .ah2-chip { opacity: 0.55; }
+.ah-panel.ah-v2.ah2-drag .ah-bin:not(.drop-ok):not(.drop-no) { opacity: 0.85; }
+/* ghost */
+.ah-panel.ah-v2 .ah-ghost { display: flex; align-items: center; gap: 8px; padding: 4px 9px 4px 4px; background: Canvas; color: var(--ah2-ink); border: 1px solid var(--ah2-accent); border-radius: 4px; box-shadow: 0 10px 26px rgba(0, 0, 0, 0.4); white-space: nowrap; transform: translate(12px, 20px); opacity: 0.94; }
+.ah-panel.ah-v2 .ah-ghost .ah2-gsvg { display: block; }
+.ah-panel.ah-v2 .ah-ghost .ah2-it .ah2-fill { fill-opacity: 0.55; }
+.ah-panel.ah-v2 .ah2-gname { display: flex; flex-direction: column; font-size: 12px; font-weight: 600; line-height: 1.25; }
+.ah-panel.ah-v2 .ah2-gname i { font-style: normal; font-weight: 400; font-size: 10.5px; color: var(--ah2-mute); }
+/* item menu */
+.ah-panel.ah-v2 .ah2-menu { position: fixed; z-index: 120; min-width: 210px; max-width: 280px; max-height: 70vh; overflow-y: auto; padding: 4px; background: Canvas; color: var(--ah2-ink); border: 1px solid var(--ah2-line-2); border-radius: 5px; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4); animation: ah-pop 120ms cubic-bezier(0.22, 1, 0.36, 1); transform-origin: top left; }
+.ah-panel.ah-v2 .ah2-menu-h { display: flex; align-items: center; gap: 8px; padding: 5px 6px 7px; border-bottom: 1px solid var(--ah2-line); margin-bottom: 3px; }
+.ah-panel.ah-v2 .ah2-menu-h > span { display: flex; flex-direction: column; min-width: 0; }
+.ah-panel.ah-v2 .ah2-menu-h b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ah-panel.ah-v2 .ah2-menu-h i { font-style: normal; font-size: 11px; color: var(--ah2-mute); }
+.ah-panel.ah-v2 .ah2-menu-g { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ah2-mute); padding: 6px 8px 2px; }
+.ah-panel.ah-v2 .ah2-menu-sep { height: 1px; background: var(--ah2-line); margin: 4px 4px; }
+.ah-panel.ah-v2 .ah2-menu-i { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; width: 100%; padding: 5px 8px; border: none; border-radius: 3px; background: none; color: var(--ah2-ink); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }
+.ah-panel.ah-v2 .ah2-menu-i i { font-style: normal; font-size: 11px; color: var(--ah2-mute); white-space: nowrap; }
+.ah-panel.ah-v2 .ah2-menu-i:hover, .ah-panel.ah-v2 .ah2-menu-i:focus-visible { background: var(--ah-action-bg); outline: none; }
+.ah-panel.ah-v2 .ah2-menu-i.off { cursor: default; color: var(--ah2-mute); }
+.ah-panel.ah-v2 .ah2-menu-i.off:hover { background: none; }
+.ah-panel.ah-v2 .ah2-menu-none { padding: 6px 8px; font-size: 12px; color: var(--ah2-mute); font-style: italic; }
+/* packed + loose load bar */
+.ah-panel.ah-v2 .ah-meter.ah2-meter { position: relative; display: flex; height: 8px; overflow: visible; }
+.ah-panel.ah-v2 .ah2-mpack { height: 100%; background: var(--ah2-good); border-radius: 3px 0 0 3px; transition: width 420ms cubic-bezier(0.22, 1, 0.36, 1); }
+.ah-panel.ah-v2 .ah2-mloose { height: 100%; background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--ah2-accent) 75%, transparent) 0 4px, color-mix(in srgb, var(--ah2-accent) 35%, transparent) 4px 8px); transition: width 420ms cubic-bezier(0.22, 1, 0.36, 1); }
+.ah-panel.ah-v2 .ah2-mloose.over { background: repeating-linear-gradient(135deg, var(--ah2-bad) 0 4px, color-mix(in srgb, var(--ah2-bad) 45%, transparent) 4px 8px); }
+.ah-panel.ah-v2 .ah2-mcap { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--ah2-ink); border-radius: 1px; }
+/* rewards */
+@keyframes ah2-land { 0% { transform: scale(1.18); filter: brightness(1.5); } 60% { transform: scale(0.97); } 100% { transform: none; filter: none; } }
+.ah-panel.ah-v2 .ah2-it.ah2-land { animation: ah2-land 420ms cubic-bezier(0.22, 1, 0.36, 1); transform-box: fill-box; transform-origin: center; }
+.ah-panel.ah-v2 .ah-gb.ah2-land { animation: ah2-land 420ms cubic-bezier(0.22, 1, 0.36, 1); }
+.ah-panel.ah-v2 .ah-bin-cap.ah2-full { color: var(--ah2-good); font-weight: 600; }
+.ah-panel.ah-v2 .ah-bin-cap.ah2-full::after { content: " ✓"; }
+@keyframes ah2-toast { 0% { opacity: 0; transform: translateY(2px); } 12%, 75% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+.ah-panel.ah-v2 .ah2-toast { margin-left: 10px; font-size: 11.5px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--ah2-good); animation: ah2-toast 2.6s ease forwards; }
+@media (prefers-reduced-motion: reduce) {
+  .ah-panel.ah-v2 .ah2-it.ah2-land, .ah-panel.ah-v2 .ah-gb.ah2-land, .ah-panel.ah-v2 .ah2-menu { animation: none; }
+  .ah-panel.ah-v2 .ah2-mpack, .ah-panel.ah-v2 .ah2-mloose { transition: none; }
+  .ah-panel.ah-v2 .ah2-toast { animation: none; }
+}
+/* ══ body "C" (new look): figure between two columns of slot boxes, rows aligned; built from scratch ══ */
+.ah-panel.ah-v2 .ah-zones-row { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.ah-panel.ah-v2 .ahc-doll { display: grid; grid-template-columns: minmax(0, 1fr) 74px minmax(0, 1fr); gap: 5px 8px; }
+.ah-panel.ah-v2 .ahc-fig { grid-column: 2; grid-row: 1 / span 7; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.ah-panel.ah-v2 .ahc-fig img { width: 100%; max-height: 360px; object-fit: contain; opacity: 0.5; user-select: none; -webkit-user-drag: none; border: none; }
+.theme-dark .ah-panel.ah-v2 .ahc-fig img, .ah-panel.ah-v2.theme-dark .ahc-fig img { filter: invert(1) brightness(0.6); }
+.ah-panel.ah-v2 .ahc-slot { position: relative; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 1px; min-height: 44px; padding: 4px 8px; border: 1px solid var(--ah2-line); border-radius: 4px; background: var(--ah2-surface); color: var(--ah2-ink); }
+.ah-panel.ah-v2 .ahc-slot.l { grid-column: 1; }
+.ah-panel.ah-v2 .ahc-slot.r { grid-column: 3; text-align: right; }
+.ah-panel.ah-v2 .ahc-k { display: flex; justify-content: space-between; gap: 6px; font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ah2-mute); }
+.ah-panel.ah-v2 .ahc-slot.r .ahc-k { flex-direction: row-reverse; }
+.ah-panel.ah-v2 .ahc-k i { font-style: normal; letter-spacing: 0; text-transform: none; font-variant-numeric: tabular-nums; }
+.ah-panel.ah-v2 .ahc-k i.full { color: var(--ah2-good); }
+.ah-panel.ah-v2 .ahc-v { font-size: 13px; font-weight: 600; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ah-panel.ah-v2 .ahc-slot.filled { background: var(--ah2-surface-2); }
+.ah-panel.ah-v2 .ahc-slot.l.filled:not(.multi) { border-left: 3px solid var(--kc); }
+.ah-panel.ah-v2 .ahc-slot.r.filled:not(.multi) { border-right: 3px solid var(--kc); }
+.ah-panel.ah-v2 .ahc-slot[data-c-it], .ah-panel.ah-v2 .ahc-slot[data-c-slot] { cursor: pointer; }
+.ah-panel.ah-v2 .ahc-slot[data-c-it]:hover { border-color: var(--ah2-line-2); }
+.ah-panel.ah-v2 .ahc-slot.empty { border-style: dashed; background: none; }
+.ah-panel.ah-v2 .ahc-slot.empty .ahc-v { color: var(--ah2-mute); font-weight: 400; font-size: 12px; }
+.ah-panel.ah-v2 .ahc-slot.empty[data-c-slot]:hover { border-color: var(--ah2-accent); border-style: solid; }
+.ah-panel.ah-v2 .ahc-slot.locked, .ah-panel.ah-v2 .ahc-slot.covered, .ah-panel.ah-v2 .ahc-slot.both { background: none; border-style: dotted; }
+.ah-panel.ah-v2 .ahc-slot.locked .ahc-v, .ah-panel.ah-v2 .ahc-slot.both .ahc-v { color: var(--ah2-mute); font-weight: 400; font-size: 11.5px; font-style: italic; }
+.ah-panel.ah-v2 .ahc-slot.covered .ahc-v { color: var(--ah2-dim); font-weight: 500; }
+.ah-panel.ah-v2 .ahc-slot.hand.filled { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--kc) 45%, transparent); }
+.ah-panel.ah-v2 .ahc-slot:focus-visible { outline: 2px solid var(--ah2-accent); outline-offset: 1px; }
+.ah-panel.ah-v2 .ahc-chips { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 2px; }
+.ah-panel.ah-v2 .ahc-slot.r .ahc-chips { justify-content: flex-end; }
+.ah-panel.ah-v2 .ahc-chip { font: inherit; font-size: 11.5px; font-weight: 600; line-height: 1.5; padding: 0 6px; border-radius: 3px; color: var(--ah2-ink); background: color-mix(in srgb, var(--kc, var(--ah2-k-gear)) 22%, transparent); border: 1px solid color-mix(in srgb, var(--kc, var(--ah2-k-gear)) 55%, transparent); cursor: pointer; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.ah-panel.ah-v2 .ahc-chip:hover { background: color-mix(in srgb, var(--kc, var(--ah2-k-gear)) 38%, transparent); }
+.ah-panel.ah-v2 .ahc-chip.gear { --kc: var(--ah2-k-gear); font-weight: 500; border-style: dashed; }
+.ah-panel.ah-v2 .ahc-bagmark { margin-left: 3px; color: var(--ah2-accent); font-weight: 700; }
+.ah-panel.ah-v2 .ahc-peg { font: inherit; font-size: 11.5px; line-height: 1.5; padding: 0 7px; border-radius: 3px; border: 1px dashed var(--ah2-line-2); background: none; color: var(--ah2-mute); cursor: pointer; }
+.ah-panel.ah-v2 .ahc-peg:hover { border-color: var(--ah2-accent); border-style: solid; color: var(--ah2-ink); }
+/* while dragging: only where the held thing fits stays lit */
+.ah-panel.ah-v2.ah2-drag .ahc-slot:not(.valid):not(.swap) { opacity: 0.35; }
+.ah-panel.ah-v2 .ahc-slot.valid { opacity: 1; border: 1px solid var(--ah2-good); background: color-mix(in srgb, var(--ah2-good) 16%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ah2-good) 18%, transparent); }
+.ah-panel.ah-v2 .ahc-slot.swap { opacity: 1; border: 1px solid var(--ah2-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ah2-accent) 18%, transparent); }
+.ah-panel.ah-v2 .ahc-slot.ah2-land, .ah-panel.ah-v2 .ahc-chip.ah2-land { animation: ah2-land 420ms cubic-bezier(0.22, 1, 0.36, 1); }
+@container (max-width: 430px) {
+  .ah-panel.ah-v2 .ahc-doll { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .ah-panel.ah-v2 .ahc-fig { display: none; }
+  .ah-panel.ah-v2 .ahc-slot.r { grid-column: 2; }
+}
+/* names on the bag shapes */
+.ah-panel.ah-v2 .ah2-name { fill: var(--ah2-ink); font: 600 9.5px var(--font-primary, "Signika"), sans-serif; pointer-events: none; paint-order: stroke; stroke: color-mix(in srgb, var(--ah2-ink) 0%, rgba(0, 0, 0, 0.55)); stroke-width: 2.6px; stroke-linejoin: round; }
+.theme-light .ah-panel.ah-v2 .ah2-name { stroke: rgba(255, 255, 255, 0.7); }
+.ah-panel.ah-v2 .ah2-it .ah2-fill { fill-opacity: 0.42; }
+/* the "not packed" line (replaces the Loose section) */
+.ah-panel.ah-v2 .ah-zone-loose.ah2-npzone { margin-top: 8px; }
+.ah-panel.ah-v2 .ah2-np { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; padding: 5px 9px; border: 1px solid color-mix(in srgb, var(--ah2-bad) 50%, transparent); background: color-mix(in srgb, var(--ah2-bad) 12%, transparent); border-radius: 3px; font-size: 12px; }
+.ah-panel.ah-v2 .ah2-np > span { display: flex; flex-wrap: wrap; gap: 4px; }
+.ah-panel.ah-v2 .ah2-np-it { font: inherit; font-size: 12px; padding: 0 6px; line-height: 1.6; border-radius: 3px; border: 1px solid color-mix(in srgb, var(--kc) 55%, transparent); background: color-mix(in srgb, var(--kc) 18%, transparent); color: var(--ah2-ink); cursor: grab; touch-action: none; }
+.ah-panel.ah-v2 .ah2-np-it:hover { background: color-mix(in srgb, var(--kc) 34%, transparent); }
+/* bag header (new look): name opens the bag's menu; where it's worn + what it takes underneath */
+.ah-panel.ah-v2 .ah-bin-head { flex-wrap: wrap; row-gap: 0; }
+.ah-panel.ah-v2 .ah2-bin-nm { font: inherit; font-size: 12.5px; font-weight: 600; color: var(--ah2-ink); background: none; border: none; padding: 0; cursor: pointer; text-align: left; }
+.ah-panel.ah-v2 button.ah2-bin-nm:hover { color: var(--ah2-accent); text-decoration: underline; text-underline-offset: 2px; }
+.ah-panel.ah-v2 .ah2-bin-sub { order: 9; flex-basis: 100%; font-size: 10.5px; color: var(--ah2-mute); }
+.ah-panel.ah-v2 .ah-bin-cap { margin-left: auto; }
+.ah-panel.ah-v2 .ah2-name.sm { font-size: 8px; stroke-width: 2.2px; }
+/* the "where" chip on each row of the system's own inventory list (new look) — outside the panel, so it
+   uses Foundry's theme variables directly */
+.ah2-where { display: inline-block; align-self: flex-start; margin-top: 2px; font: inherit; font-size: 11px; line-height: 1.5; padding: 0 6px; border-radius: 3px; cursor: pointer; touch-action: none;
+  color: var(--color-text-subtle, #8a847a); background: color-mix(in srgb, var(--color-text-primary, #e7e1d4) 6%, transparent); border: 1px solid color-mix(in srgb, var(--color-text-primary, #e7e1d4) 18%, transparent); }
+.ah2-where:hover { color: var(--color-text-primary, #e7e1d4); border-color: var(--color-warm-2, #c9893a); }
+.ah2-where.np { color: var(--color-text-primary, #e7e1d4); font-weight: 600; background: color-mix(in srgb, var(--color-level-error, #c4504a) 16%, transparent); border-color: color-mix(in srgb, var(--color-level-error, #c4504a) 55%, transparent); }
+.ah2-where[data-ah-uid] { cursor: grab; }
+.ah2-where.inline { margin: 0 0 0 6px; padding: 0 5px; font-size: 10.5px; line-height: 1.4; vertical-align: baseline; }
+.ah-panel.ah-v2 .ah2-menu-i i { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ah-panel.ah-v2 .ah2-menu-i span { flex: 0 0 auto; }
+/* Storage (new look): same cards as the bags; mounts group their cargo points; big holds are a list */
+.ah-panel.ah-v2 .ah-zone-storage .ah-bins { gap: 8px; }
+.ah-panel.ah-v2 .ah-mount { flex: 1 1 100%; }
+.ah-panel.ah-v2 .ah-mount > .ah-bin-head { margin-bottom: 2px; }
+.ah-panel.ah-v2 .ah-mount-rider { font-size: 11px; color: var(--ah2-mute); padding: 0 0 6px; }
+.ah-panel.ah-v2 .ah-mount-pts { display: flex; flex-wrap: wrap; gap: 6px; }
+.ah-panel.ah-v2 .ah-mount .ah-bin.pt { background: none; padding: 5px 6px; }
+.ah-panel.ah-v2 .ah2-pt-nm { font-size: 11px; color: var(--ah2-dim); font-weight: 600; }
+.ah-panel.ah-v2 .ah2-find { width: 100%; margin: 0 0 6px; padding: 3px 7px; font: inherit; font-size: 12px; color: var(--ah2-ink); background: var(--ah2-cell); border: 1px solid var(--ah2-line); border-radius: 3px; }
+.ah-panel.ah-v2 .ah2-find:focus { outline: none; border-color: var(--ah2-accent); }
+.ah-panel.ah-v2 .ah-bin-grid.ah2-list { min-width: 220px; max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
+.ah-panel.ah-v2 .ah2-brow { display: flex; justify-content: space-between; gap: 10px; padding: 2px 6px 2px 5px; border-left: 3px solid var(--kc); border-radius: 0 3px 3px 0; font-size: 12px; cursor: grab; touch-action: none; }
+.ah-panel.ah-v2 .ah2-brow:hover { background: color-mix(in srgb, var(--kc) 16%, transparent); }
+.ah-panel.ah-v2 .ah2-brow i { font-style: normal; color: var(--ah2-mute); font-variant-numeric: tabular-nums; }
+.ah-panel.ah-v2 .ah2-none { font-size: 11.5px; font-style: italic; color: var(--ah2-mute); padding: 4px 2px; }
+.ah-panel.ah-v2 .ah-zone-storage .ah-bag-empty { padding: 2px 0; }
+.ah-panel.ah-v2 .ah-mount-pts { align-items: flex-start; }

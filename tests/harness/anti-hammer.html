@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anti-Hammer Harness</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Signika:wght@400;600&family=Roboto+Slab:wght@500;700&display=swap">
+<link rel="stylesheet" href="../../styles/pendant-bridge.css">
+<style>
+/* Dev harness (not loaded by Foundry): the REAL scripts/main.js — the real Anti-Hammer Space
+   panel — injected into a stand-in dnd5e actor sheet. Actor/item writes are kept in memory and
+   re-render the sheet the way Foundry does. Serve the Downloads folder (launch config
+   "campaign-page-harness") and open /foundry-pendant-bridge/tests/harness/anti-hammer.html.
+   Made-up characters and items. */
+:root { --font-primary: "Signika", sans-serif; --font-body: "Signika", sans-serif; }
+.theme-dark { --color-text-emphatic: #f0f0e0; --color-text-primary: #e7e1d4; --color-text-secondary: #b5aea0; --color-text-subtle: #8a847a;
+  --color-border: #4a4842; --background: #1c1b22; color: var(--color-text-primary); color-scheme: dark; }
+.theme-light { --color-text-emphatic: #191813; --color-text-primary: #2b2a24; --color-text-secondary: #4b4a44; --color-text-subtle: #6e6c62;
+  --color-border: #9a978c; --background: #e9dfc9; color: var(--color-text-primary); color-scheme: light; }
+body { margin: 0; background: #0d100c; font: 14px/1.4 var(--font-primary); color: #ddd; }
+#bar { display: flex; gap: 10px; align-items: center; padding: 8px 12px; background: #151515; border-bottom: 1px solid #333; flex-wrap: wrap; }
+#bar button, #bar select { background: #2a2a2a; color: #ddd; border: 1px solid #444; border-radius: 3px; padding: 3px 9px; font: inherit; cursor: pointer; }
+#bar label { font-size: 12px; color: #aaa; display: flex; gap: 6px; align-items: center; }
+#log { margin-left: auto; font: 12px monospace; color: #9c9; max-width: 45vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#stage { display: flex; gap: 14px; padding: 14px; align-items: flex-start; }
+.application { background: var(--background); color: var(--color-text-primary); border: 1px solid #000; border-radius: 6px; box-shadow: 0 0 20px #000;
+  display: flex; flex-direction: column; overflow: hidden; resize: horizontal; min-width: 420px; }
+.window-header { background: #0e0d13; color: #ddd; padding: 6px 10px; display: flex; gap: 8px; align-items: center; border-bottom: 1px solid #333; font-family: "Roboto Slab", serif; }
+.window-header .t { flex: 1; }
+.window-content { overflow: auto; flex: 1; height: 760px; }
+.sheet-head { display: flex; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--color-border); align-items: center; }
+.sheet-head .pic { width: 64px; height: 64px; border-radius: 6px; background: linear-gradient(135deg,#6b5a3e,#2c2418); border: 1px solid var(--color-border); }
+.sheet-head h2 { margin: 0; font-family: "Roboto Slab", serif; font-size: 22px; }
+.sheet-head .sub { color: var(--color-text-subtle); font-size: 12px; }
+nav.tabs { display: flex; gap: 2px; padding: 0 10px; border-bottom: 1px solid var(--color-border); }
+nav.tabs a { padding: 6px 12px; font-size: 13px; color: var(--color-text-secondary); border-bottom: 2px solid transparent; }
+nav.tabs a.active { color: var(--color-text-emphatic); border-color: #c9a46a; }
+.tab[data-tab="inventory"] { padding: 10px; }
+.native-list { margin-top: 14px; border-top: 1px solid var(--color-border); padding-top: 8px; font-size: 13px; color: var(--color-text-subtle); }
+.native-list h4 { margin: 0 0 6px; font-family: "Roboto Slab", serif; color: var(--color-text-secondary); }
+.native-list ol { list-style: none; margin: 0; padding: 0; }
+.native-list .item-row { display: flex; justify-content: space-between; align-items: center; padding: 3px 4px; border-bottom: 1px solid rgba(127,127,127,.15); }
+.native-list .name { display: flex; flex-direction: column; } .native-list .title { color: var(--color-text-primary); } .native-list .subtitle { font-size: 11px; }
+body.tall .window-content { height: auto !important; }
+body.tall #notes, body.tall #bar { display: none; }
+#notes { padding: 0 14px 14px; color: #888; font-size: 12px; max-width: 1100px; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <b>Anti-Hammer harness</b>
+  <label>Character <select id="who"></select></label>
+  <label>Theme <select id="theme"><option>dark</option><option>light</option></select></label>
+  <label>Look <select id="look"><option value="both" selected>Classic | New</option><option value="classic">Classic only</option><option value="new">New only</option></select></label>
+  <label>Sheet width <select id="width"><option>560</option><option selected>760</option><option>860</option><option>1000</option></select></label>
+  <label><input type="checkbox" id="gm" checked> GM</label>
+  <label><input type="checkbox" id="packed" checked> Start packed (runs Suit up + Tidy)</label>
+  <button id="reset">Reset</button>
+  <span id="log"></span>
+</div>
+<div id="stage"></div>
+<div id="notes">This is today's real panel (bridge scripts/main.js, unchanged), not a drawing. Drags, equips, Tidy and menus all run the real code. Changes are kept in memory only.</div>
+
+<script>
+// ═════════ stand-in Foundry ═════════
+const logEl = () => document.getElementById("log")
+const log = (s) => { const el = logEl(); if (el) el.textContent = s; console.log("[harness]", s) }
+const deepClone = (o) => o == null ? o : structuredClone(o)
+const getProp = (o, path) => path.split(".").reduce((a, k) => a == null ? a : a[k], o)
+function applyUpdate(target, changes) {
+  // Like Foundry's update: each (dotted) key is expanded, then MERGED — an object merges into an object,
+  // anything else (incl. an object over a string) replaces; "-=key" deletes.
+  const isObj = (v) => v && typeof v === "object" && !Array.isArray(v)
+  const merge = (dst, src) => { for (const [k, v] of Object.entries(src)) { if (k.startsWith("-=")) { delete dst[k.slice(2)]; continue } if (isObj(v) && isObj(dst[k])) merge(dst[k], v); else dst[k] = deepClone(v) } }
+  for (const [p, v] of Object.entries(changes || {})) {
+    const parts = p.split("."); let o = target
+    for (let i = 0; i < parts.length - 1; i++) { if (!isObj(o[parts[i]])) o[parts[i]] = {}; o = o[parts[i]] }
+    merge(o, { [parts.at(-1)]: v })
+  }
+}
+
+// Foundry hands hooks the change set EXPANDED ({flags:{mod:{…}}}), not as dotted keys
+function expand(ch) { const o = {}; for (const [k, v] of Object.entries(ch || {})) { const parts = k.split("."); let t = o; for (let i = 0; i < parts.length - 1; i++) t = (t[parts[i]] ||= {}); t[parts.at(-1)] = v } return o }
+// count whole-sheet renders vs panel-only refreshes, so the harness can show the difference
+window.AHSTATS = { sheetRenders: 0 }
+const _hooks = {}
+window.Hooks = {
+  on(n, f) { (_hooks[n] ||= []).push({ f }); return _hooks[n].length },
+  once(n, f) { (_hooks[n] ||= []).push({ f, once: true }); return _hooks[n].length },
+  off() {},
+  callAll(n, ...a) { const l = _hooks[n] || []; _hooks[n] = l.filter(h => !h.once); for (const h of l) { try { h.f(...a) } catch (e) { console.error("hook", n, e) } } return true },
+  call(n, ...a) { return this.callAll(n, ...a) },
+}
+
+class Coll extends Map {
+  constructor(docs = []) { super(docs.map(d => [d.id, d])) }
+  get contents() { return [...this.values()] }
+  get size() { return super.size }
+  filter(f) { return this.contents.filter(f) }
+  map(f) { return this.contents.map(f) }
+  find(f) { return this.contents.find(f) }
+  some(f) { return this.contents.some(f) }
+  reduce(f, i) { return this.contents.reduce(f, i) }
+  getName(n) { return this.find(d => d.name === n) }
+  [Symbol.iterator]() { return this.values() }
+}
+
+// Stand-in item pictures (a real world uses each item's Foundry icon): a glyph on a dark tile.
+const ART = [[/sword|axe|dagger|javelin/i, "🗡️"], [/bow/i, "🏹"], [/arrow/i, "➶"], [/staff/i, "🪄"], [/mail|shirt/i, "🛡️"], [/backpack/i, "🎒"], [/pouch/i, "👝"],
+  [/quiver/i, "🏹"], [/rope/i, "🪢"], [/ration/i, "🍞"], [/tinder|lantern/i, "🔥"], [/potion|oil|ink \(/i, "🧪"], [/crowbar|kit|trap|pot/i, "🛠️"], [/water/i, "💧"],
+  [/bedroll/i, "🛏️"], [/symbol/i, "✨"], [/manacle/i, "⛓️"], [/book|scroll/i, "📜"], [/pen/i, "🖋️"], [/case/i, "📦"]]
+function itemArt(name) {
+  const g = (ART.find(([re]) => re.test(name)) || [, "📦"])[1]
+  return "data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#2a2620"/><text x="32" y="44" font-size="34" text-anchor="middle">${g}</text></svg>`)
+}
+let _rid = 0
+const rid = () => "id" + (++_rid).toString(36).padStart(14, "0")
+const MOD = "pendant-bridge"
+
+class Item {
+  constructor(d, parent) {
+    this.documentName = "Item"; this._id = this.id = d._id || rid(); this.name = d.name; this.type = d.type; this.img = d.img || itemArt(d.name, d.type)
+    this.system = deepClone(d.system || {}); this.flags = deepClone(d.flags || {}); this.parent = parent
+    this.uuid = `Actor.${parent.id}.Item.${this.id}`
+  }
+  getFlag(s, k) { return getProp(this.flags?.[s] || {}, k) }
+  async setFlag(s, k, v) { return this.update({ [`flags.${s}.${k}`]: v }) }
+  async unsetFlag(s, k) { return this.update({ [`flags.${s}.-=${k}`]: null }) }
+  async update(ch, opts = {}) { applyUpdate(this, ch); Hooks.callAll("updateItem", this, expand(ch), opts); if (opts.render !== false) this.parent._changed(); return this }
+  async delete() { this.parent.items.delete(this.id); Hooks.callAll("deleteItem", this); this.parent._changed(); return this }
+  toObject() { return { _id: this.id, name: this.name, type: this.type, img: this.img, system: deepClone(this.system), flags: deepClone(this.flags) } }
+  get isOwner() { return this.parent.isOwner }
+  use() { log("use " + this.name) }
+}
+
+class Actor {
+  constructor(d) {
+    this.documentName = "Actor"; this._id = this.id = d._id; this.name = d.name; this.type = d.type || "character"; this.img = d.img || ""
+    this.system = deepClone(d.system || {}); this.flags = deepClone(d.flags || {}); this.uuid = "Actor." + this.id
+    this.items = new Coll(); for (const it of d.items || []) { const i = new Item(it, this); this.items.set(i.id, i) }
+    this.ownership = { default: 0 }
+  }
+  get isOwner() { return true }
+  testUserPermission() { return true }
+  getFlag(s, k) { return getProp(this.flags?.[s] || {}, k) }
+  async setFlag(s, k, v) { return this.update({ [`flags.${s}.${k}`]: v }) }
+  async unsetFlag(s, k) { return this.update({ [`flags.${s}.-=${k}`]: null }) }
+  async update(ch, opts = {}) { applyUpdate(this, ch); Hooks.callAll("updateActor", this, expand(ch), opts); if (opts.render !== false) this._changed(); return this }
+  async updateEmbeddedDocuments(type, rows) { for (const r of rows) { const it = this.items.get(r._id); if (it) { const { _id, ...rest } = r; applyUpdate(it, rest); Hooks.callAll("updateItem", it, rest) } } this._changed(); return rows }
+  async createEmbeddedDocuments(type, rows) { const out = rows.map(r => { const i = new Item(r, this); this.items.set(i.id, i); Hooks.callAll("createItem", i); return i }); this._changed(); return out }
+  async deleteEmbeddedDocuments(type, ids) { for (const id of ids) this.items.delete(id); this._changed(); return ids }
+  _changed() { // Foundry re-renders open sheets after a document update (debounced like render(false))
+    clearTimeout(this._rt); this._rt = setTimeout(() => { for (const sh of this.sheets || []) sh.render(false) }, 0)
+  }
+}
+
+class Sheet {
+  constructor(actor, look) { this.actor = actor; this.document = actor; this.look = look; (actor.sheets ||= []).push(this); actor.sheet = this; this.rendered = false; this.id = "sheet-" + actor.id + "-" + look }
+  render() {
+    const a = this.actor
+    let el = document.getElementById(this.id)
+    const stage = document.getElementById("stage")
+    if (!el) { el = document.createElement("section"); el.id = this.id; el.className = "application sheet actor " + document.body.dataset.theme; stage.appendChild(el) }
+    el.className = "application sheet actor theme-" + (document.body.dataset.theme || "dark"); el.setAttribute("data-ah-look", this.look)
+    el.style.width = (document.getElementById("width").value) + "px"
+    const items = a.items.contents.slice().sort((x, y) => x.name.localeCompare(y.name))
+    el.innerHTML = `
+      <header class="window-header"><i class="fa-solid fa-user"></i><span class="t">${a.name} <span style="opacity:.55;font-family:Signika;font-size:12px">· ${this.look === "new" ? "NEW look" : "classic"}</span></span><i class="fa-solid fa-xmark"></i></header>
+      <div class="window-content">
+        <div class="sheet-head"><div class="pic"></div><div><h2>${a.name}</h2><div class="sub">${a.system.details?.race || ""} · STR ${a.system.abilities?.str?.value ?? "?"}</div></div></div>
+        <nav class="tabs"><a>Details</a><a class="active">Inventory</a><a>Features</a><a>Spells</a><a>Effects</a><a>Biography</a></nav>
+        <div class="tab active" data-tab="inventory">
+          <div class="native-list"><h4>dnd5e inventory (the system's own list)</h4><ol class="item-list">${items.map(i => `<li class="item" data-item-id="${i.id}" data-entry-id="${i.id}"><div class="item-row"><div class="item-name item-action"><div class="name name-stacked"><span class="title">${i.name}${(i.system.quantity || 1) > 1 ? " ×" + i.system.quantity : ""}</span><span class="subtitle">${i.type}</span></div></div><div class="item-detail item-weight">${i.system.weight?.value ?? 0} lb</div></div></li>`).join("")}</ol></div>
+        </div>
+      </div>`
+    this.rendered = true; AHSTATS.sheetRenders++
+    Hooks.callAll("renderActorSheetV2", this, el)
+    return this
+  }
+}
+
+const settings = new Map()
+window.game = {
+  system: { id: "dnd5e", version: "5.1.0" },
+  version: "14.350",
+  world: { id: "harness", title: "Harness" },
+  user: { id: "gm", isGM: true, name: "GM", character: null },
+  users: new Coll([]),
+  actors: new Coll([]),
+  settings: {
+    register(m, k, cfg) { if (!settings.has(k)) settings.set(k, deepClone(cfg.default)); },
+    registerMenu() {},
+    get(m, k) { if (!settings.has(k)) return undefined; return deepClone(settings.get(k)) },
+    async set(m, k, v) { settings.set(k, deepClone(v)); Hooks.callAll("updateSetting", { key: m + "." + k, value: v }); return v },
+  },
+  i18n: { localize: (s) => s, format: (s) => s },
+  modules: new Map([[MOD, { id: MOD, active: true, version: "harness" }]]),
+  scenes: new Coll([]), combats: new Coll([]), journal: new Coll([]), folders: new Coll([]), playlists: new Coll([]), messages: new Coll([]),
+  packs: new Coll([]),
+  socket: { on() {}, emit() {} },
+}
+game.users.set("gm", { id: "gm", isGM: true, active: true, name: "GM" })
+window.ui = { notifications: { info: (m) => log("ℹ " + m), warn: (m) => log("⚠ " + m), error: (m) => log("✖ " + m) }, windows: {} }
+window.CONFIG = { DND5E: {}, Actor: {}, Item: {}, ui: {} }
+window.CONST = { DOCUMENT_OWNERSHIP_LEVELS: { NONE: 0, LIMITED: 1, OBSERVER: 2, OWNER: 3 }, USER_ROLES: { GAMEMASTER: 4 } }
+window.ChatMessage = { create: async (d) => { log("chat: " + String(d.content || "").replace(/<[^>]+>/g, "").slice(0, 80)) }, getSpeaker: () => ({}) }
+const DialogV2 = { prompt: async (o) => { const v = prompt(o?.window?.title || "Name"); return v }, confirm: async () => confirm("Sure?") }
+window.foundry = {
+  utils: { deepClone, mergeObject: (a, b) => Object.assign(a, b), getProperty: getProp, hasProperty: (o, p) => getProp(o, p) !== undefined,setProperty: (o, p, v) => applyUpdate(o, { [p]: v }), randomID: rid, debounce: (f, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => f(...a), ms) } } },
+  applications: { api: { DialogV2 }, instances: new Map(), apps: {} },
+}
+window.Dialog = { prompt: DialogV2.prompt, confirm: DialogV2.confirm }
+window.fromUuid = async (u) => null
+// Foundry serves from its data root: point module assets at this repo, core icons at a plain stand-in.
+const ICON = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="4" fill="#3b372f"/><path d="M9 12h14l-2 12H11z" fill="#8a7d63"/><path d="M12 12a4 4 0 0 1 8 0" stroke="#8a7d63" stroke-width="2" fill="none"/></svg>')
+const fixSrc = (img) => { const s = img.getAttribute("src") || ""
+  if (s.startsWith("modules/pendant-bridge/")) img.setAttribute("src", "../../" + s.slice("modules/pendant-bridge/".length))
+  else if (/^\/?icons\//.test(s)) img.setAttribute("src", ICON) }
+new MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1) { if (n.tagName === "IMG") fixSrc(n); n.querySelectorAll?.("img").forEach(fixSrc) } })
+  .observe(document.documentElement, { childList: true, subtree: true })
+// No game canvas in the harness: canvas-drawing modules see "not ready" and stay idle.
+window.canvas = { ready: false, scene: null, stage: { addChild: (c) => c }, interface: { addChild: (c) => c }, controls: null }
+window.PIXI = { Container: class { addChild(c) { return c } }, Graphics: class {} }
+</script>
+
+<script type="module">
+// ═════════ characters ═════════
+const it = (name, type, sys = {}, extra = {}) => ({ name, type, system: { quantity: 1, weight: { value: 1, units: "lb" }, equipped: false, ...sys }, ...extra })
+const CAST = {
+  thorn: { _id: "thorn0000000001", name: "Thorn Ashvale", system: { abilities: { str: { value: 14 } }, details: { gender: "male", race: "Human Fighter" } }, items: [
+    it("Longsword", "weapon", { weight: { value: 3 }, equipped: true, type: { value: "martialM" } }),
+    it("Dagger", "weapon", { weight: { value: 1 }, quantity: 2, type: { value: "simpleM" } }),
+    it("Shortbow", "weapon", { weight: { value: 2 }, type: { value: "simpleR" } }),
+    it("Arrows", "consumable", { quantity: 20, weight: { value: 0.05 }, type: { value: "ammo" } }),
+    it("Chain Shirt", "equipment", { weight: { value: 20 }, equipped: true, type: { value: "medium" } }),
+    it("Backpack", "container", { weight: { value: 5 }, capacity: { weight: { value: 30 } } }),
+    it("Pouch", "container", { weight: { value: 1 } }),
+    it("Quiver", "container", { weight: { value: 1 } }),
+    it("Rope, Hempen (50 feet)", "consumable", { weight: { value: 10 } }),
+    it("Rations (1 day)", "consumable", { quantity: 5, weight: { value: 2 }, type: { value: "food" } }),
+    it("Tinderbox", "tool", { weight: { value: 1 } }),
+    it("Potion of Healing", "consumable", { quantity: 2, weight: { value: 0.5 }, type: { value: "potion" }, uses: { max: 1, spent: 0 } }),
+    it("Crowbar", "tool", { weight: { value: 5 } }),
+    it("Waterskin", "consumable", { weight: { value: 5 } }),
+    it("Bedroll", "loot", { weight: { value: 7 } }),
+    it("Lantern, Hooded", "tool", { weight: { value: 2 } }),
+    it("Holy Symbol", "equipment", { weight: { value: 1 } }),
+  ] },
+  mira: { _id: "mira00000000001", name: "Mira Reed", system: { abilities: { str: { value: 17 } }, details: { gender: "female", race: "Half-Orc Barbarian" } }, items: [
+    it("Greataxe", "weapon", { weight: { value: 7 }, equipped: true, type: { value: "martialM" }, properties: ["two", "hvy"] }),
+    it("Javelin", "weapon", { weight: { value: 2 }, quantity: 4, type: { value: "simpleM" } }),
+    it("Scale Mail", "equipment", { weight: { value: 45 }, equipped: true, type: { value: "medium" } }),
+    it("Backpack", "container", { weight: { value: 5 } }),
+    it("Climber's Kit", "tool", { weight: { value: 12 } }),
+    it("Manacles", "loot", { weight: { value: 6 } }),
+    it("Rations (1 day)", "consumable", { quantity: 7, weight: { value: 2 }, type: { value: "food" } }),
+    it("Oil (flask)", "consumable", { quantity: 2, weight: { value: 1 } }),
+    it("Hunting Trap", "loot", { weight: { value: 25 } }),
+    it("Iron Pot", "loot", { weight: { value: 10 } }),
+    it("Bedroll", "loot", { weight: { value: 7 } }),
+  ] },
+  osk: { _id: "osk000000000001", name: "Osk", system: { abilities: { str: { value: 8 } }, details: { gender: "male", race: "Gnome Wizard" } }, items: [
+    it("Quarterstaff", "weapon", { weight: { value: 4 }, equipped: true, type: { value: "simpleM" } }),
+    it("Spellbook", "tool", { weight: { value: 3 } }),
+    it("Component Pouch", "container", { weight: { value: 2 } }),
+    it("Ink (1 ounce bottle)", "consumable", { weight: { value: 0 } }),
+    it("Ink Pen", "loot", { weight: { value: 0 } }),
+    it("Scroll Case", "container", { weight: { value: 1 } }),
+    it("Spell Scroll: Shield", "consumable", { weight: { value: 0 }, type: { value: "scroll" } }),
+  ] },
+}
+const fresh = () => { game.actors.clear(); for (const d of Object.values(CAST)) { const a = new Actor(structuredClone(d)); game.actors.set(a.id, a) } }
+fresh()
+
+// ═════════ load the REAL bridge ═════════
+try {
+  await import("../../scripts/main.js")
+} catch (e) { log("main.js failed to load: " + e.message); console.error(e); throw e }
+Hooks.callAll("init"); Hooks.callAll("setup"); Hooks.callAll("ready")
+
+const who = document.getElementById("who")
+who.innerHTML = Object.values(CAST).map(c => `<option value="${c._id}">${c.name}</option>`).join("")
+let sheet = null
+function show() {
+  document.getElementById("stage").innerHTML = ""
+  for (const a of game.actors) { a.sheet = null; a.sheets = [] }
+  const a = game.actors.get(who.value), lk = document.getElementById("look").value
+  const looks = lk === "both" ? ["classic", "new"] : [lk]
+  for (const l of looks) new Sheet(a, l).render(true)
+  sheet = { render: () => { for (const sh of a.sheets) sh.render(false) } }
+  log("showing " + a.name)
+  if (document.getElementById("packed").checked && !a._packed) { a._packed = true; packUp() }
+}
+// Press the panel's own buttons, exactly as a player would.
+async function packUp() {
+  const wait = (ms) => new Promise(r => setTimeout(r, ms))
+  const btn = (t) => [...document.querySelectorAll(".ah-panel button")].find(b => b.textContent.trim().startsWith(t))
+  await wait(50); btn("Suit up")?.click(); await wait(400); btn("Tidy")?.click(); await wait(400)
+}
+who.onchange = show
+document.getElementById("theme").onchange = (e) => { document.body.dataset.theme = e.target.value; sheet?.render(false) }
+document.getElementById("width").onchange = () => sheet?.render(false)
+document.getElementById("look").onchange = () => show()
+document.getElementById("gm").onchange = (e) => { game.user.isGM = e.target.checked; sheet?.render(false) }
+document.getElementById("reset").onclick = () => { fresh(); show() }
+document.getElementById("packed").onchange = () => { fresh(); show() }
+document.body.dataset.theme = "dark"
+// URL presets (for screenshots): ?look=new&who=mira&theme=light&width=1000&loose=3&tidy=1&menu=Longsword&scroll=150
+const Q = new URLSearchParams(location.search)
+const pick = (id, v) => { const e = document.getElementById(id); if (v != null && e) e.value = v }
+pick("look", Q.get("look")); pick("width", Q.get("width"))
+if (Q.get("theme")) { pick("theme", Q.get("theme")); document.body.dataset.theme = Q.get("theme") }
+if (Q.get("who")) { const c = Object.values(CAST).find(c => c.name.toLowerCase().startsWith(Q.get("who").toLowerCase())); if (c) who.value = c._id }
+// ?stash=1 → the character also owns a chest at camp, a horse at the stable and a ship's hold with a few things in it
+if (Q.get("stash")) {
+  const a = game.actors.get(who.value), byName = (n) => a.items.find(i => i.name.startsWith(n))
+  a.flags["pendant-bridge"] = a.flags["pendant-bridge"] || {}
+  a.flags["pendant-bridge"].ahStash = [
+    { id: "wchest1", kind: "world", type: "chest", name: "Camp chest", location: "at camp" },
+    { id: "mhorse1", kind: "mount", type: "ridingHorse", name: "Bessie", location: "Gilded Stag stable" },
+    { id: "wship01", kind: "world", type: "shipHold", name: "The Gull", location: "Saltreach docks" },
+  ]
+  const ps = a.flags["pendant-bridge"].ahPlaceSep = {}
+  for (const n of ["Bedroll", "Crowbar", "Lantern", "Iron Pot", "Manacles"]) { const it = byName(n); if (it) ps[it.id] = "world:wship01" }
+  for (const n of ["Rope"]) { const it = byName(n); if (it) ps[it.id] = "world:wchest1" }
+  for (const n of ["Tinderbox", "Waterskin"]) { const it = byName(n); if (it) ps[it.id] = "mount:mhorse1:bagL" }
+}
+show()
+window.H = { game, show }
+;(async () => {
+  const wait = (ms) => new Promise(r => setTimeout(r, ms))
+  await wait(1200)
+  const n = +Q.get("loose") || 0
+  for (const b of [...document.querySelectorAll(".ah2-ico[data-unpack], .ah-leg-x[data-unpack]")].slice(0, n)) { b.click(); await wait(120) }
+  if (Q.get("tidy")) { await wait(300); [...document.querySelectorAll(".ah-panel button")].find(b => b.textContent.trim().startsWith("Tidy"))?.click(); await wait(300) }
+  if (Q.get("menu")) { await wait(300); const row = [...document.querySelectorAll(".ah2-row, .ah2-chip")].find(x => x.textContent.includes(Q.get("menu"))); if (row) { const r = row.getBoundingClientRect(); const o = { clientX: r.x + 40, clientY: r.y + 10, bubbles: true, button: 0, buttons: 1, pointerType: "mouse", isPrimary: true }; row.firstElementChild.dispatchEvent(new PointerEvent("pointerdown", o)); document.dispatchEvent(new PointerEvent("pointerup", { ...o, buttons: 0 })) } }
+  if (Q.get("tall")) document.body.classList.add("tall")
+  if (Q.get("open")) { await wait(200); const bs = [...document.querySelectorAll(".ah-panel button")]; const b = Q.get("open") === "add" ? bs.find(x => /Add$/.test(x.textContent.trim())) : bs.find(x => x.textContent.trim().startsWith("Outfits")); b?.click() }
+  const sc = +Q.get("scroll") || 0; if (sc) document.querySelectorAll(".window-content").forEach(w => w.scrollTop = sc)
+  document.body.dataset.ready = "1"
+})()
+</script>
+</body>
+</html>

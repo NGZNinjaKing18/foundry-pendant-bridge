@@ -178,7 +178,7 @@ const AH = {
     // storage + STR bonus; loose, baggable, unequipped items) and the off-body
     // Storage (world containers + mount cargo) — so the app's cockpit shows the
     // same numbers as the sheet panel (v0.105.0+).
-    let bag = null; const storage = []
+    let bag = null, bins = null, notPacked = null; const storage = []
     try {
       const c = ahHeadlessCtx(actor), eq = new Set(ahEquippedIds(c)), byItem = Object.fromEntries(items.map(i => [i.id, i]))
       const nCont = [...eq].filter(id => c.metaById[id] && c.metaById[id].carryType === "Container").length
@@ -194,6 +194,16 @@ const AH = {
       for (const b of Object.keys(inBin)) for (const uid of inBin[b]) if (loads(uid.split("#")[0])) load -= unitSp(uid)
       load = Math.round(load * 100) / 100
       bag = { capacity: bagCap, used: load, overflow: bagCap > 0 ? Math.max(0, Math.round((load - bagCap) * 100) / 100) : 0 }
+      // (cockpit) each worn bag with what's in it + what isn't packed anywhere — the GM's view of the sheet
+      try {
+        const bc = Object.assign({}, c, { byId: Object.fromEntries(items.map(i => [i.id, { name: i.name, color: i.color }])), capEach: capacity, cfg })
+        const bagBins = bagCap > 0 ? ahSepBins(bc) : [], bagIds = new Set(bagBins.map(b => b.binId)), inBag = {}
+        for (const uid of Object.keys(sep)) { const b = ahSepBinOf(sep[uid]); if (bagIds.has(b) && byItem[uid.split("#")[0]]) (inBag[b] = inBag[b] || []).push(uid) }
+        bins = bagBins.map(b => ({ id: b.binId, label: b.label, kind: b.kind, cap: b.cap, types: b.types || null, where: ahV2BinWhere(bc, b),
+          used: Math.round((inBag[b.binId] || []).reduce((n, u) => n + unitSp(u), 0) * 100) / 100, itemIds: [...new Set((inBag[b.binId] || []).map(u => u.split("#")[0]))] }))
+        const placedIds = new Set(Object.keys(sep).filter(u => { const b = ahSepBinOf(sep[u]); return bagIds.has(b) || sbIds.has(b) }).map(u => u.split("#")[0]))
+        notPacked = items.filter(it => !eq.has(it.id) && !placedIds.has(it.id)).map(it => it.id)
+      } catch (e) { console.warn("[pendant-bridge] AH bins summary failed", actor?.id, e) }
       const wcat = ahWorldCatalog()
       for (const s of ahStash(actor)) {
         const mine = sbins.filter(b => b.binId === "world:" + s.id || b.binId.startsWith("mount:" + s.id + ":"))
@@ -208,7 +218,7 @@ const AH = {
       id: actor.id, name: actor.name, img: resolveImg(actor.img), type: actor.type,
       capacity, capacityOverride: override, used, overflow,
       free: Math.max(0, Math.round((capacity - used) * 100) / 100),
-      itemCount: items.length, items, doll, bag, storage,
+      itemCount: items.length, items, doll, bag, storage, bins, notPacked,
     }
   },
 }
@@ -297,6 +307,18 @@ Hooks.once("init", () => {
     config:  true,
     type:    Boolean,
     default: false,
+    onChange: () => ahRerenderSheets()
+  })
+  // The overhauled panel look (same Body · Bag · Loose · Storage, same data). Per client, so each
+  // player can try it; "classic" stays the default until the new look is signed off.
+  game.settings.register(MOD, "ahLook", {
+    name:    "Anti-Hammer: panel look",
+    hint:    "Classic = the panel as it has been. New = the overhauled look: the body as two lined-up columns beside the figure, item names on the bag shapes, one menu for every item, where-tags in the inventory list, readable at any sheet width.",
+    scope:   "client",
+    config:  true,
+    type:    String,
+    choices: { classic: "Classic", new: "New" },
+    default: "classic",
     onChange: () => ahRerenderSheets()
   })
 })
@@ -4146,7 +4168,7 @@ async function ahRecomputeActor(actor) {
   if (cur && cur.used === next.used && cur.capacity === next.capacity && cur.overflow === next.overflow
       && cur.itemCount === next.itemCount && cur.capacityOverride === next.capacityOverride) return  // unchanged → skip the write
   next.computedAt = Date.now()
-  try { await actor.setFlag(MOD, "ah", next) }
+  try { await ahSetFlagQuiet(actor, "ah", next) }   // stored totals only — never worth a whole-sheet re-render
   catch (e) { console.warn("[pendant-bridge] AH persist failed", actor?.id, e) }
 }
 
@@ -4426,7 +4448,8 @@ function ahBoardSVG(ctx) {
 }
 
 /** Colour legend under the bag: each packed item = swatch + full name + space cost. */
-function ahLegendHTML(ctx) {
+function ahLegendHTML(ctx, onlyBin) {
+  if (ctx.v2) return ""   // new look: names are on the shapes; no legend
   const rows = []
   ctx.placed.forEach((p, id) => { const it = ctx.unitById[id]; if (!it || (p && p.of)) return; const b = p && ctx.binById && ctx.binById[p.bin]; if (b && b.zone === "storage") return; rows.push({ it, bin: p && p.bin }) })   // (v0.79) bag legend only — stored items are managed in their own container grids
   if (!rows.length) return ""
@@ -4444,11 +4467,12 @@ function ahLegendHTML(ctx) {
 function ahRenderBoard(ctx) {
   if (ctx.separate) {
     for (const bin of (ctx.bins || [])) {
-      const h = ctx.binHolders && ctx.binHolders[bin.binId]; if (h) h.innerHTML = ahBinBoardSVG(ctx, bin)
+      const h = ctx.binHolders && ctx.binHolders[bin.binId]; if (h) h.innerHTML = (ctx.v2 && bin.cap > AH_V2_LIST_AT) ? ahV2BigListHTML(ctx, bin) : ahBinBoardSVG(ctx, bin)
       const ce = ctx.binCapEls && ctx.binCapEls[bin.binId]
-      if (ce) { let used = 0; ctx.placed.forEach((p, uid) => { if (p.bin === bin.binId && !p.of) { const u = ctx.unitById[uid]; if (u) used += (Number(u.spaces) || 0) } }); ce.textContent = ahFmt(used) + " / " + ahFmt(bin.cap) }
+      if (ce) { let used = 0; ctx.placed.forEach((p, uid) => { if (p.bin === bin.binId && !p.of) { const u = ctx.unitById[uid]; if (u) used += (Number(u.spaces) || 0) } }); ce.textContent = ahFmt(used) + " / " + ahFmt(bin.cap); if (ctx.v2) { const full = used >= bin.cap && bin.cap > 0; ce.classList.toggle("ah2-full", full); ce.title = full ? "Packed full" : (ahFmt(Math.max(0, bin.cap - used)) + " spaces free") } }
       const card = ctx.binCards && ctx.binCards[bin.binId]
       if (card) { const active = !!(ctx.held && ctx.hoverBin === bin.binId), ok = active && !!ahSepDropTarget(ctx, bin, ctx.held.id, ctx.held.rot, ctx.hoverCell); card.classList.toggle("drop-ok", active && ok); card.classList.toggle("drop-no", active && !ok) }
+      const bl = ctx.binLegendEls && ctx.binLegendEls[bin.binId]; if (bl) bl.innerHTML = ahLegendHTML(ctx, bin.binId)
     }
     if (ctx.legendEl) ctx.legendEl.innerHTML = ahLegendHTML(ctx)
     return
@@ -4477,7 +4501,8 @@ function ahRenderTray(ctx) {
   // loose = bag units not packed (and not the one being dragged). Bundled stacks show
   // one chip per bundle.
   const units = (ctx.units || []).filter(u => (!ctx.placed.has(u.uid) || (ctx.placed.get(u.uid) || {}).of) && !(ctx.held && ctx.held.id === u.uid))
-  if (!units.length) { ctx.trayEl.innerHTML = '<span class="ah-tray-empty">Nothing loose — all worn or packed.</span>'; return }
+  if (!units.length) { ctx.trayEl.innerHTML = ctx.v2 ? "" : '<span class="ah-tray-empty">Nothing loose — all worn or packed.</span>'; return }
+  if (ctx.v2) { ctx.trayEl.innerHTML = ahV2NotPackedHTML(ctx, units); return }
   const groups = {}
   for (const u of units) { const ct = (ctx.metaById[u.itemId] && ctx.metaById[u.itemId].carryType) || "Miscellaneous"; (groups[ct] = groups[ct] || []).push(u) }
   // open/closed state persists per actor; first paint opens the small groups (big stacks stay a pill)
@@ -4559,6 +4584,36 @@ function ahSnapPlace(ctx, item, anchor, rot) {
 /** REPLACE a flag object so REMOVED keys actually go away. setFlag does a recursive MERGE, which
  *  never deletes sub-keys — so unpacking / un-binning silently failed. Here we set each desired key
  *  and emit a `-=key` deletion for every key that's gone, in one update. */
+// ── panel-only redraw. Anti-Hammer's own flag writes skip Foundry's whole-sheet re-render
+//    (render:false); the updateActor hook (every client) then rebuilds just the Anti-Hammer panel(s)
+//    for that actor, once per frame however many writes one action makes. ──
+const AH_QUIET = { render: false }
+function ahQuietUpdate(actor, upd) { return Promise.resolve(actor.update(upd, AH_QUIET)) }
+function ahSetFlagQuiet(actor, key, value) { return ahQuietUpdate(actor, { ["flags." + MOD + "." + key]: value }) }
+const _ahRefreshQ = new Map(); let _ahRefreshRaf = 0
+function ahActorKey(actor) { return String((actor && (actor.uuid || actor.id)) || "") }
+function ahRefreshPanels(actor) {
+  if (!actor || typeof document === "undefined") return
+  _ahRefreshQ.set(ahActorKey(actor), actor)
+  if (_ahRefreshRaf) return
+  // a timer, not requestAnimationFrame: rAF never fires in a hidden/background window, which left panels stale
+  _ahRefreshRaf = setTimeout(() => {
+    _ahRefreshRaf = 0
+    const todo = [..._ahRefreshQ.entries()]; _ahRefreshQ.clear()
+    for (const [key, a] of todo) {
+      if (_ahDrag.active && _ahDrag.actorId === a.id) { _ahDrag.missed = true; continue }   // never rebuild under a live drag
+      for (const old of document.querySelectorAll(".ah-panel[data-ah-actor]")) {
+        if (old.getAttribute("data-ah-actor") !== key || !old.isConnected) continue
+        const look = old.getAttribute("data-ah-look") || "classic"
+        let nu; try { nu = ahBuildPanel(a, { v2: look === "new" }) } catch (e) { console.warn("[pendant-bridge] AH panel refresh failed", e); continue }
+        nu.setAttribute("data-ah-actor", key); nu.setAttribute("data-ah-look", look)
+        const host = old.parentElement
+        old.replaceWith(nu)
+        if (look === "new") ahV2DecorateNative(host, nu._ahCtx)
+      }
+    }
+  }, 0)
+}
 function ahSaveFlagObj(actor, key, obj) {
   try {
     let cur = {}; try { cur = actor.getFlag(MOD, key) || {} } catch {}
@@ -4567,7 +4622,7 @@ function ahSaveFlagObj(actor, key, obj) {
     const upd = {}
     for (const k in obj) upd["flags." + MOD + "." + key + "." + k] = obj[k]
     for (const k in cur) if (!(k in obj)) upd["flags." + MOD + "." + key + ".-=" + k] = null   // delete keys no longer present
-    if (Object.keys(upd).length) Promise.resolve(actor.update(upd)).catch(e => console.warn("[pendant-bridge] AH flag save failed", e))
+    if (Object.keys(upd).length) ahQuietUpdate(actor, upd).catch(e => console.warn("[pendant-bridge] AH flag save failed", e))
   } catch (e) { console.warn("[pendant-bridge] AH flag save failed", e) }
 }
 function ahSavePlace(actor, place) { ahSaveFlagObj(actor, "ahPlace", place) }
@@ -4947,12 +5002,14 @@ function ahBinBoardSVG(ctx, bin) {
   const g = bin.geom
   const entries = []; ctx.placed.forEach((p, uid) => { if (p.bin === bin.binId && !p.of) { const u = ctx.unitById[uid]; if (u) entries.push({ uid, p, u }) } })
   const aria = bin.label + " — " + (entries.length ? entries.length + " packed" : "empty")
-  let s = '<svg class="ah-svg" role="img" aria-label="' + ahEscX(aria) + '" width="' + g.width.toFixed(0) + '" height="' + g.height.toFixed(0) + '">'
-  for (const c of bin.validList) { const ct = ahCenter(g, c.col, c.row); s += '<polygon points="' + ahPts(ct.x, ct.y, g.S) + '" fill="rgba(0,0,0,0.26)" stroke="rgba(236,233,223,0.13)" stroke-width="2"/>' }
+  const hgt = (ctx.v2 && bin.cap < 4) ? g.originY + 1.5 * g.S * (bin.cap - 1) + g.S + 4 : g.height   // new look: a 2-space bin is 2 rows tall, not 4
+  let s = '<svg class="ah-svg" role="img" aria-label="' + ahEscX(aria) + '" width="' + g.width.toFixed(0) + '" height="' + hgt.toFixed(0) + '">'
+  for (const c of bin.validList) { const ct = ahCenter(g, c.col, c.row); s += ctx.v2 ? '<polygon class="ah2-cell" points="' + ahPts(ct.x, ct.y, g.S - 1) + '"/>' : '<polygon points="' + ahPts(ct.x, ct.y, g.S) + '" fill="rgba(0,0,0,0.26)" stroke="rgba(236,233,223,0.13)" stroke-width="2"/>' }
   for (const e of entries) {
     const centers = []
     for (const c of ahCellsFor(e.u, e.p, e.p.rot)) if (bin.validSet.has(c.col + "," + c.row)) centers.push(ahCenter(g, c.col, c.row))
     if (!centers.length) continue
+    if (ctx.v2) { s += ahV2ItemSVG(g, centers, e.u, e.uid, ctx.canArrange, bin.binId); continue }
     const r = ahItemHexSVG(g, centers, e.u.color, e.uid, ctx.canArrange); s += r.svg
     s += '<text x="' + r.cx.toFixed(1) + '" y="' + (r.cy + 3).toFixed(1) + '" text-anchor="middle" font-size="10" font-weight="700" fill="#fff" stroke="rgba(0,0,0,.62)" stroke-width="2.6" stroke-linejoin="round" paint-order="stroke" style="pointer-events:none">' + ahEscX(ahMark(e.u.name)) + "</text>"
   }
@@ -4975,6 +5032,399 @@ function ahBinBoardSVG(ctx, bin) {
   return s + "</svg>"
 }
 
+// ── the overhauled look ("ahLook" = new). Same placements, drag and actions as classic — only how
+//    things are DRAWN changes: item pictures in the hexes, kind-coloured outlines, each bag listing
+//    its own items, a flat loose shelf, and hover linking a hex to its row. ──
+const AH_V2_KIND = { Weapon: "weapon", Armor: "armor", Clothing: "armor", Container: "gear", Tool: "tool", Consumable: "consumable", Treasure: "treasure", Cargo: "gear", Miscellaneous: "other" }
+const AH_V2_KIND_LABEL = { Weapon: "Weapons", Armor: "Armour", Clothing: "Clothing", Container: "Containers", Tool: "Tools", Consumable: "Consumables", Treasure: "Treasure", Cargo: "Cargo", Miscellaneous: "Other" }
+function ahV2Color(meta) { return "var(--ah2-k-" + (AH_V2_KIND[(meta && meta.carryType) || "Miscellaneous"] || "other") + ")" }
+function ahV2ItemSVG(g, centers, u, uid, canArrange, binId) {
+  // the picture sits in the hex nearest the shape's middle; the rest of the shape is tinted in the kind colour
+  let mx = 0, my = 0; for (const c of centers) { mx += c.x; my += c.y } mx /= centers.length; my /= centers.length
+  const S = g.S - 1
+  const di = ' data-item="' + ahEscX(uid) + '" data-hl="' + ahEscX(u.itemId) + '"' + (canArrange ? ' style="--ic:' + u.color + ';cursor:grab"' : ' style="--ic:' + u.color + '"')
+  let s = '<g class="ah2-it' + (ahV2IsLanded(uid) ? " ah2-land" : "") + '"' + di + "><title>" + ahEscX(u.name + (u.bundleQty != null ? " ×" + u.bundleQty : "") + " · " + ahFmt(u.spaces) + " space" + (u.spaces === 1 ? "" : "s")) + "</title>"
+  // fills overlap slightly so one item reads as ONE piece (no seams between its own hexes)
+  for (const c of centers) s += '<polygon class="ah2-fill" points="' + ahPts(c.x, c.y, g.S + 0.5) + '" data-item="' + ahEscX(uid) + '"/>'
+  // outline only the shape's OUTER edges: edge i of a pointy-top hex faces the neighbour at angle 60i−60
+  let d = ""
+  const v = (c, i) => { const a = (60 * i - 90) * Math.PI / 180; return [c.x + (S + 0.5) * Math.cos(a), c.y + (S + 0.5) * Math.sin(a)] }
+  for (const c of centers) for (let i = 0; i < 6; i++) {
+    const a = (60 * i - 60) * Math.PI / 180, nx = c.x + g.HW * Math.cos(a), ny = c.y + g.HW * Math.sin(a)
+    if (centers.some(o => Math.abs(o.x - nx) < 2 && Math.abs(o.y - ny) < 2)) continue
+    const p1 = v(c, i), p2 = v(c, i + 1); d += "M" + p1[0].toFixed(1) + " " + p1[1].toFixed(1) + "L" + p2[0].toFixed(1) + " " + p2[1].toFixed(1)
+  }
+  s += '<path class="ah2-edge" d="' + d + '"/>'
+  // the item's NAME on its shape (no pictures), shortened to what the shape's width can hold
+  const nm = u.name + (u.bundleQty != null && u.bundleQty > 1 ? " ×" + u.bundleQty : "")
+  const span = Math.max(...centers.map(c => c.x)) - Math.min(...centers.map(c => c.x)) + g.HW
+  // long name on a small shape → a size smaller before cutting it short
+  const fitN = Math.floor(span / 5.6), fitS = Math.floor(span / 4.5), small = nm.length > fitN
+  const maxCh = Math.max(3, small ? fitS : fitN), label = nm.length > maxCh ? nm.slice(0, maxCh - 1) + "…" : nm
+  if (binId !== "ghost") s += '<text class="ah2-name' + (small ? " sm" : "") + '" x="' + mx.toFixed(1) + '" y="' + (my + 3.4).toFixed(1) + '" text-anchor="middle">' + ahEscX(label) + "</text>"
+  return s + "</g>"
+}
+function ahV2GhostHTML(ctx, held) {
+  const g = { S: 13, HW: Math.sqrt(3) * 13 }
+  const cells = ahCellsFor(held.item, { col: 3, row: 4 }, held.rot)
+  const raw = cells.map(c => ({ x: g.HW * (c.col + 0.5 * (c.row & 1)), y: 1.5 * g.S * c.row }))
+  const minX = Math.min(...raw.map(c => c.x)), minY = Math.min(...raw.map(c => c.y))
+  const centers = raw.map(c => ({ x: c.x - minX + g.HW / 2 + 3, y: c.y - minY + g.S + 3 }))
+  const w = Math.max(...centers.map(c => c.x)) + g.HW / 2 + 3, h = Math.max(...centers.map(c => c.y)) + g.S + 3
+  return '<svg class="ah2-gsvg" width="' + w.toFixed(0) + '" height="' + h.toFixed(0) + '">' + ahV2ItemSVG(g, centers, held.item, "ghost", false, "ghost") + "</svg>"
+    + '<span class="ah2-gname">' + ahEscX(held.item.name) + '<i>' + ahFmt(held.item.spaces) + " sp · wheel or R to turn</i></span>"
+}
+// ═══ body "C": figure between two columns of slot boxes, rows aligned (built from scratch for the new look) ═══
+const AH_C_ROWS = [["Head", "Face"], ["Neck", "Back"], ["Clothes", "Chest"], ["LHand", "RHand"], ["Belt", "Feet"], ["LHip", "RHip"], ["LRing", "RRing"]]
+const AH_C_HINT = { Head: "helmet, hood", Face: "mask, goggles", Neck: "amulet, symbol", Clothes: "clothing", Chest: "armour", LHand: "weapon, tool", RHand: "shield, torch", Feet: "boots", LRing: "ring", RRing: "ring", Belt: "belt item", LHip: "sheathe", RHip: "sheathe", Back: "pack, cloak" }
+const AH_C_LOCKED = { Belt: "needs a belt", LHip: "needs a belt or sheath", RHip: "needs a belt or sheath", Back: "needs a pack or straps" }
+function ahRenderBodyC(ctx) {
+  const occ = ahOccupancy(ctx), caps = ahCaps(ctx), cat = ahGearCatalog(), gear = ahGearList(ctx.actor)
+  const gearAt = { Belt: [], Back: [], Chest: [], LHip: [], RHip: [] }
+  let hipSide = 0
+  for (const g of gear) { const c = cat[g.kind]; const k = ahGearSlotKey(c); if (k === "Hip") (hipSide++ % 2 ? gearAt.RHip : gearAt.LHip).push(g); else if (k && gearAt[k]) gearAt[k].push(g) }
+  const vb = ctx.validBody, vs = ctx.validSwap
+  const st = (key) => (vb && vb.has(key) ? " valid" : "") + (vs && vs.has(key) ? " swap" : "")
+  const itemChip = (id) => { const it = ctx.byId[id]; if (!it) return ""; const m = ctx.metaById[id] || {}; return '<button type="button" class="ahc-chip' + (ahV2IsLanded(id) ? " ah2-land" : "") + '" style="--kc:' + it.color + '" data-c-it="' + ahEscX(id) + '" title="' + ahEscX(it.name) + '">' + ahEscX(it.name) + (m.carryType === "Container" ? '<span class="ahc-bagmark" aria-hidden="true">›</span>' : "") + "</button>" }
+  const gearChip = (g) => { const c = cat[g.kind]; return '<button type="button" class="ahc-chip gear" data-c-gear="' + ahEscX(g.id) + '" title="' + ahEscX(c.name + (c.storage ? " · +" + c.storage + " bag" : "")) + '">' + ahEscX(c.name) + "</button>" }
+  const peg = (key, n) => ctx.canArrange ? Array.from({ length: n }, () => '<button type="button" class="ahc-peg" data-c-slot="' + key + '" aria-label="' + ahEscX("Add to " + (AH_SLOT_LABEL[key] || key)) + '">+</button>').join("") : ""
+  const box = (key, side, row) => {
+    const label = key === "Chest" ? "Armour" : (AH_SLOT_LABEL[key] || key)
+    const pos = ' style="grid-row:' + row + '" data-slot="' + key + '"'
+    const isHand = key === "LHand" || key === "RHand"
+    // Back: several attachment points + back gear
+    if (key === "Back") {
+      const cap = caps.Back || 0, n = ctx.back.length, gl = gearAt.Back
+      if (!cap && !n && !gl.length) return '<div class="ahc-slot ' + side + ' locked' + st(key) + '"' + pos + '><span class="ahc-k">Back</span><span class="ahc-v">' + AH_C_LOCKED.Back + "</span></div>"
+      return '<div class="ahc-slot ' + side + ' multi' + (n || gl.length ? " filled" : " empty") + st(key) + '"' + pos + '><span class="ahc-k">Back<i class="' + (cap && n >= cap ? "full" : "") + '">' + n + " / " + cap + (cap && n >= cap ? " · full" : "") + '</i></span><div class="ahc-chips">' + ctx.back.map(itemChip).join("") + gl.map(gearChip).join("") + peg("Back", Math.max(0, cap - n)) + "</div></div>"
+    }
+    const id = occ[key], gl = gearAt[key] || []
+    // covered by armour worn elsewhere (not a two-handed weapon's other hand)
+    if (id && ctx.worn[id] && ctx.worn[id] !== key && !(isHand && (ctx.metaById[id] || {}).twoHanded)) {
+      const it = ctx.byId[id] || {}
+      return '<div class="ahc-slot ' + side + ' covered"' + pos + ' title="' + ahEscX(label + " — covered by " + (it.name || "armour")) + '"><span class="ahc-k">' + ahEscX(label) + '<i>covered</i></span><span class="ahc-v">' + ahEscX(it.name || "") + "</span></div>"
+    }
+    if (id) {
+      const it = ctx.byId[id] || {}, m = ctx.metaById[id] || {}
+      if (key === "RHand" && m.twoHanded && occ.LHand === id) return '<div class="ahc-slot ' + side + ' hand both"' + pos + '><span class="ahc-k">Off hand</span><span class="ahc-v">both hands · ' + ahEscX(it.name || "") + "</span></div>"
+      const state = isHand ? (m.twoHanded ? "two-handed" : m.carryType === "Weapon" ? "holding" : "in hand") : ""
+      const more = gl.length ? '<div class="ahc-chips">' + gl.map(gearChip).join("") + "</div>" : ""
+      return '<div class="ahc-slot ' + side + ' filled' + (isHand ? " hand" : "") + (ahV2IsLanded(id) ? " ah2-land" : "") + st(key) + '" style="grid-row:' + row + ';--kc:' + it.color + '" data-slot="' + key + '" data-c-it="' + ahEscX(id) + '" tabindex="0" role="button" aria-label="' + ahEscX(label + ": " + (it.name || "")) + '"><span class="ahc-k">' + ahEscX(label) + (state ? "<i>" + state + "</i>" : "") + '</span><span class="ahc-v">' + ahEscX(it.name || "") + "</span>" + more + "</div>"
+    }
+    const cap = AH_GRANTABLE.indexOf(key) >= 0 ? (caps[key] || 0) : 1
+    if (!cap && !AH_BASE_MOUNTS.has(key)) {   // not unlocked (no belt / sheath yet) — still shown so the rows stay aligned
+      return '<div class="ahc-slot ' + side + (gl.length ? " multi filled" : " locked") + st(key) + '"' + pos + '><span class="ahc-k">' + ahEscX(label) + (gl.length ? "<i>gear</i>" : "") + "</span>" + (gl.length ? '<div class="ahc-chips">' + gl.map(gearChip).join("") + "</div>" : '<span class="ahc-v">' + AH_C_LOCKED[key] + "</span>") + "</div>"
+    }
+    const pick = ctx.canArrange ? ' data-c-slot="' + key + '" tabindex="0" role="button" aria-label="' + ahEscX("Add to " + label) + '"' : ""
+    return '<div class="ahc-slot ' + side + ' empty' + (isHand ? " hand" : "") + st(key) + '"' + pos + pick + '><span class="ahc-k">' + ahEscX(label) + "</span>" + (gl.length ? '<div class="ahc-chips">' + gl.map(gearChip).join("") + "</div>" : '<span class="ahc-v">+ ' + (AH_C_HINT[key] || "add") + "</span>") + "</div>"
+  }
+  let h = '<div class="ahc-doll"><div class="ahc-fig"><img src="' + ahDollImg(ctx.actor) + '" alt="" draggable="false"></div>'
+  AH_C_ROWS.forEach(([l, r], i) => { h += box(l, "l", i + 1) + box(r, "r", i + 1) })
+  ctx.dollEl.innerHTML = h + "</div>"
+}
+function ahBodyCClick(ctx, e) {
+  const t = e.target
+  const it = t.closest && t.closest("[data-c-it]"); if (it) { e.preventDefault(); e.stopPropagation(); ahV2ItemMenu(ctx, it.getAttribute("data-c-it"), e.clientX, e.clientY); return }
+  const gr = t.closest && t.closest("[data-c-gear]"); if (gr) { e.preventDefault(); e.stopPropagation(); ahV2GearMenu(ctx, gr.getAttribute("data-c-gear"), e.clientX, e.clientY); return }
+  const sl = t.closest && t.closest("[data-c-slot]"); if (sl) { e.preventDefault(); e.stopPropagation(); ahV2SlotMenu(ctx, sl.getAttribute("data-c-slot"), e.clientX, e.clientY) }
+}
+// click an empty slot or a peg → what you have that fits there
+function ahV2SlotMenu(ctx, key, x, y) {
+  if (!ctx.canArrange) return
+  const equipped = new Set(ahEquippedIds(ctx))
+  const cands = ctx.items.filter(it => (ctx.bundleN[it.id] || 1) <= 1 && !equipped.has(it.id) && ctx.metaById[it.id] && ahFreeBody(ctx, ctx.metaById[it.id]).has(key))
+  const where = (it) => { const p = ctx.placed.get(it.id); const b = p && !p.of && ctx.binById && ctx.binById[p.bin]; return b ? "in " + b.label : "not packed" }
+  cands.sort((a, b) => (ctx.placed.has(a.id) ? 1 : 0) - (ctx.placed.has(b.id) ? 1 : 0) || (a.name || "").localeCompare(b.name || ""))
+  const label = key === "Chest" ? "Armour" : (AH_SLOT_LABEL[key] || key)
+  ahV2Menu(ctx, x, y, '<div class="ah2-menu-h"><span><b>' + ahEscX(label) + "</b><i>" + (key === "Back" ? Math.max(0, (ahCaps(ctx).Back || 0) - ctx.back.length) + " point(s) open" : "empty") + "</i></span></div>",
+    [{ title: "Fits here", rows: cands.map(it => ({ label: it.name, sub: where(it), fn: () => { ahEquipItem(ctx, it.id, key); ahV2Land(it.id) } })) }], "Nothing you have fits here.")
+}
+// add-on gear (pouch, sheath, bandolier…): what it is + remove
+function ahV2GearMenu(ctx, gid, x, y) {
+  if (!ctx.canArrange) return
+  const g = ahGearList(ctx.actor).find(z => z.id === gid); const c = g && ahGearCatalog()[g.kind]; if (!c) return
+  ahV2Menu(ctx, x, y, '<div class="ah2-menu-h"><span><b>' + ahEscX(c.name) + "</b><i>" + ahEscX(ahGearBits(c).join(" · ")) + "</i></span></div>",
+    [{ title: "", rows: [{ label: "Remove", sub: c.storage ? "its contents come out" : "", fn: () => { ahSetFlagQuiet(ctx.actor, "ahGear", ahGearList(ctx.actor).filter(z => z.id !== gid)) } }] }])
+}
+// the one menu shell (used by the item, slot and gear menus)
+function ahV2Menu(ctx, x, y, headHTML, groups, emptyText) {
+  document.querySelectorAll(".ah2-menu").forEach(n => n.remove())
+  const menu = document.createElement("div"); menu.className = "ah2-menu"; menu.setAttribute("role", "menu")
+  let h = headHTML, n = 0; const fns = {}
+  for (const g of groups) {
+    if (!g.rows.length) continue
+    h += (g.title ? '<div class="ah2-menu-g">' + ahEscX(g.title) + "</div>" : (n ? '<div class="ah2-menu-sep"></div>' : ""))
+    for (const r of g.rows) { fns[n] = r; h += '<button type="button" role="menuitem" class="ah2-menu-i' + (r.off ? " off" : "") + '" data-i="' + n + '"' + (r.off ? ' aria-disabled="true"' : "") + "><span>" + ahEscX(r.label) + "</span>" + (r.sub ? "<i>" + ahEscX(r.sub) + "</i>" : "") + "</button>"; n++ }
+  }
+  if (!n) h += '<div class="ah2-menu-none">' + ahEscX(emptyText || "Nothing to do with this right now.") + "</div>"
+  menu.innerHTML = h
+  ;(ctx.wrapEl || document.body).appendChild(menu)
+  const vw = window.innerWidth, vh = window.innerHeight, mw = menu.offsetWidth, mh = menu.offsetHeight
+  menu.style.left = Math.max(6, Math.min(x + 4, vw - mw - 6)) + "px"; menu.style.top = Math.max(6, Math.min(y + 4, vh - mh - 6)) + "px"
+  const close = () => { menu.remove(); document.removeEventListener("pointerdown", onDoc, true); window.removeEventListener("keydown", onKey, true) }
+  const onDoc = (e) => { if (!menu.contains(e.target)) close() }
+  const items = () => [...menu.querySelectorAll(".ah2-menu-i:not(.off)")]
+  const onKey = (e) => {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); return }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); const l = items(), i = l.indexOf(document.activeElement); const nx = l[(i + (e.key === "ArrowDown" ? 1 : l.length - 1)) % l.length]; if (nx) nx.focus() }
+  }
+  menu.addEventListener("click", (e) => { const b = e.target.closest(".ah2-menu-i"); if (!b || b.classList.contains("off")) return; const r = fns[b.getAttribute("data-i")]; close(); try { r && r.fn() } catch (er) { console.warn("[pendant-bridge] AH menu action failed", er) } })
+  setTimeout(() => { document.addEventListener("pointerdown", onDoc, true); window.addEventListener("keydown", onKey, true); const f = items()[0]; if (f) f.focus({ preventScroll: true }) }, 0)
+}
+// ═══ the system's own inventory list: a "where" chip on every row (worn · on Back · in Backpack · not packed).
+//     Click → the item's menu; drag the chip onto a body slot or a bag. Rows are the system's; we only add the chip. ═══
+function ahV2WhereOf(ctx, id, unitsOf) {
+  const s = ctx.worn[id]
+  if (s) return { text: (s === "LHand" || s === "RHand") ? AH_SLOT_LABEL[s] : (s === "Belt" || s === "LHip" || s === "RHip") ? "on " + AH_SLOT_LABEL[s] : "worn · " + (s === "Chest" ? "Armour" : (AH_SLOT_LABEL[s] || s)) }
+  if (ctx.back.indexOf(id) >= 0) return { text: "on Back" }
+  const us = unitsOf[id] || []; if (!us.length) return null
+  const packed = us.filter(u => { const p = ctx.placed.get(u.uid); return p && !p.of })
+  const loose = us.find(u => packed.indexOf(u) < 0)
+  const uid = (loose || us[0]).uid
+  if (packed.length === us.length) { const names = [...new Set(packed.map(u => (ctx.binById[ctx.placed.get(u.uid).bin] || {}).label).filter(Boolean))]; return { text: "in " + names.join(", "), uid } }
+  if (packed.length) return { text: packed.length + " of " + us.length + " packed", uid, np: true }
+  const m = ctx.metaById[id] || {}
+  return { text: m.baggable === false ? "not worn" : "not packed", uid, np: true }
+}
+function ahV2DecorateNative(host, ctx) {
+  if (!host || !ctx) return
+  host.querySelectorAll(".ah2-where").forEach(n => n.remove())
+  const unitsOf = {}; for (const u of ctx.units) (unitsOf[u.itemId] = unitsOf[u.itemId] || []).push(u)
+  for (const row of host.querySelectorAll("[data-item-id]")) {
+    if (row.closest(".ah-panel")) continue
+    const id = row.getAttribute("data-item-id"); if (!ctx.byId[id]) continue   // only things Anti-Hammer carries (physical items)
+    const w = ahV2WhereOf(ctx, id, unitsOf); if (!w) continue
+    const chip = document.createElement("button"); chip.type = "button"; chip.className = "ah2-where" + (w.np ? " np" : ""); chip.textContent = w.text
+    chip.setAttribute("data-ah-it", id); chip.setAttribute("draggable", "false"); if (w.uid) chip.setAttribute("data-ah-uid", w.uid)
+    chip.title = ctx.canArrange ? "Click: wear, pack or move it" + (w.uid ? " · or drag it onto a slot or a bag" : "") : w.text
+    // on the row's own subtitle line when it has one (no extra row height), else after the name
+    const sub = row.querySelector(".item-name .subtitle")
+    if (sub) { chip.classList.add("inline"); sub.appendChild(chip) }
+    else (row.querySelector(".item-name .name") || row.querySelector(".item-name") || row.querySelector(".name") || row).appendChild(chip)
+  }
+  host._ahWhereCtx = ctx
+  if (host._ahWhereWired) return
+  host._ahWhereWired = true
+  host.addEventListener("pointerdown", (e) => {
+    const c = e.target.closest && e.target.closest(".ah2-where"); if (!c || e.button !== 0) return
+    e.stopPropagation()   // the chip is ours — don't start the system's own row drag / roll
+    const cx = host._ahWhereCtx, uid = c.getAttribute("data-ah-uid")
+    if (cx && cx.canArrange && uid && cx.unitById[uid]) ahDragItem(cx, uid, cx.placed.has(uid) ? "bag" : "tray", e)   // a plain click falls through to the item menu (drag's click → menu)
+  }, true)
+  host.addEventListener("click", (e) => {
+    const c = e.target.closest && e.target.closest(".ah2-where"); if (!c) return
+    e.preventDefault(); e.stopPropagation()
+    if (c.hasAttribute("data-ah-uid")) return   // handled by the drag (released without moving → menu)
+    const cx = host._ahWhereCtx; if (cx) ahV2ItemMenu(cx, c.getAttribute("data-ah-it"), e.clientX, e.clientY)
+  }, true)
+}
+// ONE Add menu (bag "+ Add" and Storage "+ Add" both open it): wear it · store it somewhere · a mount.
+// Full body locations are greyed with the reason; nothing is listed twice.
+function ahV2AddMenu(ctx, x, y, focus) {
+  if (!ctx.canArrange) return
+  const actor = ctx.actor, catalog = ahGearCatalog(), load = ahWornLoad(actor), wl = (AH.cfg().wearLoad) || AH_WEARLOAD
+  const rid = (p) => p + Math.random().toString(36).slice(2, 8)
+  const wear = { title: "Wear it", rows: [] }
+  for (const kind of ahGearOrder()) {
+    const c = catalog[kind]; if (!c || (c.cat && c.cat !== "worn")) continue
+    const sk = ahGearSlotKey(c), full = sk != null && (load[sk] || 0) >= ahWearCap(sk, wl)
+    wear.rows.push({ label: c.name, sub: full ? sk + " full" : [sk || "", c.storage ? "+" + c.storage + " bag" : "", c.restrict || ""].filter(Boolean).join(" · "), off: full,
+      fn: () => { if (sk != null && (ahWornLoad(actor)[sk] || 0) >= ahWearCap(sk, wl)) return; const list = ahGearList(actor).slice(); list.push({ id: rid("g"), kind }); ahSetFlagQuiet(actor, "ahGear", list) } })
+  }
+  const addStash = (entry) => { const list = ahStash(actor).slice(); list.push(entry); ahStashSave(actor, list) }
+  const store = { title: "Store it somewhere", rows: [] }
+  const wcat = ahWorldCatalog()
+  for (const key of Object.keys(wcat).sort((a, b) => (wcat[a].cap - wcat[b].cap) || wcat[a].name.localeCompare(wcat[b].name))) { const c = wcat[key]; store.rows.push({ label: c.name, sub: c.cap + " spaces", fn: () => addStash({ id: rid("w"), kind: "world", type: key, name: c.name, location: "" }) }) }
+  const mount = { title: "A mount", rows: [] }
+  for (const key of Object.keys(AH_MOUNT_CATALOG)) { const m = AH_MOUNT_CATALOG[key]; mount.rows.push({ label: m.name, sub: "~" + m.cargo + " cargo", fn: () => addStash({ id: rid("m"), kind: "mount", type: key, name: m.name, location: "" }) }) }
+  const head = '<div class="ah2-menu-h"><span><b>Add</b><i>' + ahEscX(Object.keys(wl).map(k => k + " " + (load[k] || 0) + "/" + wl[k]).join(" · ")) + "</i></span></div>"
+  ahV2Menu(ctx, x, y, head, focus === "store" ? [store, mount, wear] : [wear, store, mount])
+}
+// Outfits: wear one · save what you have on · delete
+function ahV2OutfitMenu(ctx, x, y) {
+  if (!ctx.canArrange) return
+  const outfits = ahOutfits(ctx.actor)
+  ahV2Menu(ctx, x, y, '<div class="ah2-menu-h"><span><b>Outfits</b><i>' + (outfits.length ? outfits.length + " saved" : "none saved yet") + "</i></span></div>", [
+    { title: outfits.length ? "Wear" : "", rows: outfits.map(o => ({ label: o.name || "Outfit", sub: (Object.keys(o.worn || {}).length + (o.back || []).length) + " pieces", fn: () => ahApplyOutfit(ctx, o) })) },
+    { title: "", rows: [{ label: "Save what I'm wearing…", fn: () => ahSaveOutfit(ctx) }] },
+    { title: outfits.length ? "Delete" : "", rows: outfits.map(o => ({ label: o.name || "Outfit", sub: "delete", fn: () => ahDeleteOutfit(ctx, o.id) })) },
+  ])
+}
+// ═══ Storage (new look): chests, wagons, ships and mounts as cards like the bags. A hold bigger than
+//     AH_V2_LIST_AT spaces is a searchable LIST (a 500-space ship as a grid was ~4,700 px wide). ═══
+const AH_V2_LIST_AT = 60
+function ahV2StashCard(ctx, s, host) {
+  const own = ctx.canArrange
+  const head = (label, sub, binId) => {
+    const bh = document.createElement("div"); bh.className = "ah-bin-head"
+    bh.innerHTML = (own ? '<button type="button" class="ah2-bin-nm" data-stash-menu="' + ahEscX(s.id) + '">' : '<span class="ah2-bin-nm">') + ahEscX(label) + (own ? "</button>" : "</span>") + (sub ? '<span class="ah2-bin-sub">' + ahEscX(sub) + "</span>" : "")
+    if (binId) { const cs = document.createElement("span"); cs.className = "ah-bin-cap"; ctx.binCapEls[binId] = cs; bh.appendChild(cs) }
+    return bh
+  }
+  const grid = (bin, card) => {
+    if (bin.cap > AH_V2_LIST_AT) {
+      const f = document.createElement("input"); f.type = "search"; f.className = "ah2-find"; f.placeholder = "Find in " + (s.name || bin.label) + "…"; f.value = (ctx.binFind && ctx.binFind[bin.binId]) || ""
+      f.addEventListener("pointerdown", (e) => e.stopPropagation())
+      f.addEventListener("input", () => { (ctx.binFind = ctx.binFind || {})[bin.binId] = f.value; const h = ctx.binHolders[bin.binId]; if (h) h.innerHTML = ahV2BigListHTML(ctx, bin) })
+      card.appendChild(f)
+    }
+    const g = document.createElement("div"); g.className = "ah-bin-grid" + (bin.cap > AH_V2_LIST_AT ? " ah2-list" : ""); ctx.binHolders[bin.binId] = g; card.appendChild(g)
+  }
+  if (s.kind === "world") {
+    const bin = ctx.binById["world:" + s.id]; if (!bin) return
+    const c = ahWorldCatalog()[s.type] || {}
+    const card = document.createElement("div"); card.className = "ah-bin world"; card.setAttribute("data-bin", bin.binId); ctx.binCards[bin.binId] = card
+    card.appendChild(head(s.name || bin.label, [c.name && c.name !== s.name ? c.name : "", s.location ? s.location : ""].filter(Boolean).join(" · "), bin.binId))
+    grid(bin, card); host.appendChild(card)
+  } else if (s.kind === "mount") {
+    const m = AH_MOUNT_CATALOG[s.type]; if (!m) return
+    const card = document.createElement("div"); card.className = "ah-mount"
+    card.appendChild(head(s.name || m.name, [s.name && s.name !== m.name ? m.name : "", s.location || ""].filter(Boolean).join(" · "), null))
+    const riders = m.points.filter(pt => (AH_MOUNT_POINTS[pt] || {}).kind !== "bin")
+    if (riders.length) { const r = document.createElement("div"); r.className = "ah-mount-rider"; r.textContent = riders.map(pt => AH_MOUNT_POINTS[pt].label).join(" · ") + " · rider"; card.appendChild(r) }
+    const pts = document.createElement("div"); pts.className = "ah-mount-pts"
+    for (const pt of m.points) {
+      const pd = AH_MOUNT_POINTS[pt]; if (!pd || pd.kind !== "bin") continue
+      const bin = ctx.binById["mount:" + s.id + ":" + pt]; if (!bin) continue
+      const pc = document.createElement("div"); pc.className = "ah-bin pt"; pc.setAttribute("data-bin", bin.binId); ctx.binCards[bin.binId] = pc
+      const ph = document.createElement("div"); ph.className = "ah-bin-head"; ph.innerHTML = '<span class="ah2-pt-nm">' + ahEscX(pd.label) + "</span>"
+      const cs = document.createElement("span"); cs.className = "ah-bin-cap"; ctx.binCapEls[bin.binId] = cs; ph.appendChild(cs); pc.appendChild(ph)
+      grid(bin, pc); pts.appendChild(pc)
+    }
+    card.appendChild(pts); host.appendChild(card)
+  }
+}
+function ahV2BigListHTML(ctx, bin) {
+  const q = String((ctx.binFind && ctx.binFind[bin.binId]) || "").trim().toLowerCase()
+  const rows = []; ctx.placed.forEach((p, uid) => { if (!p || p.of || p.bin !== bin.binId) return; const u = ctx.unitById[uid]; if (u) rows.push(u) })
+  if (!rows.length) return '<div class="ah2-none">Empty — drag things onto it</div>'
+  rows.sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+  const shown = q ? rows.filter(u => (u.name || "").toLowerCase().indexOf(q) >= 0) : rows
+  return shown.map(u => '<div class="ah2-brow" data-item="' + ahEscX(u.uid) + '" style="--kc:' + u.color + '"><span>' + ahEscX(u.name) + (u.bundleQty != null && u.bundleQty > 1 ? " ×" + u.bundleQty : "") + "</span><i>" + ahFmt(u.spaces) + "</i></div>").join("")
+    + (q && !shown.length ? '<div class="ah2-none">Nothing called "' + ahEscX(q) + '"</div>' : "")
+}
+async function ahV2Prompt(title, def) {
+  try { const D = foundry && foundry.applications && foundry.applications.api && foundry.applications.api.DialogV2
+    if (D && D.prompt) { const v = await D.prompt({ window: { title }, content: '<input type="text" name="n" value="' + ahEscX(def || "") + '" style="width:100%" autofocus>', ok: { label: "Save", callback: (e, btn) => (btn.form.elements.n.value || "").trim() }, rejectClose: false }); return v == null ? null : v }
+  } catch {}
+  try { const v = window.prompt(title, def || ""); return v == null ? null : v.trim() } catch { return null }
+}
+// a chest / wagon / mount: rename · say where it is · empty it · remove it
+function ahV2StashMenu(ctx, sid, x, y) {
+  const s = ahStash(ctx.actor).find(z => z.id === sid); if (!s) return
+  const pre = s.kind === "world" ? ["world:" + s.id] : (AH_MOUNT_CATALOG[s.type] || { points: [] }).points.map(pt => "mount:" + s.id + ":" + pt)
+  const inside = []; ctx.placed.forEach((p, uid) => { if (p && !p.of && pre.indexOf(p.bin) >= 0) inside.push(uid) })
+  const n = inside.length, things = n + " thing" + (n === 1 ? "" : "s")
+  const kindName = s.kind === "world" ? ((ahWorldCatalog()[s.type] || {}).name || "Container") : ((AH_MOUNT_CATALOG[s.type] || {}).name || "Mount")
+  ahV2Menu(ctx, x, y, '<div class="ah2-menu-h"><span><b>' + ahEscX(s.name || kindName) + "</b><i>" + ahEscX(kindName + (s.location ? " · " + s.location : "") + " · " + things + " inside") + "</i></span></div>", [
+    { title: "", rows: [
+      { label: "Rename…", fn: async () => { const v = await ahV2Prompt("Name", s.name || kindName); if (v != null) ahStashEdit(ctx.actor, s.id, { name: v }) } },
+      { label: s.location ? "Where is it? · " + s.location : "Where is it?…", sub: s.kind === "mount" ? "stable, camp…" : "camp, inn, ship…", fn: async () => { const v = await ahV2Prompt("Where is it?", s.location || ""); if (v != null) ahStashEdit(ctx.actor, s.id, { location: v }) } },
+    ] },
+    { title: "", rows: [
+      ...(n ? [{ label: "Empty it", sub: things + " to not packed", fn: () => { for (const uid of inside) ctx.placed.delete(uid); ahPersistPlace(ctx) } }] : []),
+      { label: "Remove", sub: n ? things + (n === 1 ? " comes out" : " come out") : "", fn: () => ahStashRemove(ctx.actor, s.id) },
+    ] },
+  ])
+}
+// where a bag is worn: "on Back" / "on Belt" / "Strength"
+function ahV2BinWhere(ctx, bin) {
+  if (bin.kind === "str") return "Strength bonus"
+  if (bin.kind === "container") { const id = bin.binId.slice(3), s = ctx.worn[id] || (ctx.back.indexOf(id) >= 0 ? "Back" : null); return s ? "on " + (s === "Chest" ? "Armour" : (AH_SLOT_LABEL[s] || s)) : "" }
+  if (bin.kind === "gear") { const g = ahGearList(ctx.actor).find(z => "gr:" + z.id === bin.binId); const k = g && ahGearSlotKey(ahGearCatalog()[g.kind]); return k ? "on " + k : "" }
+  return ""
+}
+// click a bag's name: take it off / remove it, or empty it out
+function ahV2BinMenu(ctx, binId, x, y) {
+  const bin = ctx.binById && ctx.binById[binId]; if (!bin) return
+  const inside = []; ctx.placed.forEach((p, uid) => { if (p && !p.of && p.bin === binId) inside.push(uid) })
+  const rows = []
+  if (bin.kind === "container") rows.push({ label: "Take it off", sub: inside.length ? inside.length + (inside.length === 1 ? " thing comes out" : " things come out") : "", fn: () => ahUnequip(ctx, binId.slice(3)) })
+  else if (bin.kind === "gear") rows.push({ label: "Remove", sub: inside.length ? inside.length + (inside.length === 1 ? " thing comes out" : " things come out") : "", fn: () => { ahSetFlagQuiet(ctx.actor, "ahGear", ahGearList(ctx.actor).filter(z => "gr:" + z.id !== binId)) } })
+  if (inside.length) rows.push({ label: "Empty it", sub: "all to not packed", fn: () => { for (const uid of inside) ctx.placed.delete(uid); ahPersistPlace(ctx) } })
+  ahV2Menu(ctx, x, y, '<div class="ah2-menu-h"><span><b>' + ahEscX(bin.label) + "</b><i>" + ahEscX([ahV2BinWhere(ctx, bin), ahFmt(bin.cap) + " spaces", bin.types ? bin.types.join(", ") + " only" : ""].filter(Boolean).join(" · ")) + "</i></span></div>", [{ title: "", rows }])
+}
+// unpacked things: one line under the bags (each name drags into a bag or opens its menu on click)
+function ahV2NotPackedHTML(ctx, units) {
+  const names = units.slice().sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(u => {
+    const m = ctx.metaById[u.itemId] || {}
+    return '<button type="button" class="ah2-np-it" data-tray="' + ahEscX(u.uid) + '" style="--kc:' + u.color + '" title="' + ahEscX(u.name + " · " + ahFmt(u.spaces) + " space" + (u.spaces === 1 ? "" : "s") + (m.baggable === false ? " · worn only" : "")) + '">' + ahEscX(u.name) + (u.bundleQty != null && u.bundleQty > 1 ? " ×" + u.bundleQty : "") + "</button>"
+  })
+  return '<div class="ah2-np"><b>' + units.length + " not packed</b><span>" + names.join("") + "</span></div>"
+}
+let _ahV2Landed = null
+function ahV2Land(uid) { _ahV2Landed = { uid: String(uid), t: Date.now() } }
+function ahV2IsLanded(uid) { return !!(_ahV2Landed && _ahV2Landed.uid === String(uid) && Date.now() - _ahV2Landed.t < 1500) }
+let _ahV2Toast = null
+function ahV2ToastText(key, looseNow) {
+  const t = _ahV2Toast; if (!t || t.key !== key || Date.now() - t.t > 2600) return ""
+  const packed = Math.max(0, t.looseBefore - looseNow)
+  return looseNow === 0 ? (packed ? "Packed " + packed + " · all tidy ✓" : "Already tidy ✓") : (packed ? "Packed " + packed + " · " + looseNow + " won't fit" : "Nothing else fits")
+}
+// two-part load bar: packed (solid) + loose (hatched); animates from the last value this actor showed
+const _ahV2Meter = new Map()
+function ahV2Meter(meter, key, packed, loose, cap, over) {
+  const tot = Math.max(cap, packed + loose) || 1
+  const pp = Math.min(100, (packed / tot) * 100), lp = Math.min(100 - pp, (loose / tot) * 100)
+  const prev = _ahV2Meter.get(key) || { pp, lp }
+  const a = document.createElement("div"); a.className = "ah2-mpack"; a.style.width = prev.pp + "%"
+  const b = document.createElement("div"); b.className = "ah2-mloose" + (over ? " over" : ""); b.style.width = prev.lp + "%"
+  if (cap > 0 && packed + loose > cap) { const mk = document.createElement("i"); mk.className = "ah2-mcap"; mk.style.left = (cap / tot * 100) + "%"; meter.appendChild(mk) }
+  meter.prepend(b); meter.prepend(a); meter.classList.add("ah2-meter")
+  meter.title = ahFmt(packed) + " packed · " + ahFmt(loose) + " loose · bags hold " + ahFmt(cap)
+  _ahV2Meter.set(key, { pp, lp })
+  if (prev.pp !== pp || prev.lp !== lp) setTimeout(() => { a.style.width = pp + "%"; b.style.width = lp + "%" }, 30)
+}
+// one menu for any item (click a hex, a list row, a loose chip or a worn slot): wear it, pack it, store it, take it out, use it
+function ahV2ItemMenu(ctx, uid, x, y) {
+  document.querySelectorAll(".ah2-menu").forEach(n => n.remove())
+  const u = ctx.unitById[uid], realId = u ? u.itemId : uid
+  const it = ctx.byId[realId]; if (!it || !ctx.canArrange) return
+  const m = ctx.metaById[realId] || { equipSlots: [] }
+  const worn = !!ctx.worn[realId] || ctx.back.indexOf(realId) >= 0
+  const p = u && ctx.placed.get(uid), inBin = p && !p.of ? p.bin : null
+  const groups = []   // [{ title, rows:[{label, sub, off, fn}] }]
+  const grp = (title) => { const g = { title, rows: [] }; groups.push(g); return g }
+  if (worn) {
+    const g = grp("On the body")
+    const slot = ctx.worn[realId] || "Back"
+    if (m.carryType === "Weapon" && !m.twoHanded) { const inHand = slot === "LHand" || slot === "RHand"; g.rows.push({ label: inHand ? "Sheathe" : "Draw", sub: inHand ? "belt / hip / back" : "to a free hand", fn: () => ahDrawSheathe(ctx, realId) }) }
+    g.rows.push({ label: "Take off", sub: "to loose", fn: () => ahUnequip(ctx, realId) })
+  } else if (!(u && u.bundleCount > 1)) {
+    const free = ahFreeBody(ctx, m)
+    const order = AH_DOLL_ORDER
+    const keys = order.filter(k => free.has(k))
+    if (keys.length) { const g = grp("Wear / hold"); for (const k of keys) g.rows.push({ label: AH_SLOT_LABEL[k] || k, fn: () => { ahEquipItem(ctx, realId, k); ahV2Land(realId) } }) }
+  }
+  if (u && !worn) {
+    const bag = grp("Pack into"), store = grp("Store in")
+    for (const b of (ctx.bins || [])) {
+      if (b.binId === inBin) continue
+      if (b.zone !== "storage" && !ahCanBag(ctx, uid)) continue   // wear-only things never go in a bag — don't list every bag as "can't hold"
+      let fits = false; for (let r = 0; r < 6 && !fits; r++) if (ahSepDropTarget(ctx, b, uid, r, null)) fits = true
+      let used = 0; ctx.placed.forEach((q, id2) => { if (q.bin === b.binId && !q.of) { const u2 = ctx.unitById[id2]; if (u2) used += Number(u2.spaces) || 0 } })
+      const row = { label: b.label, sub: fits ? ahFmt(Math.max(0, b.cap - used)) + " free" : (ahBagAccepts(ctx, uid) || b.zone === "storage" ? "no room" : "can't hold this"), off: !fits, fn: () => { ahAssignUnit(ctx, uid, b.binId); ahV2Land(uid) } }
+      ;(b.zone === "storage" ? store : bag).rows.push(row)
+    }
+    if (inBin) grp("").rows.push({ label: "Take out", sub: "to loose", fn: () => ahUnplaceItem(ctx, uid) })
+  }
+  const canUse = (it.type === "consumable" && (it.qty || 0) >= 1) || (it.uses && it.uses.value > 0)
+  if (canUse) grp("").rows.push({ label: it.uses ? "Use a charge" : "Use one", sub: it.uses ? it.uses.value + (it.uses.max ? "/" + it.uses.max : "") + " left" : "×" + (it.qty || 1) + " left", fn: () => ahUseItem(ctx.actor, realId) })
+  const sp = u ? u.spaces : it.spaces
+  ahV2Menu(ctx, x, y, '<div class="ah2-menu-h"><span><b>' + ahEscX(it.name) + "</b><i>" + ahEscX((AH_V2_KIND_LABEL[m.carryType] || "Item").replace(/s$/, "") + " · " + ahFmt(sp) + " space" + (sp === 1 ? "" : "s") + (m.size ? " · " + m.size : "")) + "</i></span></div>", groups)
+}
+function ahV2Hover(wrap) {
+  let cur = null
+  const set = (id) => {
+    if (id === cur) return
+    wrap.querySelectorAll(".ah2-hl").forEach(n => n.classList.remove("ah2-hl"))
+    cur = id
+    if (id) wrap.querySelectorAll('[data-hl="' + (globalThis.CSS && CSS.escape ? CSS.escape(id) : id) + '"]').forEach(n => n.classList.add("ah2-hl"))
+  }
+  wrap.addEventListener("mouseover", (e) => { const t = e.target.closest && e.target.closest("[data-hl]"); set(t ? t.getAttribute("data-hl") : null) })
+  wrap.addEventListener("mouseleave", () => set(null))
+}
+
 // A drag holds the panel still: if the sheet tries to re-render mid-drag (e.g. an over-capacity
 // self-heal setFlag), we skip the rebuild so the drag isn't orphaned onto a detached grid, then
 // catch up once the drag ends.
@@ -4994,11 +5444,11 @@ function ahReleaseStuckDrag() {
   if (typeof _ahDrag.cancel === "function") { try { _ahDrag.cancel(); return } catch {} }
   const aid = _ahDrag.actorId
   _ahDrag.active = false; _ahDrag.missed = false
-  try { const a = aid && game.actors && game.actors.get(aid); const sh = a && a.sheet; if (sh && sh.rendered) sh.render(false) } catch {}
+  try { const a = aid && game.actors && game.actors.get(aid); if (a) ahRefreshPanels(a) } catch {}
 }
 if (typeof window !== "undefined") {
-  window.addEventListener("mousemove", (e) => { if (_ahDrag.active && e.buttons === 0) ahReleaseStuckDrag() })
-  window.addEventListener("mouseup", () => setTimeout(ahReleaseStuckDrag, 0))
+  window.addEventListener("pointermove", (e) => { if (_ahDrag.active && e.buttons === 0 && e.pointerType === "mouse") ahReleaseStuckDrag() })
+  window.addEventListener("pointerup", () => setTimeout(ahReleaseStuckDrag, 0))
 }
 /** Spend one of a consumable (owner action): quantity − 1 (deletes the last one) + a chat line. */
 const _ahUsing = new Set()
@@ -5575,7 +6025,7 @@ function ahGearList(actor) { try { const cat = ahGearCatalog(), g = actor.getFla
 // Stored as an ARRAY flag (arrays REPLACE on setFlag, so no -=key dance needed). Contents are placed via
 // the normal ahPlaceSep system into bins whose binId is "world:<id>" (kept OUT of the bag capacity meter).
 function ahStash(actor) { try { const g = actor.getFlag(MOD, "ahStash"); return Array.isArray(g) ? g.filter(x => x && x.id && x.type) : [] } catch { return [] } }
-function ahStashSave(actor, arr) { try { Promise.resolve(actor.setFlag(MOD, "ahStash", Array.isArray(arr) ? arr : [])).catch(e => console.warn("[pendant-bridge] AH stash save failed", e)) } catch (e) { console.warn("[pendant-bridge] AH stash save failed", e) } }
+function ahStashSave(actor, arr) { try { Promise.resolve(ahSetFlagQuiet(actor, "ahStash", Array.isArray(arr) ? arr : [])).catch(e => console.warn("[pendant-bridge] AH stash save failed", e)) } catch (e) { console.warn("[pendant-bridge] AH stash save failed", e) } }
 function ahStashEdit(actor, id, patch) { ahStashSave(actor, ahStash(actor).map(s => s.id === id ? Object.assign({}, s, patch) : s)) }
 /** Remove a stash container AND return its contents to loose (prune any ahPlaceSep entries that point
  *  at its "world:<id>" bin, via the -=key deletion helper, so nothing is left orphaned). */
@@ -5737,7 +6187,7 @@ function ahSaveEquipObj(actor, worn, back) {
     const upd = {}; upd["flags." + MOD + ".ahEquip.back"] = Array.isArray(back) ? back.slice() : []
     for (const k in worn) upd["flags." + MOD + ".ahEquip.worn." + k] = worn[k]
     for (const k in cur) if (!(k in worn)) upd["flags." + MOD + ".ahEquip.worn.-=" + k] = null   // delete unequipped slots
-    return Promise.resolve(actor.update(upd)).catch(e => console.warn("[pendant-bridge] AH equip save failed", e))
+    return ahQuietUpdate(actor, upd).catch(e => console.warn("[pendant-bridge] AH equip save failed", e))
   } catch (e) { console.warn("[pendant-bridge] AH equip save failed", e) }
 }
 function ahSaveEquip(ctx) { ahSaveEquipObj(ctx.actor, ctx.worn, ctx.back) }
@@ -5826,7 +6276,7 @@ async function ahSaveOutfit(ctx) {
   const name = await ahPromptName("Outfit " + (ahOutfits(ctx.actor).length + 1)); if (name == null) return
   const list = ahOutfits(ctx.actor).slice()
   list.push({ id: "o" + Math.random().toString(36).slice(2, 8), name: String(name || "Outfit").slice(0, 30), worn: Object.assign({}, ctx.worn), back: ctx.back.slice() })
-  try { await ctx.actor.setFlag(MOD, "ahOutfits", list) } catch (e) { console.warn("[pendant-bridge] AH outfit save failed", e) }
+  try { await ahSetFlagQuiet(ctx.actor, "ahOutfits", list) } catch (e) { console.warn("[pendant-bridge] AH outfit save failed", e) }
 }
 function ahApplyOutfit(ctx, outfit) {
   const prev = ahEquippedIds(ctx)
@@ -5836,13 +6286,14 @@ function ahApplyOutfit(ctx, outfit) {
   for (const id of now) { ahSetEquipped(ctx, id, true); ctx.placed.delete(id) }
   ahSaveEquip(ctx); ahPersistPlace(ctx)   // ahBuildEquip re-validates on rebuild
 }
-async function ahDeleteOutfit(ctx, oid) { try { await ctx.actor.setFlag(MOD, "ahOutfits", ahOutfits(ctx.actor).filter(o => o.id !== oid)) } catch {} }
+async function ahDeleteOutfit(ctx, oid) { try { await ahSetFlagQuiet(ctx.actor, "ahOutfits", ahOutfits(ctx.actor).filter(o => o.id !== oid)) } catch {} }
 
 /** GAME-PANEL paperdoll: the figure is centred, framed by two columns of NAMED gear boxes
  *  (item name + slot + actions read at a glance — no icon-only tiles). Hovering/focusing a box
  *  lights the matching body region on the figure (markers wired in ahBuildPanel). */
 function ahRenderDoll(ctx) {
   if (!ctx.dollEl) return
+  if (ctx.v2) return ahRenderBodyC(ctx)   // new look: body "C" (figure between two aligned columns), built from scratch
   const occ = ahOccupancy(ctx), caps = ahCaps(ctx), gsrc = ahGrantSources(ctx)
   let anyLocked = false
   const colHTML = (keys) => {
@@ -5937,7 +6388,7 @@ function ahSlotCard(ctx, key, occ, caps, gsrc) {
     const isHand = key === "LHand" || key === "RHand"
     const hSt = isHand ? (dm && dm.twoHanded ? "two" : (dm && dm.carryType === "Weapon" ? "holding" : "occupied")) : ""
     const hLbl = hSt === "two" ? "Two-handed" : hSt === "holding" ? "Holding" : hSt === "occupied" ? "Occupied" : label
-    const cls = "ah-slot ah-gb filled" + swap + (isHand ? " hand" : "")
+    const cls = "ah-slot ah-gb filled" + swap + (isHand ? " hand" : "") + (ctx.v2 && ahV2IsLanded(id) ? " ah2-land" : "")
     const hAttr = isHand ? ' data-handstate="' + hSt + '"' : ""
     // real Foundry item art fills the slot; item colour tints the top border; the NAME reads at a glance
     return '<div class="' + cls + '"' + hAttr + ' data-slot="' + ahEscX(key) + '" style="border-top-color:' + it.color + '" title="' + ahEscX(it.name + " — " + (isHand ? hLbl + " (" + label + ")" : label) + (swap ? " · drop to swap" : gby)) + '" aria-label="' + ahEscX(it.name + ", " + (isHand ? hLbl + " in " + label : label)) + '">' + ahArtThumb(it.img, it.color, AH_SLOT_ICON[key]) + txt(it.name, isHand ? hLbl : label) + dsBtn + rm + (swap ? '<span class="ah-gb-swap" aria-hidden="true">↔</span>' : "") + "</div>"
@@ -6091,7 +6542,7 @@ function ahOpenGearMenu(actor, anchorEl, triggerEl) {
       if (sk != null && (ahWornLoad(actor)[sk] || 0) >= ahWearCap(sk, wl)) return   // re-check: location filled meanwhile
       close()   // close on first add so a rapid second click can't over-cap the same location (TOCTOU)
       const list = ahGearList(actor).slice(); list.push({ id: "g" + Math.random().toString(36).slice(2, 8), kind })
-      try { await actor.setFlag(MOD, "ahGear", list) } catch (er) { console.warn("[pendant-bridge] AH gear add failed", er) }
+      try { await ahSetFlagQuiet(actor, "ahGear", list) } catch (er) { console.warn("[pendant-bridge] AH gear add failed", er) }
     })
     menu.appendChild(b)
   }
@@ -6146,7 +6597,10 @@ function ahDragItem(ctx, id, from, ev) {
   // slots the item COULD take that are currently occupied → drop there to SWAP
   const occ0 = ahOccupancy(ctx); ctx.validSwap = new Set()
   for (const s of (m.equipSlots || [])) { const k = AH_SLOT_KEY[s] || s; if (k !== "Back" && occ0[k] && !ctx.validBody.has(k)) ctx.validSwap.add(k) }
-  if (ctx.ghostEl) { ctx.ghostEl.textContent = it.name; ctx.ghostEl.style.display = "block"; ahMoveGhost(ctx, ev) }
+  let ghostRot = -1
+  const paintGhost = () => { if (!ctx.ghostEl || !ctx.held) return; if (ctx.v2) { if (ghostRot !== ctx.held.rot) { ghostRot = ctx.held.rot; ctx.ghostEl.innerHTML = ahV2GhostHTML(ctx, ctx.held) } } else ctx.ghostEl.textContent = it.name }
+  if (ctx.ghostEl) { paintGhost(); ctx.ghostEl.style.display = "block"; ahMoveGhost(ctx, ev) }
+  if (ctx.wrapEl) ctx.wrapEl.classList.add("ah2-drag")
   ahRenderDoll(ctx); ahRenderBoard(ctx); ahRenderTray(ctx)
   // coalesce hover-recompute + board redraw to one paint per frame (mousemove can fire >100/s)
   const sx = ev.clientX, sy = ev.clientY   // drag origin → a small movement threshold (below)
@@ -6155,7 +6609,7 @@ function ahDragItem(ctx, id, from, ev) {
     raf = 0; if (!ctx.held || !lastE) return
     const host = ctx.separate ? (ctx.binsEl || ctx.storageEl) : ctx.holder
     if (host && !host.isConnected) { finish(true); return }
-    ahMoveGhost(ctx, lastE)
+    paintGhost(); ahMoveGhost(ctx, lastE)
     if (ctx.separate) {   // multi-grid: detect WHICH bin the cursor is over (the ghost is pointer-events:none)
       const el = document.elementFromPoint(lastE.clientX, lastE.clientY)
       const be = el && el.closest && el.closest("[data-bin]")
@@ -6177,12 +6631,20 @@ function ahDragItem(ctx, id, from, ev) {
   const key = (e) => { if (!ctx.held) return; if (e.key === "r" || e.key === "R") { e.preventDefault(); e.stopPropagation(); ctx.held.rot = (ctx.held.rot + 1) % 6; schedule() } else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); finish(true) } }
   // released WITHOUT a real drag (a click / let-go-too-soon) → pass no event so finish drops nothing
   // and cleanly reverts (bag item back to its bin, loose item stays loose). Only a genuine drag drops.
-  const up = (e) => finish(false, moved ? e : null)
+  // wheel while holding = rotate (both directions) — easier than finding R mid-drag
+  const wheel = (e) => { if (!ctx.held) return; e.preventDefault(); e.stopPropagation(); ctx.held.rot = (ctx.held.rot + (e.deltaY > 0 ? 1 : 5)) % 6; schedule() }
+  const up = (e) => {
+    // new look: a plain click (no drag) opens the item's menu instead of doing nothing
+    if (!moved && ctx.v2) { finish(true); ahV2ItemMenu(ctx, id, e.clientX, e.clientY); return }
+    finish(false, moved ? e : null)
+  }
+  const cancelPtr = () => finish(true)
   function finish(cancel, e) {
     if (raf) { cancelAnimationFrame(raf); raf = 0 }
     _ahDrag.active = false; _ahDrag.cancel = null   // release the panel; setFlag re-renders below proceed normally
-    document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); window.removeEventListener("keydown", key, true)
+    document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); document.removeEventListener("pointercancel", cancelPtr); window.removeEventListener("keydown", key, true); window.removeEventListener("wheel", wheel, true)
     if (ctx.ghostEl) ctx.ghostEl.style.display = "none"
+    if (ctx.wrapEl) ctx.wrapEl.classList.remove("ah2-drag")
     const held = ctx.held; ctx.held = null; const vb = ctx.validBody || new Set(); const vs = ctx.validSwap || new Set(); ctx.validBody = null; ctx.validSwap = null; const hc = ctx.separate ? null : (e ? ahPixelCell(ctx, e) : ctx.hover); ctx.hover = null; ctx.hoverBin = null; ctx.hoverCell = null; ctx.hoverRot = null
     if (!held) return
     let done = false
@@ -6190,12 +6652,12 @@ function ahDragItem(ctx, id, from, ev) {
       const tgt = document.elementFromPoint(e.clientX, e.clientY)
       const slotEl = tgt && tgt.closest && tgt.closest("[data-slot]")
       const slot = slotEl && slotEl.getAttribute("data-slot")
-      if (slot && vb.has(slot)) { ahEquipItem(ctx, held.realId, slot); done = true }
+      if (slot && vb.has(slot)) { ahEquipItem(ctx, held.realId, slot); ahV2Land(held.realId); done = true }
       else if (slot && vs.has(slot)) {   // swap: clear the occupant (+ other hand if 2-handed), then equip
         const occ = ahOccupancy(ctx), occId = occ[slot]; if (occId) ahUnequip(ctx, occId)
         const hm = ctx.metaById[held.realId]
         if (hm && hm.twoHanded && (slot === "LHand" || slot === "RHand")) { const oth = slot === "LHand" ? "RHand" : "LHand"; const o2 = ahOccupancy(ctx)[oth]; if (o2) ahUnequip(ctx, o2) }
-        ahEquipItem(ctx, held.realId, slot); done = true
+        ahEquipItem(ctx, held.realId, slot); ahV2Land(held.realId); done = true
       }
       else if (ctx.separate) {   // multi-grid: assign to whichever bin the cursor was released over, at the exact hex
         const binEl = tgt && tgt.closest && tgt.closest("[data-bin]")
@@ -6206,6 +6668,7 @@ function ahDragItem(ctx, id, from, ev) {
           const t = ahSepDropTarget(ctx, bin, held.id, held.rot, cell)         // the exact landing hex (same as the green preview)
           if (t) {
             ahAssignUnit(ctx, held.id, bin.binId, { col: t.col, row: t.row, rot: t.rot })   // store the chosen cell; mirror: it: bins also write system.container
+            ahV2Land(held.id)
             ctx.placed.set(held.id, { col: t.col, row: t.row, rot: t.rot, bin: bin.binId })  // reflect NOW — if the flag write is a no-op (dropped on the same spot) nothing would re-render and the item would vanish until the next render
             ahRenderBoard(ctx); ahRenderTray(ctx)
             done = true
@@ -6215,12 +6678,14 @@ function ahDragItem(ctx, id, from, ev) {
       else if (hc && ahBagAccepts(ctx, held.id)) { const fit = ahSnapPlace(ctx, held.item, hc, held.rot); if (fit) { ctx.placed.set(held.id, { col: fit.col, row: fit.row, rot: held.rot }); ahSavePlace(ctx.actor, ahPlaceObj(ctx)); done = true } }
     }
     if (!done) { if (held.from === "bag" && held.origPlace) ctx.placed.set(held.id, held.origPlace); ahRenderDoll(ctx); ahRenderBoard(ctx); ahRenderTray(ctx) }
-    if (_ahDrag.missed) { _ahDrag.missed = false; try { const sh = ctx.actor && ctx.actor.sheet; if (sh && sh.rendered) sh.render(false) } catch {} }   // catch up a render we skipped mid-drag
+    if (_ahDrag.missed) { _ahDrag.missed = false; ahRefreshPanels(ctx.actor) }   // catch up a rebuild we skipped mid-drag (panel only)
   }
-  document.addEventListener("mousemove", move); document.addEventListener("mouseup", up); window.addEventListener("keydown", key, true)   // keydown on window/CAPTURE → R/Esc reach us before Foundry keybinds
+  document.addEventListener("pointermove", move); document.addEventListener("pointerup", up); document.addEventListener("pointercancel", cancelPtr); window.addEventListener("keydown", key, true)   // keydown on window/CAPTURE → R/Esc reach us before Foundry keybinds
+  window.addEventListener("wheel", wheel, { capture: true, passive: false })
 }
 
-function ahBuildPanel(actor) {
+function ahBuildPanel(actor, opts = {}) {
+  const v2 = !!opts.v2   // the overhauled look (setting "ahLook" = new); same data + interactions
   const cfg = AH.cfg()
   const sum = ahStateOf(actor)            // stored authority (GM-computed), live fallback
   const isGM = !!game.user?.isGM
@@ -6230,11 +6695,13 @@ function ahBuildPanel(actor) {
   const items = sum.items.map(it => ({ id: it.id, name: it.name, type: it.type, img: it.img, uses: it.uses || null, spaces: it.spaces, qty: it.qty, override: it.override, color: ahColorFor(it.id), shape: (Array.isArray(it.shape) && it.shape.length) ? it.shape : ahShapeFor(ahCellSize(it), ahHashOf(it.id)) }))
   const byId = {}; for (const it of items) byId[it.id] = it
   const metaById = {}; for (const it of items) { let m; try { m = ahMeta(actor.items.get(it.id)) } catch { m = null } metaById[it.id] = m || { equipSlots: [], carryType: "Miscellaneous", grantsSlots: null } }
+  if (v2) for (const it of items) it.color = ahV2Color(metaById[it.id])   // colour = what KIND of thing it is (theme tokens), not a random hash
   const ctx = {
     actor, items, byId, metaById, validList: [], validSet: new Set(), geom: ahGeom(0),
     canArrange: !!(actor.isOwner || game.user?.isGM), placed: new Map(), worn: {}, back: [],
     held: null, hover: null, validBody: null, holder: null, trayEl: null, dollEl: null, ghostEl: null, bagCapacity: 0,
     units: [], unitById: {}, bundleN: {}, cfg, capEach: capacity,   // capEach + cfg drive the bagMode container gate
+    v2, binLegendEls: v2 ? {} : null,
   }
   const eq = ahBuildEquip(actor, metaById, byId); ctx.worn = eq.worn; ctx.back = eq.back
   // self-heal evicted gear (clear dnd5e equipped + prune the flag). When a GM is online the
@@ -6313,9 +6780,15 @@ function ahBuildPanel(actor) {
   const overflowPts = bagCapacity > 0 ? Math.max(0, Math.round((nonWornSpaces - bagCapacity) * 100) / 100) : 0
   const over = overflowPts > 0
   const meterPct = bagCapacity > 0 ? Math.min(100, Math.round((nonWornSpaces / bagCapacity) * 100)) : 0
+  // new look: split the load into what's actually IN a bag vs carried loose (the old single number read "15/20" over an empty grid)
+  let packedSpaces = 0
+  if (v2) { ctx.placed.forEach((p, uid) => { if (!p || p.of) return; const b = ctx.binById && ctx.binById[p.bin]; if (!b || b.zone === "storage") return; const u = ctx.unitById[uid], m = u && metaById[u.itemId]; if (u && !(m && (m.ignoreSlot || m.baggable === false))) packedSpaces += Number(u.spaces) || 0 }); packedSpaces = Math.round(packedSpaces * 100) / 100 }
+  // loose things that COULD go in a bag (wear-only / no-slot gear never "won't fit")
+  const looseBagN = ctx.units.filter(u => { const p = ctx.placed.get(u.uid); if (p && !p.of) return false; const m = metaById[u.itemId] || {}; return !(m.ignoreSlot || m.baggable === false) }).length
+  const looseSpaces = Math.max(0, Math.round((nonWornSpaces - packedSpaces) * 100) / 100)
 
-  const wrap = document.createElement("div")
-  wrap.className = "ah-panel" + (over ? " is-over" : "")
+  const wrap = document.createElement("div"); ctx.wrapEl = wrap
+  wrap.className = "ah-panel" + (v2 ? " ah-v2" : "") + (over ? " is-over" : "")
   // a broken/missing item image (rare — Foundry assigns a default) → drop it so the fallback slot
   // icon shows. Capturing listener (error doesn't bubble) on the panel root covers every art img.
   wrap.addEventListener("error", (e) => { const t = e.target; if (t && t.tagName === "IMG" && t.classList && t.classList.contains("ah-art-img")) t.remove() }, true)
@@ -6338,7 +6811,7 @@ function ahBuildPanel(actor) {
     const strip = document.createElement("button"); strip.type = "button"; strip.className = "ah-ghostbtn"; strip.textContent = "Strip"; strip.title = "Unequip everything to loose"
     strip.addEventListener("click", (e) => { e.stopPropagation(); ahStripAll(ctx) })
     const outf = document.createElement("button"); outf.type = "button"; outf.className = "ah-ghostbtn"; outf.innerHTML = "Outfits " + ahIcon("caret"); outf.title = "Saved outfits — apply, save, delete"
-    outf.addEventListener("click", (e) => { e.stopPropagation(); ahOpenOutfitMenu(ctx, bodySec.ctl, outf) })
+    outf.addEventListener("click", (e) => { e.stopPropagation(); if (v2) { const r = e.currentTarget.getBoundingClientRect(); ahV2OutfitMenu(ctx, r.left, r.bottom); return } ahOpenOutfitMenu(ctx, bodySec.ctl, outf) })
     bodySec.ctl.appendChild(suit); bodySec.ctl.appendChild(strip); bodySec.ctl.appendChild(outf)
   }
   // a "fit" wrapper holds Body+Bag+Loose at natural size; if the sheet gets too narrow to show them
@@ -6354,8 +6827,11 @@ function ahBuildPanel(actor) {
   const dollEl = document.createElement("div"); dollEl.className = "ah-doll"; ctx.dollEl = dollEl; bodyZone.appendChild(dollEl)
 
   // BAG — header carries the spaces readout + Tidy + (separate) Add; content below
-  const bagMetaTxt = bagCapacity > 0 ? (ahFmt(nonWornSpaces) + " / " + ahFmt(bagCapacity)) : "no storage"   // keep it short so the band stays as narrow as the grids
+  const bagMetaTxt = bagCapacity > 0
+    ? (v2 ? (ahFmt(packedSpaces) + " / " + ahFmt(bagCapacity) + " packed" + (looseSpaces > 0 ? " · " + ahFmt(looseSpaces) + " loose" : "")) : (ahFmt(nonWornSpaces) + " / " + ahFmt(bagCapacity)))
+    : "no storage"   // keep it short so the band stays as narrow as the grids
   const bagSec = mkSec("back", "ah-sec-bag", "Bag", "· " + bagMetaTxt)
+  if (v2) { const tx = ahV2ToastText(ahActorKey(actor), looseBagN); if (tx) { const t = document.createElement("span"); t.className = "ah2-toast"; t.textContent = tx; bagSec.sec.querySelector(".ah-sec-h").appendChild(t) } }
   if (isGM) {   // GM-only quick toggle for the experimental dnd5e-container binding (also in Module Settings)
     const cur = ahBinding(ctx)
     const bind = document.createElement("button"); bind.type = "button"; bind.className = "ah-ghostbtn" + (cur ? " on" : ""); bind.setAttribute("aria-pressed", cur ? "true" : "false")
@@ -6367,11 +6843,11 @@ function ahBuildPanel(actor) {
   if (ctx.canArrange) {
     if (bagCapacity > 0) {
       const tidy = document.createElement("button"); tidy.type = "button"; tidy.className = "ah-act"; tidy.innerHTML = ahIcon("spark") + " Tidy"; tidy.title = "Auto-pack your loose items into the bag"
-      tidy.addEventListener("click", (e) => { e.stopPropagation(); if (ctx.separate) { ahApplyAutoPackSep(ctx) } else { ctx.placed = ahAutoPack(ctx); ahSavePlace(ctx.actor, ahPlaceObj(ctx)) } })   // setFlag/updateItem re-renders the whole panel with consistent counts
+      tidy.addEventListener("click", (e) => { e.stopPropagation(); if (v2) _ahV2Toast = { key: ahActorKey(actor), looseBefore: looseBagN, t: Date.now() }; if (ctx.separate) { ahApplyAutoPackSep(ctx) } else { ctx.placed = ahAutoPack(ctx); ahSavePlace(ctx.actor, ahPlaceObj(ctx)) } })   // setFlag/updateItem re-renders the whole panel with consistent counts
       bagSec.ctl.appendChild(tidy)
     }
     const add = document.createElement("button"); add.type = "button"; add.className = "ah-ghostbtn"; add.innerHTML = ahIcon("plus") + " Add"; add.title = "Add a belt, backpack, pouch…"
-    add.addEventListener("click", (e) => { e.stopPropagation(); ahOpenGearMenu(actor, bagSec.ctl, add) })
+    add.addEventListener("click", (e) => { e.stopPropagation(); if (v2) { const r = e.currentTarget.getBoundingClientRect(); ahV2AddMenu(ctx, r.left, r.bottom); return } ahOpenGearMenu(actor, bagSec.ctl, add) })
     bagSec.ctl.appendChild(add)
   }
   const bagZone = document.createElement("div"); bagZone.className = "ah-zone ah-zone-bag"; zonesRow.appendChild(bagZone)
@@ -6379,9 +6855,11 @@ function ahBuildPanel(actor) {
 
   const bagCol = document.createElement("div"); bagCol.className = "ah-bagcol"
   if (bagCapacity > 0) {
-    if (over) { const ob = document.createElement("div"); ob.className = "ah-overflow"; ob.innerHTML = "<b>Over capacity</b> — " + ahFmt(overflowPts) + " overflow point" + (overflowPts === 1 ? "" : "s"); bagCol.appendChild(ob) }
+    if (over) { const ob = document.createElement("div"); ob.className = "ah-overflow"; ob.innerHTML = v2 ? ("Carrying <b>" + ahFmt(overflowPts) + "</b> more space" + (overflowPts === 1 ? "" : "s") + " than your bags hold — that's overflow") : ("<b>Over capacity</b> — " + ahFmt(overflowPts) + " overflow point" + (overflowPts === 1 ? "" : "s")); bagCol.appendChild(ob) }
     const meter = document.createElement("div"); meter.className = "ah-meter" + (over ? " over" : (meterPct >= 100 ? " full" : ""))
-    const fill = document.createElement("div"); fill.className = "ah-meter-fill"; fill.style.width = meterPct + "%"; meter.appendChild(fill); bagCol.appendChild(meter)
+    if (v2) ahV2Meter(meter, ahActorKey(actor), packedSpaces, looseSpaces, bagCapacity, over)
+    else { const fill = document.createElement("div"); fill.className = "ah-meter-fill"; fill.style.width = meterPct + "%"; meter.appendChild(fill) }
+    bagCol.appendChild(meter)
     if (ctx.separate) {
       // one labelled mini hex-grid per bin; drop an item onto a card to assign it there
       const bins = document.createElement("div"); bins.className = "ah-bins"; ctx.binsEl = bins
@@ -6393,6 +6871,16 @@ function ahBuildPanel(actor) {
         const tlabel = bin.types ? (bin.types.length > 1 ? bin.types[0] + " +" + (bin.types.length - 1) : bin.types[0]) : ""
         const nativeCap = (ahBinding(ctx) && bin.kind === "container") ? ahNativeCapLabel(ctx, bin.binId.slice(3)) : ""   // real dnd5e capacity (display-only)
         const capSpan = document.createElement("span"); capSpan.className = "ah-bin-cap"; ctx.binCapEls[bin.binId] = capSpan
+        if (v2) {
+          // new look: the bag's name opens its menu; under it, where it's worn and what it takes
+          const sub = [ahV2BinWhere(ctx, bin), bin.types ? bin.types.join(", ") + " only" : ""].filter(Boolean).join(" · ")
+          bh.innerHTML = (ctx.canArrange && bin.kind !== "str" ? '<button type="button" class="ah2-bin-nm" data-bin-menu="' + ahEscX(bin.binId) + '">' : '<span class="ah2-bin-nm">') + ahEscX(bin.label) + (ctx.canArrange && bin.kind !== "str" ? "</button>" : "</span>") + (sub ? '<span class="ah2-bin-sub">' + ahEscX(sub) + "</span>" : "") + (nativeCap ? '<span class="ah-bin-native" title="dnd5e container capacity">' + ahEscX(nativeCap) + "</span>" : "")
+          bh.appendChild(capSpan)
+          card.appendChild(bh)
+          const grid = document.createElement("div"); grid.className = "ah-bin-grid"; ctx.binHolders[bin.binId] = grid; card.appendChild(grid)
+          bins.appendChild(card)
+          continue
+        }
         bh.innerHTML = '<i class="ah-bin-sw" style="background:' + bin.color + '"></i><span class="ah-bin-nm">' + ahEscX(bin.label) + "</span>" + (nativeCap ? '<span class="ah-bin-native" title="dnd5e container capacity">' + ahEscX(nativeCap) + "</span>" : "") + (bin.types ? '<span class="ah-bin-types" title="' + ahEscX("Holds only: " + bin.types.join(", ")) + '">' + ahEscX(tlabel) + "</span>" : "")
         bh.appendChild(capSpan)
         if (ctx.canArrange && bin.kind !== "str") {   // remove this container/gear (str bin has nothing to remove)
@@ -6401,7 +6889,7 @@ function ahBuildPanel(actor) {
           bx.addEventListener("click", (e) => {
             e.stopPropagation()
             if (bin.kind === "container") ahUnequip(ctx, bin.binId.slice(3))
-            else { const gid = bin.binId.slice(3); Promise.resolve(actor.setFlag(MOD, "ahGear", ahGearList(actor).filter(z => z.id !== gid))).catch(() => {}) }
+            else { const gid = bin.binId.slice(3); Promise.resolve(ahSetFlagQuiet(actor, "ahGear", ahGearList(actor).filter(z => z.id !== gid))).catch(() => {}) }
           })
           bh.appendChild(bx)
         }
@@ -6410,12 +6898,13 @@ function ahBuildPanel(actor) {
         bins.appendChild(card)
       }
       bagCol.appendChild(bins)
-      if (ctx.canArrange) bins.addEventListener("mousedown", (e) => { const t = e.target.closest("[data-item]"); if (t) ahDragItem(ctx, t.getAttribute("data-item"), "bag", e) })
+      if (ctx.canArrange) bins.addEventListener("pointerdown", (e) => { if (e.button !== 0 || e.target.closest("button")) return; const t = e.target.closest("[data-item]"); if (t) ahDragItem(ctx, t.getAttribute("data-item"), "bag", e) })
+      if (v2 && ctx.canArrange) bins.addEventListener("click", (e) => { const b = e.target.closest("[data-bin-menu]"); if (b) { e.stopPropagation(); ahV2BinMenu(ctx, b.getAttribute("data-bin-menu"), e.clientX, e.clientY) } })
     } else {
       const scroll = document.createElement("div"); scroll.className = "ah-scroll"
       const holder = document.createElement("div"); holder.className = "ah-svgholder"; ctx.holder = holder; scroll.appendChild(holder); bagCol.appendChild(scroll)
     }
-    const legend = document.createElement("div"); legend.className = "ah-legend"; ctx.legendEl = legend; bagCol.appendChild(legend)
+    const legend = document.createElement("div"); legend.className = "ah-legend"; if (!v2) { ctx.legendEl = legend; bagCol.appendChild(legend) }   // v2: each bag lists its own items under its grid
     if (ctx.canArrange) legend.addEventListener("click", (e) => { const u = e.target.closest("[data-use]"); if (u) { e.stopPropagation(); ahUseItem(actor, u.getAttribute("data-use")); return } const p = e.target.closest("[data-unpack]"); if (p) { e.stopPropagation(); ahUnplaceItem(ctx, p.getAttribute("data-unpack")) } })
   } else {
     const hint = document.createElement("div"); hint.className = "ah-bag-empty"; hint.textContent = ctx.canArrange ? "No storage yet — use + Add (or equip a backpack) to start a bag." : "No storage."; bagCol.appendChild(hint)
@@ -6431,7 +6920,7 @@ function ahBuildPanel(actor) {
     const bits = ahGearBits(cat)
     const chip = document.createElement("span"); chip.className = "ah-cont-chip gear"
     chip.innerHTML = ahEscX(cat.name) + (bits.length ? ' <span class="ah-gear-n">' + ahEscX(bits.join(" · ")) + "</span>" : "")
-    if (ctx.canArrange) { const x = document.createElement("button"); x.type = "button"; x.className = "ah-gear-x"; x.textContent = "×"; x.title = "Remove"; x.setAttribute("aria-label", "Remove " + cat.name); x.addEventListener("click", async () => { try { await actor.setFlag(MOD, "ahGear", ahGearList(actor).filter(z => z.id !== g.id)) } catch (e) { console.warn("[pendant-bridge] AH gear remove failed", e) } }); chip.appendChild(x) }
+    if (ctx.canArrange) { const x = document.createElement("button"); x.type = "button"; x.className = "ah-gear-x"; x.textContent = "×"; x.title = "Remove"; x.setAttribute("aria-label", "Remove " + cat.name); x.addEventListener("click", async () => { try { await ahSetFlagQuiet(actor, "ahGear", ahGearList(actor).filter(z => z.id !== g.id)) } catch (e) { console.warn("[pendant-bridge] AH gear remove failed", e) } }); chip.appendChild(x) }
     return chip
   }
   if (ctx.separate) {
@@ -6464,7 +6953,7 @@ function ahBuildPanel(actor) {
   const looseMeta = looseN ? ("· " + looseN) : (ctx.canArrange ? "· all worn or packed" : "")   // short, so it fits the band
   const looseZone = document.createElement("div"); looseZone.className = "ah-zone ah-zone-loose"; fitInner.appendChild(looseZone)   // its own banded + red-bordered section, like Body/Bag
   const looseSec = mkSec("stack", "ah-sec-loose", "Loose", looseMeta)
-  looseZone.appendChild(looseSec.sec)
+  if (v2) looseZone.classList.add("ah2-npzone"); else looseZone.appendChild(looseSec.sec)   // new look: no Loose section — a "not packed" line under the bags
   const trayEl = document.createElement("div"); trayEl.className = "ah-tray-chips"; ctx.trayEl = trayEl; looseZone.appendChild(trayEl)
 
   // STORAGE — off-body world containers + mounts. Own banded section; bins live in ctx.bins (zone:"storage")
@@ -6476,7 +6965,7 @@ function ahBuildPanel(actor) {
     const stSec = mkSec("box", "ah-sec-storage", "Storage", stashEntries.length ? ("· " + stashEntries.length) : "")
     if (ctx.canArrange) {
       const add = document.createElement("button"); add.type = "button"; add.className = "ah-ghostbtn"; add.innerHTML = ahIcon("plus") + " Add"; add.title = "Place a chest, wagon, ship or mount…"
-      add.addEventListener("click", (e) => { e.stopPropagation(); ahOpenWorldMenu(actor, stSec.ctl, add) })
+      add.addEventListener("click", (e) => { e.stopPropagation(); if (v2) { const r = e.currentTarget.getBoundingClientRect(); ahV2AddMenu(ctx, r.left, r.bottom, "store"); return } ahOpenWorldMenu(actor, stSec.ctl, add) })
       stSec.ctl.appendChild(add)
     }
     stZone.appendChild(stSec.sec)
@@ -6485,9 +6974,9 @@ function ahBuildPanel(actor) {
       const sbins = document.createElement("div"); sbins.className = "ah-bins"; ctx.storageEl = sbins   // (v0.79) so the drag recognizes storage cards as drop targets (separate subtree from the bag)
       const nameLoc = (s, host, defName) => {
         const nm = document.createElement("input"); nm.type = "text"; nm.className = "ah-bin-name"; nm.value = s.name || defName || ""; nm.title = "Name"; nm.setAttribute("aria-label", "Name")
-        nm.addEventListener("mousedown", (e) => e.stopPropagation()); nm.addEventListener("change", () => { const v = nm.value.trim(); if (v !== (s.name || "")) ahStashEdit(actor, s.id, { name: v }) })
+        nm.addEventListener("pointerdown", (e) => e.stopPropagation()); nm.addEventListener("change", () => { const v = nm.value.trim(); if (v !== (s.name || "")) ahStashEdit(actor, s.id, { name: v }) })
         const loc = document.createElement("input"); loc.type = "text"; loc.className = "ah-bin-loc"; loc.value = s.location || ""; loc.placeholder = "where / whose?"; loc.title = "Where it is, or its name (a steed)"; loc.setAttribute("aria-label", "Location")
-        loc.addEventListener("mousedown", (e) => e.stopPropagation()); loc.addEventListener("change", () => { const v = loc.value.trim(); if (v !== (s.location || "")) ahStashEdit(actor, s.id, { location: v }) })
+        loc.addEventListener("pointerdown", (e) => e.stopPropagation()); loc.addEventListener("change", () => { const v = loc.value.trim(); if (v !== (s.location || "")) ahStashEdit(actor, s.id, { location: v }) })
         host.appendChild(nm); host.appendChild(loc)
       }
       const removeBtn = (s) => { const bx = document.createElement("button"); bx.type = "button"; bx.className = "ah-bin-x"; bx.textContent = "×"; bx.title = "Remove — contents go loose"; bx.setAttribute("aria-label", "Remove " + (s.name || s.type)); bx.addEventListener("click", (e) => { e.stopPropagation(); ahStashRemove(actor, s.id) }); return bx }
@@ -6500,6 +6989,7 @@ function ahBuildPanel(actor) {
         host.appendChild(card)
       }
       for (const s of stashEntries) {
+        if (v2) { ahV2StashCard(ctx, s, sbins); continue }   // new look: same bins, new cards (name opens a menu; big holds are a list)
         if (s.kind === "world") {
           const bin = ctx.binById["world:" + s.id]; if (!bin) continue
           const card = document.createElement("div"); card.className = "ah-bin world"; card.setAttribute("data-bin", bin.binId); ctx.binCards[bin.binId] = card
@@ -6527,9 +7017,10 @@ function ahBuildPanel(actor) {
         }
       }
       stCol.appendChild(sbins)
-      if (ctx.canArrange) sbins.addEventListener("mousedown", (e) => { const t = e.target.closest("[data-item]"); if (t) ahDragItem(ctx, t.getAttribute("data-item"), "bag", e) })
+      if (ctx.canArrange) sbins.addEventListener("pointerdown", (e) => { if (e.button !== 0 || e.target.closest("button, input")) return; const t = e.target.closest("[data-item]"); if (t) ahDragItem(ctx, t.getAttribute("data-item"), "bag", e) })
+      if (v2 && ctx.canArrange) sbins.addEventListener("click", (e) => { const b = e.target.closest("[data-stash-menu]"); if (b) { e.stopPropagation(); ahV2StashMenu(ctx, b.getAttribute("data-stash-menu"), e.clientX, e.clientY) } })
     } else {
-      const hint = document.createElement("div"); hint.className = "ah-bag-empty"; hint.textContent = "Nothing yet — use + Add to place a chest, wagon, ship or mount."; stCol.appendChild(hint)
+      const hint = document.createElement("div"); hint.className = "ah-bag-empty"; hint.textContent = v2 ? "No chests, wagons or mounts yet." : "Nothing yet — use + Add to place a chest, wagon, ship or mount."; stCol.appendChild(hint)
     }
     stZone.appendChild(stCol)
   }
@@ -6538,7 +7029,7 @@ function ahBuildPanel(actor) {
   const ghost = document.createElement("div"); ghost.className = "ah-ghost"; ghost.style.display = "none"; ctx.ghostEl = ghost; wrap.appendChild(ghost)
 
   if (ctx.canArrange) {
-    trayEl.addEventListener("mousedown", (e) => { if (e.target.closest("[data-use]")) return; const t = e.target.closest("[data-tray]"); if (t) ahDragItem(ctx, t.getAttribute("data-tray"), "tray", e) })
+    trayEl.addEventListener("pointerdown", (e) => { if (e.button !== 0 || e.target.closest("[data-use]")) return; const t = e.target.closest("[data-tray]"); if (t) ahDragItem(ctx, t.getAttribute("data-tray"), "tray", e) })
     trayEl.addEventListener("click", (e) => {
       const cat = e.target.closest(".ah-tcat")
       if (cat) {   // toggle a category pill → show/hide its items inline (state persists across re-renders)
@@ -6551,15 +7042,18 @@ function ahBuildPanel(actor) {
       const u = e.target.closest("[data-use]"); if (u) { e.stopPropagation(); ahUseItem(actor, u.getAttribute("data-use")) }
     })
     trayEl.addEventListener("keydown", (e) => { if (e.key !== "Enter" && e.key !== " ") return; if (e.target.closest("[data-use]")) return; const t = e.target.closest("[data-tray]"); if (t) { e.preventDefault(); ahStowItem(ctx, t.getAttribute("data-tray")) } })   // keyboard stow
-    if (ctx.holder) ctx.holder.addEventListener("mousedown", (e) => { const t = e.target.closest("[data-item]"); if (t) ahDragItem(ctx, t.getAttribute("data-item"), "bag", e) })
+    if (ctx.holder) ctx.holder.addEventListener("pointerdown", (e) => { if (e.button !== 0) return; const t = e.target.closest("[data-item]"); if (t) ahDragItem(ctx, t.getAttribute("data-item"), "bag", e) })
     dollEl.addEventListener("click", (e) => {
+      if (ctx.v2) { ahBodyCClick(ctx, e); return }
       if (e.target.closest(".ah-pickmenu")) return   // events inside an open picker are the menu's own
       const dr = e.target.closest("[data-draw]"); if (dr) { e.preventDefault(); e.stopPropagation(); ahDrawSheathe(ctx, dr.getAttribute("data-draw")); return }
       const rm = e.target.closest("[data-rm]"); if (rm) { e.preventDefault(); e.stopPropagation(); ahUnequip(ctx, rm.getAttribute("data-rm")); return }
+      if (ctx.v2) { const f = e.target.closest(".ah-gb.filled[data-slot]"); if (f && !f.hasAttribute("data-pick")) { const wid = ahOccupancy(ctx)[f.getAttribute("data-slot")]; if (wid) { e.preventDefault(); e.stopPropagation(); ahV2ItemMenu(ctx, wid, e.clientX, e.clientY); return } } }
       const pk = e.target.closest("[data-pick]"); if (pk) { e.preventDefault(); e.stopPropagation(); ahOpenSlotMenu(ctx, pk.getAttribute("data-pick"), pk) }
     })
     dollEl.addEventListener("keydown", (e) => {
       if (e.key !== "Enter" && e.key !== " ") return
+      if (ctx.v2) { const t = e.target.closest("[data-c-it],[data-c-gear],[data-c-slot]"); if (t) { e.preventDefault(); const r = t.getBoundingClientRect(); ahBodyCClick(ctx, { target: t, clientX: r.left + 20, clientY: r.bottom - 4, preventDefault() {}, stopPropagation() {} }) } return }
       if (e.target.closest(".ah-pickmenu")) return   // don't let a menuitem keydown bubble up and re-open the picker
       if (e.target.closest("[data-rm]")) return   // a dot/remove button activates itself — don't ALSO open the add picker for the Back box it sits in
       const pk = e.target.closest("[data-pick]"); if (pk && pk.getAttribute("role") === "button") { e.preventDefault(); ahOpenSlotMenu(ctx, pk.getAttribute("data-pick"), pk) }   // role=button slot DIVs only (native buttons self-fire)
@@ -6570,7 +7064,9 @@ function ahBuildPanel(actor) {
   // (the on-sheet GM "Tune items" panel was removed — item size/type/spaces/slots are edited in the
   // app's TTRPG Rules → Anti-Hammer tool)
 
-  ahFitObserve(fit)   // scale the Body/Bag/Loose block down to fit when the sheet is too narrow
+  wrap._ahCtx = ctx                 // the dnd5e list's "where" chips (new look) act through this panel's state
+  if (v2) ahV2Hover(wrap)          // point at an item anywhere → its hexes + its row light up together
+  else ahFitObserve(fit)            // classic: scale the Body/Bag/Loose block down to fit when the sheet is too narrow
   return wrap
 }
 
@@ -6628,9 +7124,14 @@ function ahInjectPanel(app, html) {
   // has no recognizable inventory tab we inject nothing rather than bleed elsewhere.
   const host = ahInventoryHost(root)
   if (!host) return
+  // which look: a sheet can pin one (data-ah-look — the dev harness shows both side by side), else the client setting
+  let look = root.getAttribute && root.getAttribute("data-ah-look")
+  if (!look) { try { look = game.settings.get(MOD, "ahLook") } catch { look = "classic" } }
   let panel
-  try { panel = ahBuildPanel(actor) } catch (e) { console.warn("[pendant-bridge] AH panel build failed", e); return }
+  try { panel = ahBuildPanel(actor, { v2: look === "new" }) } catch (e) { console.warn("[pendant-bridge] AH panel build failed", e); return }
+  panel.setAttribute("data-ah-actor", ahActorKey(actor)); panel.setAttribute("data-ah-look", look === "new" ? "new" : "classic")
   host.insertBefore(panel, host.firstChild)   // at the TOP of the Inventory tab, above the native dnd5e item list
+  if (look === "new") ahV2DecorateNative(host, panel._ahCtx)   // each dnd5e inventory row says where the thing is
   // (v0.82) keep the player's scroll place: every AH action setFlag→re-renders the sheet, which otherwise
   // snaps to the top (jarring on a long inventory). Track the scroll container's position (never saving 0,
   // so the re-render's reset can't clobber it) and restore it after a RE-render (not the first open).
@@ -6864,6 +7365,8 @@ Hooks.once("ready", () => {
   Hooks.on("deleteItem", (it) => { const a = itemActor(it); if (a) ahRecomputeActor(a) })
   Hooks.on("createActor", (a) => ahRecomputeActor(a))
   Hooks.on("updateActor", (a, changes) => { if (ahCapacityChanged(changes)) ahRecomputeActor(a) })
+  // a quiet (render:false) Anti-Hammer write → rebuild only the panel, here and on every other client
+  Hooks.on("updateActor", (a, changes, options) => { if (options && options.render === false && changes && changes.flags && changes.flags[MOD]) ahRefreshPanels(a) })
 
   // Ammo auto-spend: when a ranged weapon is fired, spend a matching ammo if dnd5e didn't.
   // The attack hook is client-local (fires once, on the roller), so no cross-client de-dupe needed.
@@ -6877,3 +7380,4 @@ Hooks.once("ready", () => {
 
 // Expose for debugging from the Foundry console.
 globalThis.PendantBridge = bridge
+globalThis.PendantBridge.ahSummary = (actor) => AH.actorSummary(actor, AH.cfg())   // debugging + the harness: what the cockpit receives

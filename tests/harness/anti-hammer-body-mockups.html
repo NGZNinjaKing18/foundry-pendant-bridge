@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anti-Hammer Body Mockups</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Signika:wght@400;500;600;700&family=Roboto+Slab:wght@500;700&display=swap">
+<style>
+/* Mockup (not loaded by Foundry): two from-scratch takes on the Anti-Hammer body + attachments,
+   inside the same stand-in Foundry sheet as anti-hammer.html. ?v=a = points on the figure,
+   ?v=b = loadout strips, no param = both. Thorn's gear, made up. Items are named shapes, no pictures. */
+:root { --font-primary: "Signika", sans-serif; }
+.theme-dark { --color-text-primary: #e7e1d4; --color-text-secondary: #b5aea0; --color-text-subtle: #8a847a; --background: #1c1b22; color-scheme: dark; }
+.theme-light { --color-text-primary: #2b2a24; --color-text-secondary: #4b4a44; --color-text-subtle: #6e6c62; --background: #e9dfc9; color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #0d100c; font: 14px/1.4 var(--font-primary); color: #ddd; }
+#bar { display: flex; gap: 12px; align-items: center; padding: 8px 12px; background: #151515; border-bottom: 1px solid #333; flex-wrap: wrap; font-size: 13px; }
+#bar a { color: #ddd; text-decoration: none; padding: 3px 10px; border: 1px solid #444; border-radius: 3px; }
+#bar a.on { border-color: #c9893a; color: #f0d29a; }
+#stage { display: flex; gap: 18px; padding: 16px; align-items: flex-start; flex-wrap: wrap; }
+.application { width: 820px; background: var(--background); color: var(--color-text-primary); border: 1px solid #000; border-radius: 6px; box-shadow: 0 0 20px #000; overflow: hidden; }
+.window-header { background: #0e0d13; color: #ddd; padding: 6px 10px; display: flex; gap: 8px; align-items: center; border-bottom: 1px solid #333; font-family: "Roboto Slab", serif; }
+.window-header .t { flex: 1; } .window-header .tag { font: 12px Signika; opacity: .6; }
+.sheet-head { display: flex; gap: 12px; padding: 10px 14px; border-bottom: 1px solid color-mix(in srgb, var(--color-text-primary) 18%, transparent); align-items: center; }
+.sheet-head .pic { width: 56px; height: 56px; border-radius: 6px; background: linear-gradient(135deg,#6b5a3e,#2c2418); }
+.sheet-head h2 { margin: 0; font-family: "Roboto Slab", serif; font-size: 22px; }
+.sheet-head .sub { color: var(--color-text-subtle); font-size: 12px; }
+nav.tabs { display: flex; gap: 2px; padding: 0 10px; border-bottom: 1px solid color-mix(in srgb, var(--color-text-primary) 18%, transparent); }
+nav.tabs a { padding: 6px 12px; font-size: 13px; color: var(--color-text-secondary); border-bottom: 2px solid transparent; }
+nav.tabs a.active { color: var(--color-text-primary); border-color: #c9893a; }
+.inv { padding: 12px 14px 16px; }
+
+/* ── shared Anti-Hammer tokens (theme-driven) ── */
+.ah { --ink: var(--color-text-primary); --dim: var(--color-text-secondary); --mute: var(--color-text-subtle);
+  --line: color-mix(in srgb, var(--ink) 15%, transparent); --line2: color-mix(in srgb, var(--ink) 28%, transparent);
+  --surf: color-mix(in srgb, var(--ink) 5%, transparent); --surf2: color-mix(in srgb, var(--ink) 10%, transparent);
+  --cell: color-mix(in srgb, var(--ink) 6%, transparent); --cellline: color-mix(in srgb, var(--ink) 13%, transparent);
+  --accent: #c9893a; --good: #5c9c58; --bad: #c4504a;
+  --k-weapon: #c0603f; --k-armor: #6f88b0; --k-tool: #b48a32; --k-cons: #5c9c58; --k-gear: #8f78b8; --k-other: #8a8578; --k-ammo: #a3876a;
+  color: var(--ink); }
+.ah-h { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.ah-h b { font-size: 12px; letter-spacing: .09em; text-transform: uppercase; }
+.ah-h .meta { color: var(--mute); font-size: 12px; }
+.ah-h .sp { flex: 1; }
+.btn { font: inherit; font-size: 12px; padding: 3px 9px; border: 1px solid var(--line2); border-radius: 3px; background: var(--surf); color: var(--ink); cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.kind-weapon { --kc: var(--k-weapon); } .kind-armor { --kc: var(--k-armor); } .kind-tool { --kc: var(--k-tool); } .kind-cons { --kc: var(--k-cons); }
+.kind-gear { --kc: var(--k-gear); } .kind-other { --kc: var(--k-other); } .kind-ammo { --kc: var(--k-ammo); }
+
+/* ════ A · POINTS ON THE FIGURE ════ */
+.fig-wrap { position: relative; height: 470px; margin: 4px 0 18px; }
+.fig-wrap svg.fig { position: absolute; left: 50%; top: 0; transform: translateX(-50%); height: 470px; width: auto; overflow: visible; }
+.fig-body { fill: color-mix(in srgb, var(--ink) 9%, transparent); stroke: color-mix(in srgb, var(--ink) 24%, transparent); stroke-width: 1.2; }
+.fig-lead { stroke: var(--line2); stroke-width: 1.2; fill: none; }
+.fig-lead.on { stroke: var(--kc, var(--accent)); stroke-width: 1.6; }
+.pin { fill: var(--background); stroke: var(--line2); stroke-width: 1.4; stroke-dasharray: 3 2; cursor: pointer; }
+.pin.on { fill: var(--kc); stroke: var(--background); stroke-width: 2; stroke-dasharray: none; }
+.pin:hover { stroke: var(--accent); stroke-width: 2; }
+.pin-plus { fill: var(--mute); font: 600 11px Signika; pointer-events: none; }
+.call { position: absolute; width: 196px; display: flex; flex-direction: column; gap: 3px; }
+.call.l { text-align: right; align-items: flex-end; }
+.call .lab { font-size: 10px; letter-spacing: .09em; text-transform: uppercase; color: var(--mute); display: flex; gap: 6px; align-items: baseline; }
+.call .lab i { font-style: normal; letter-spacing: 0; text-transform: none; color: var(--mute); }
+.gear { display: inline-flex; align-items: center; gap: 7px; padding: 4px 9px; border: 1px solid var(--line); border-left: 3px solid var(--kc); border-radius: 3px; background: var(--surf2); font-size: 13px; font-weight: 600; cursor: pointer; max-width: 100%; }
+.call.l .gear { border-left: 1px solid var(--line); border-right: 3px solid var(--kc); }
+.gear:hover { border-color: var(--line2); }
+.gear small { font-weight: 400; color: var(--mute); font-size: 11px; }
+.gear .bagnote { font-weight: 400; font-size: 11px; color: var(--accent); }
+.hook { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 24px; padding: 0 7px; border: 1px dashed var(--line2); border-radius: 3px; color: var(--mute); font-size: 12px; cursor: pointer; }
+.hook:hover { border-color: var(--accent); color: var(--ink); border-style: solid; }
+.row-gear { display: flex; gap: 4px; flex-wrap: wrap; }
+.call.l .row-gear { justify-content: flex-end; }
+.worn-line { display: flex; justify-content: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--mute); margin-top: -6px; }
+.worn-line span { padding: 2px 8px; border: 1px solid var(--line); border-radius: 3px; }
+.worn-line span.e { border-style: dashed; }
+
+/* ════ C · TODAY'S LAYOUT, REBUILT ════ */
+.dollc { display: grid; grid-template-columns: 1fr 150px 1fr; grid-template-rows: repeat(7, auto); gap: 6px 12px; margin: 4px 0 18px; }
+.dollc .figc { grid-column: 2; grid-row: 1 / span 7; display: flex; align-items: center; justify-content: center; position: relative; }
+.dollc .figc img { height: 100%; max-height: 430px; width: auto; opacity: .5; user-select: none; }
+.theme-dark .dollc .figc img { filter: invert(1) brightness(.55); opacity: .55; }
+.slotc { position: relative; display: flex; flex-direction: column; justify-content: center; gap: 2px; min-height: 52px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--surf); cursor: pointer; }
+.slotc.l { grid-column: 1; } .slotc.r { grid-column: 3; }
+.slotc .k { display: flex; justify-content: space-between; font-size: 10px; letter-spacing: .09em; text-transform: uppercase; color: var(--mute); }
+.slotc .k i { font-style: normal; letter-spacing: 0; text-transform: none; font-variant-numeric: tabular-nums; }
+.slotc .v { font-size: 14px; font-weight: 600; line-height: 1.2; }
+.slotc .v small { font-weight: 400; font-size: 11px; color: var(--mute); }
+.slotc.filled { background: var(--surf2); border-left: 3px solid var(--kc); }
+.slotc.r.filled { border-left: 1px solid var(--line); border-right: 3px solid var(--kc); text-align: right; }
+.slotc.r .k { flex-direction: row-reverse; }
+.slotc.empty { border-style: dashed; background: none; }
+.slotc.empty .v { color: var(--mute); font-weight: 400; font-size: 13px; }
+.slotc.empty:hover { border-color: var(--accent); border-style: solid; }
+.slotc.hand.filled { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--kc) 40%, transparent); }
+.slotc .multi { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.slotc.r .multi { justify-content: flex-end; }
+.slotc .multi span { font-size: 12.5px; font-weight: 600; padding: 2px 7px; border-radius: 3px; background: color-mix(in srgb, var(--kc) 22%, transparent); border: 1px solid color-mix(in srgb, var(--kc) 55%, transparent); }
+.slotc .multi .peg { font-weight: 400; color: var(--mute); background: none; border: 1px dashed var(--line2); }
+.slotc .bagtag { font-size: 10.5px; font-weight: 400; color: var(--accent); margin-left: 4px; }
+.slotc .x { position: absolute; top: 4px; right: 6px; font-size: 13px; color: var(--mute); opacity: 0; }
+.slotc.r .x { right: auto; left: 6px; }
+.slotc.filled:hover .x { opacity: 1; }
+
+/* ════ B · LOADOUT STRIPS ════ */
+.strips { display: flex; flex-direction: column; gap: 0; margin-bottom: 18px; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.strip { display: grid; grid-template-columns: 112px 1fr auto; align-items: center; gap: 12px; padding: 8px 12px; border-top: 1px solid var(--line); }
+.strip:first-child { border-top: none; }
+.strip:nth-child(odd) { background: var(--surf); }
+.strip .nm { display: flex; flex-direction: column; }
+.strip .nm b { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; font-weight: 600; }
+.strip .nm i { font-style: normal; font-size: 11px; color: var(--mute); }
+.strip .cap { font-size: 11px; color: var(--mute); font-variant-numeric: tabular-nums; }
+.strip .cap.full { color: var(--good); }
+.strip .row-gear { gap: 6px; }
+.strip.hands .gear { font-size: 14px; padding: 6px 12px; }
+.strip.worn .gear { font-weight: 500; }
+
+/* ════ BAGS (same in both) ════ */
+.bags { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.bag { border: 1px solid var(--line); border-radius: 4px; background: var(--surf); padding: 8px 10px; }
+.bag-h { display: flex; align-items: baseline; gap: 8px; margin-bottom: 7px; font-size: 13px; }
+.bag-h b { font-weight: 600; } .bag-h .where { font-size: 11px; color: var(--mute); }
+.bag-h .n { margin-left: auto; color: var(--mute); font-size: 12px; font-variant-numeric: tabular-nums; }
+.bag-h .n.full { color: var(--good); font-weight: 600; } .bag-h .n.full::after { content: " ✓"; }
+.bag svg { display: block; }
+.hx-cell { fill: var(--cell); stroke: var(--cellline); stroke-width: 1; }
+.hx-fill { fill: var(--kc); fill-opacity: .42; }
+.hx-edge { fill: none; stroke: var(--kc); stroke-width: 2; stroke-linecap: round; }
+.hx-it { cursor: grab; } .hx-it:hover .hx-fill { fill-opacity: .7; }
+.hx-name { fill: var(--ink); font: 600 10px Signika; pointer-events: none; paint-order: stroke; stroke: color-mix(in srgb, var(--background) 70%, transparent); stroke-width: 3px; stroke-linejoin: round; }
+.meter { height: 8px; border-radius: 3px; background: var(--cell); display: flex; overflow: hidden; margin: -2px 0 12px; }
+.meter i { display: block; height: 100%; background: var(--good); }
+
+/* the system's own list, with where each thing is */
+.native { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 8px; font-size: 13px; }
+.native h4 { margin: 0 0 6px; font-family: "Roboto Slab", serif; color: var(--dim); font-size: 14px; }
+.native .r { display: grid; grid-template-columns: 1fr 150px 60px; gap: 8px; padding: 3px 4px; border-bottom: 1px solid color-mix(in srgb, var(--ink) 8%, transparent); color: var(--dim); }
+.native .r .w { color: var(--mute); font-size: 12px; }
+.native .r.np { color: var(--ink); }
+.native .r.np .w { color: var(--bad); font-weight: 600; }
+.native .r .lb { text-align: right; }
+.note { max-width: 820px; color: #8a8a8a; font-size: 12px; padding: 0 16px 16px; }
+
+/* picker popover (click an empty hook / point) */
+.pop { position: absolute; z-index: 5; width: 220px; background: Canvas; color: var(--ink); border: 1px solid var(--line2); border-radius: 5px; box-shadow: 0 12px 30px rgba(0,0,0,.4); padding: 4px; font-size: 13px; }
+.pop .g { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--mute); padding: 6px 8px 2px; }
+.pop .i { display: flex; justify-content: space-between; padding: 5px 8px; border-radius: 3px; }
+.pop .i:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.pop .i i { font-style: normal; color: var(--mute); font-size: 11px; }
+</style>
+</head>
+<body>
+<div id="bar"><b>Anti-Hammer body · mockups</b>
+  <a href="?v=a">A · Points on the figure</a><a href="?v=b">B · Loadout strips</a><a href="?v=c">C · Today's layout, rebuilt</a><a href="?">Both</a>
+  <a href="#" id="th">Light / dark</a></div>
+<div id="stage"></div>
+<div class="note">Mockups for picking a direction (not wired to the bridge yet). Same character, same gear in both. Items are named shapes, no pictures. No Loose area: anything not worn or packed shows as <b>not packed</b> in the system's own list, where you drag it from.</div>
+<script>
+// ── Thorn's loadout ─────────────────────────────────────────────
+const KIND = { weapon: "weapon", armor: "armor", tool: "tool", cons: "cons", gear: "gear", other: "other", ammo: "ammo" }
+const WORN = {
+  hands: { main: { n: "Longsword", k: "weapon", s: "Holding" }, off: null },
+  back: { cap: 2, items: [{ n: "Backpack", k: "gear", bag: "Backpack" }, { n: "Quiver", k: "gear", bag: "Quiver" }] },
+  belt: { cap: 4, items: [{ n: "Pouch", k: "gear", bag: "Pouch" }, { n: "Waterskin", k: "cons" }] },
+  lhip: { cap: 1, items: [{ n: "Dagger", k: "weapon", sub: "sheathed" }] },
+  rhip: { cap: 1, items: [] },
+  head: null, face: null, neck: { n: "Holy Symbol", k: "other" },
+  chest: { n: "Chain Shirt", k: "armor" }, clothes: { n: "Traveler's Clothes", k: "armor" }, feet: { n: "Boots", k: "armor" }, lring: null, rring: null,
+}
+// bags: cap, cols (4 rows like today), items: [name, kind, cells [[c,r]...]]
+const BAGS = [
+  { n: "Backpack", where: "on Back", cap: 20, cols: 5, items: [
+    ["Rope, Hempen", "tool", [[0,0],[1,0],[2,0]]], ["Rations ×5", "cons", [[3,0],[4,0],[3,1],[4,1]]], ["Crowbar", "tool", [[0,1],[1,1]]],
+    ["Tinderbox", "tool", [[2,1]]], ["Lantern", "tool", [[0,2],[0,3]]], ["Bedroll", "other", [[1,2],[2,2],[3,2]]] ] },
+  { n: "Quiver", where: "on Back · ammo", cap: 8, cols: 2, items: [["Arrows ×20", "ammo", [[0,0],[1,0],[0,1],[1,1]]]] },
+  { n: "Pouch", where: "on Belt · small", cap: 6, cols: 3, items: [["Healing ×2", "cons", [[0,0],[1,0]]], ["Chalk", "other", [[2,0]]], ["Coins", "other", [[0,1]]]] },
+]
+const NATIVE = [["Arrows ×20", "in Quiver", "1"], ["Backpack", "on Back", "5"], ["Bedroll", "in Backpack", "7"], ["Chain Shirt", "worn · Armour", "20"], ["Crowbar", "in Backpack", "5"],
+  ["Dagger", "on Left hip", "1"], ["Holy Symbol", "worn · Neck", "1"], ["Longsword", "Main hand", "3"], ["Shortbow", "not packed", "2"], ["Pouch", "on Belt", "1"], ["Quiver", "on Back", "1"], ["Rope, Hempen", "in Backpack", "10"]]
+
+// ── hex grid with NAMED shapes ──────────────────────────────────
+const S = 20, HW = Math.sqrt(3) * S
+const cen = (c, r) => ({ x: HW / 2 + 3 + HW * (c + 0.5 * (r & 1)), y: S + 3 + 1.5 * S * r })
+const pts = (x, y, s) => { let p = ""; for (let i = 0; i < 6; i++) { const a = (60 * i - 90) * Math.PI / 180; p += (x + s * Math.cos(a)).toFixed(1) + "," + (y + s * Math.sin(a)).toFixed(1) + " " } return p }
+function hexBag(b) {
+  const rows = 4, cols = b.cols
+  const w = HW * (cols + 0.5) + 6, h = 1.5 * S * (rows - 1) + 2 * S + 6
+  let s = `<svg width="${w.toFixed(0)}" height="${h.toFixed(0)}">`
+  for (let i = 0; i < b.cap; i++) { const c = Math.floor(i / rows), r = i % rows, p = cen(c, r); s += `<polygon class="hx-cell" points="${pts(p.x, p.y, S - 1)}"/>` }
+  for (const [n, k, cells] of b.items) {
+    const cs = cells.map(([c, r]) => cen(c, r))
+    let d = ""
+    for (const c of cs) for (let i = 0; i < 6; i++) {
+      const a = (60 * i - 60) * Math.PI / 180, nx = c.x + HW * Math.cos(a), ny = c.y + HW * Math.sin(a)
+      if (cs.some(o => Math.abs(o.x - nx) < 2 && Math.abs(o.y - ny) < 2)) continue
+      const v = (j) => { const t = (60 * j - 90) * Math.PI / 180; return [c.x + (S + .4) * Math.cos(t), c.y + (S + .4) * Math.sin(t)] }
+      const p1 = v(i), p2 = v(i + 1); d += `M${p1[0].toFixed(1)} ${p1[1].toFixed(1)}L${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`
+    }
+    const mx = cs.reduce((a, c) => a + c.x, 0) / cs.length, my = cs.reduce((a, c) => a + c.y, 0) / cs.length
+    const span = Math.max(...cs.map(c => c.x)) - Math.min(...cs.map(c => c.x)) + HW
+    const maxCh = Math.max(3, Math.floor(span / 6.2)), label = n.length > maxCh ? n.slice(0, maxCh - 1) + "…" : n
+    s += `<g class="hx-it kind-${k}"><title>${n}</title>${cs.map(c => `<polygon class="hx-fill" points="${pts(c.x, c.y, S + .4)}"/>`).join("")}<path class="hx-edge" d="${d}"/><text class="hx-name" x="${mx.toFixed(1)}" y="${(my + 3.5).toFixed(1)}" text-anchor="middle">${label}</text></g>`
+  }
+  return s + "</svg>"
+}
+const usedOf = (b) => b.items.reduce((a, it) => a + it[2].length, 0)
+function bagsHTML() {
+  const used = BAGS.reduce((a, b) => a + usedOf(b), 0), cap = BAGS.reduce((a, b) => a + b.cap, 0)
+  return `<div class="ah-h"><b>Bags</b><span class="meta">${used} / ${cap} spaces packed</span><span class="sp"></span><button class="btn">Tidy</button></div>
+  <div class="meter"><i style="width:${(used / cap * 100).toFixed(0)}%"></i></div>
+  <div class="bags">${BAGS.map(b => { const u = usedOf(b); return `<div class="bag"><div class="bag-h"><b>${b.n}</b><span class="where">${b.where}</span><span class="n ${u >= b.cap ? "full" : ""}">${u} / ${b.cap}</span></div>${hexBag(b)}</div>` }).join("")}</div>`
+}
+function nativeHTML() {
+  return `<div class="native"><h4>dnd5e inventory (the system's own list)</h4>${NATIVE.map(([n, w, lb]) => `<div class="r ${w === "not packed" ? "np" : ""}"><span>${n}</span><span class="w">${w}</span><span class="lb">${lb} lb</span></div>`).join("")}</div>`
+}
+const gear = (it, extra = "") => it ? `<span class="gear kind-${it.k}">${it.n}${it.sub ? ` <small>${it.sub}</small>` : ""}${it.bag ? ` <span class="bagnote">▸ bag</span>` : ""}${extra}</span>` : ""
+const hooks = (n) => Array.from({ length: n }, () => `<span class="hook" data-pop>+</span>`).join("")
+
+// ════ A · points on the figure ════
+function figureA() {
+  // a clean symmetric figure (right half listed, left half mirrored); pins sit ON the body part
+  const W = 792, cx = W / 2
+  const R = [[10,66],[10,80],[52,94],[64,112],[72,186],[80,258],[74,274],[62,272],[58,256],[54,196],[48,142],[44,150],[40,214],[46,246],[44,330],[38,428],[46,450],[14,452],[16,428],[14,332],[6,268],[0,262]]
+  const half = R.map(([x, y]) => (cx + x) + " " + y), mir = R.slice().reverse().map(([x, y]) => (cx - x) + " " + y)
+  const fig = `<circle class="fig-body" cx="${cx}" cy="40" r="23"/><path class="fig-body" stroke-linejoin="round" d="M${half.join(" L")} L${mir.join(" L")} Z"/>`
+  const P = { head: [cx, 40], neck: [cx, 76], chest: [cx, 132], back: [cx + 30, 104], belt: [cx, 222], lhip: [cx - 38, 244], rhip: [cx + 38, 244],
+    main: [cx - 70, 262], off: [cx + 70, 262], lring: [cx - 64, 282], feet: [cx + 30, 444] }
+  const C = [
+    ["head", "l", 12, `<span class="lab">Head <i>· empty</i></span><span class="hook" data-pop>+ helmet</span>`, false],
+    ["neck", "l", 62, `<span class="lab">Neck</span>${gear(WORN.neck)}`, true, "other"],
+    ["chest", "l", 112, `<span class="lab">Body</span><div class="row-gear">${gear(WORN.chest)}${gear(WORN.clothes)}</div>`, true, "armor"],
+    ["lhip", "l", 202, `<span class="lab">Left hip <i>· 1/1</i></span>${gear(WORN.lhip.items[0])}`, true, "weapon"],
+    ["main", "l", 266, `<span class="lab">Main hand <i>· holding</i></span>${gear(WORN.hands.main)}`, true, "weapon"],
+    ["lring", "l", 332, `<span class="lab">Rings <i>· 0/2</i></span><div class="row-gear">${hooks(2)}</div>`, false],
+    ["back", "r", 56, `<span class="lab">Back <i>· 2/2 points · full</i></span><div class="row-gear">${WORN.back.items.map(i => gear(i)).join("")}</div>`, true, "gear"],
+    ["belt", "r", 140, `<span class="lab">Belt <i>· 2/4 hooks</i></span><div class="row-gear">${WORN.belt.items.map(i => gear(i)).join("")}${hooks(2)}</div>`, true, "gear"],
+    ["rhip", "r", 226, `<span class="lab">Right hip <i>· 0/1</i></span><span class="hook" data-pop>+ sheathe</span>`, false],
+    ["off", "r", 290, `<span class="lab">Off hand <i>· empty</i></span><span class="hook" data-pop>+ shield, torch…</span>`, false],
+    ["feet", "r", 404, `<span class="lab">Feet</span>${gear(WORN.feet)}`, true, "armor"],
+  ]
+  let leads = "", pins = ""
+  const callouts = C.map(([key, side, top, html, on, kind]) => {
+    const [px, py] = P[key], ly = top + 8, lx = side === "l" ? 210 : W - 210, ex = side === "l" ? Math.min(px - 14, 300) : Math.max(px + 14, W - 300)
+    leads += `<path class="fig-lead ${on ? "on kind-" + kind : ""}" d="M${px} ${py} L${ex} ${ly} L${lx} ${ly}"/>`
+    pins += on ? `<circle class="pin on kind-${kind}" cx="${px}" cy="${py}" r="6"/>` : `<circle class="pin" cx="${px}" cy="${py}" r="7" data-pop/><text class="pin-plus" x="${px}" y="${py + 4}" text-anchor="middle">+</text>`
+    return `<div class="call ${side}" style="${side === "l" ? "left:0" : "right:0"};top:${top}px">${html}</div>`
+  }).join("")
+  return `<div class="ah-h"><b>Body</b><span class="meta">click a point to attach · drag gear onto the figure</span><span class="sp"></span><button class="btn">Suit up</button><button class="btn">Strip</button><button class="btn">Outfits ▾</button></div>
+    <div class="fig-wrap"><svg class="fig" viewBox="0 0 ${W} 470" preserveAspectRatio="xMidYMin meet" style="width:100%;height:470px">${fig}${leads}${pins}</svg>${callouts}</div>`
+}
+
+// ════ B · loadout strips ════
+function stripsB() {
+  const row = (cls, name, hint, gearHTML, cap, full) => `<div class="strip ${cls}"><span class="nm"><b>${name}</b><i>${hint}</i></span><div class="row-gear">${gearHTML}</div><span class="cap ${full ? "full" : ""}">${cap}</span></div>`
+  return `<div class="ah-h"><b>Loadout</b><span class="meta">click a peg to attach · drag gear onto a row</span><span class="sp"></span><button class="btn">Suit up</button><button class="btn">Strip</button><button class="btn">Outfits ▾</button></div>
+  <div class="strips">
+    ${row("hands", "Hands", "what you're holding", gear(WORN.hands.main, " <small>main</small>") + `<span class="hook" data-pop>+ off hand</span>`, "1 / 2")}
+    ${row("", "Back", "attachment points", WORN.back.items.map(i => gear(i)).join(""), "2 / 2 · full", true)}
+    ${row("", "Belt", "hooks", WORN.belt.items.map(i => gear(i)).join("") + hooks(2), "2 / 4")}
+    ${row("", "Left hip", "sheath", gear(WORN.lhip.items[0]), "1 / 1", true)}
+    ${row("", "Right hip", "sheath", `<span class="hook" data-pop>+</span>`, "0 / 1")}
+    ${row("worn", "Worn", "armour & clothing", [WORN.chest, WORN.clothes, WORN.feet, WORN.neck].map(i => gear(i)).join("") + `<span class="hook" data-pop>+ head</span><span class="hook" data-pop>+ rings</span>`, "")}
+  </div>`
+}
+
+// ════ C · today's layout (figure between two columns of slots), rebuilt ════
+function dollC() {
+  const one = (side, key, label, it, extra = {}) => it
+    ? `<div class="slotc ${side} filled ${extra.hand ? "hand" : ""} kind-${it.k}"><span class="k">${label}${extra.state ? `<i>${extra.state}</i>` : ""}</span><span class="v">${it.n}${it.sub ? ` <small>${it.sub}</small>` : ""}${it.bag ? `<span class="bagtag">▸ bag</span>` : ""}</span><span class="x">×</span></div>`
+    : `<div class="slotc ${side} empty ${extra.hand ? "hand" : ""}"><span class="k">${label}</span><span class="v">+ ${extra.hint || "add"}</span></div>`
+  const multi = (side, label, slot, kind) => `<div class="slotc ${side} ${slot.items.length ? "filled" : "empty"} kind-${kind}"><span class="k">${label}<i>${slot.items.length} / ${slot.cap}${slot.items.length >= slot.cap ? " · full" : ""}</i></span><div class="multi">${slot.items.map(i => `<span class="kind-${i.k}">${i.n}${i.bag ? `<span class="bagtag">▸</span>` : ""}</span>`).join("")}${Array.from({ length: slot.cap - slot.items.length }, () => `<span class="peg">+</span>`).join("")}</div></div>`
+  return `<div class="ah-h"><b>Body</b><span class="meta">click a slot to equip · drag gear onto a slot</span><span class="sp"></span><button class="btn">Suit up</button><button class="btn">Strip</button><button class="btn">Outfits ▾</button></div>
+  <div class="dollc">
+    <div class="figc"><img src="../../assets/paperdoll-male.svg" alt=""></div>
+    ${one("l", "head", "Head", WORN.head, { hint: "helmet" })}
+    ${one("r", "face", "Face", WORN.face, { hint: "mask, goggles" })}
+    ${one("l", "neck", "Neck", WORN.neck)}
+    ${multi("r", "Back", WORN.back, "gear")}
+    ${one("l", "clothes", "Clothes", WORN.clothes)}
+    ${one("r", "chest", "Armour", WORN.chest)}
+    ${one("l", "main", "Main hand", WORN.hands.main, { hand: true, state: "holding" })}
+    ${one("r", "off", "Off hand", WORN.hands.off, { hand: true, hint: "shield, torch" })}
+    ${multi("l", "Belt", WORN.belt, "gear")}
+    ${one("r", "feet", "Feet", WORN.feet)}
+    ${multi("l", "Left hip", WORN.lhip, "weapon")}
+    ${multi("r", "Right hip", WORN.rhip, "weapon")}
+    ${one("l", "lring", "Left ring", WORN.lring, { hint: "ring" })}
+    ${one("r", "rring", "Right ring", WORN.rring, { hint: "ring" })}
+  </div>`
+}
+
+function sheet(tag, inner) {
+  return `<section class="application theme-${theme}"><header class="window-header"><span class="t">Thorn Ashvale <span class="tag">· ${tag}</span></span>✕</header>
+    <div class="sheet-head"><div class="pic"></div><div><h2>Thorn Ashvale</h2><div class="sub">Human Fighter · STR 14</div></div></div>
+    <nav class="tabs"><a>Details</a><a class="active">Inventory</a><a>Features</a><a>Spells</a><a>Effects</a></nav>
+    <div class="inv ah">${inner}${bagsHTML()}${nativeHTML()}</div></section>`
+}
+const Q = new URLSearchParams(location.search)
+let theme = Q.get("theme") || "dark"
+function render() {
+  const v = Q.get("v")
+  document.querySelectorAll("#bar a[href^='?']").forEach(a => a.classList.toggle("on", a.getAttribute("href") === "?" + (v ? "v=" + v : "")))
+  document.getElementById("stage").innerHTML = v === "c" ? sheet("C · today's layout, rebuilt", dollC())
+    : (v !== "b" ? sheet("A · points on the figure", figureA()) : "") + (v !== "a" ? sheet("B · loadout strips", stripsB()) : "")
+}
+render()
+document.getElementById("th").onclick = (e) => { e.preventDefault(); theme = theme === "dark" ? "light" : "dark"; render() }
+// clicking an empty point / peg shows what fits there
+document.addEventListener("click", (e) => {
+  document.querySelectorAll(".pop").forEach(p => p.remove())
+  const t = e.target.closest("[data-pop]"); if (!t) return
+  const host = t.closest(".application"), hr = host.getBoundingClientRect(), r = t.getBoundingClientRect()
+  const pop = document.createElement("div"); pop.className = "pop ah"
+  pop.innerHTML = `<div class="g">Fits here</div><div class="i">Shortbow <i>not packed</i></div><div class="i">Dagger <i>in Backpack</i></div><div class="g">Add gear</div><div class="i">Scabbard <i>+1 sheath</i></div>`
+  pop.style.left = (r.left - hr.left) + "px"; pop.style.top = (r.bottom - hr.top + 4) + "px"; host.style.position = "relative"; host.appendChild(pop)
+})
+</script>
+</body>
+</html>

@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anti-Hammer C Prototype</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Signika:wght@400;500;600;700&family=Roboto+Slab:wght@500;700&display=swap">
+<style>
+/* Prototype of the chosen body ("C · today's layout, rebuilt") inside a stand-in dnd5e v5 character sheet at
+   its real size: sidebar on the left, tab rail on the right, ~510 px for the Inventory tab. Works: click an
+   empty slot / peg → what fits; click any item (slot, hex, bag row, system list) → its menu; equip, take off,
+   pack, move. Bags auto-pack (Tidy order). ?theme=light|dark  ?w=800 (window width). Made-up character. */
+:root { --font-primary: "Signika", sans-serif; }
+.theme-dark { --color-text-primary: #e7e1d4; --color-text-secondary: #b5aea0; --color-text-subtle: #8a847a; --sheet: #1c1b22; --side: #16151b; color-scheme: dark; }
+.theme-light { --color-text-primary: #2b2a24; --color-text-secondary: #4b4a44; --color-text-subtle: #6e6c62; --sheet: #ece4d2; --side: #ded3bc; color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #0d100c; font: 14px/1.4 var(--font-primary); color: #ddd; }
+#bar { display: flex; gap: 10px; align-items: center; padding: 8px 12px; background: #151515; border-bottom: 1px solid #333; font-size: 13px; flex-wrap: wrap; }
+#bar button, #bar select { background: #2a2a2a; color: #ddd; border: 1px solid #444; border-radius: 3px; padding: 3px 9px; font: inherit; cursor: pointer; }
+#log { margin-left: auto; font: 12px monospace; color: #9c9; }
+#stage { padding: 16px; }
+
+/* ── stand-in dnd5e v5 character sheet ── */
+.app { position: relative; width: 800px; background: var(--sheet); color: var(--color-text-primary); border: 1px solid #000; border-radius: 6px; box-shadow: 0 0 22px #000; overflow: hidden; display: flex; flex-direction: column; resize: horizontal; min-width: 560px; }
+.whead { background: #0e0d13; color: #ddd; padding: 6px 10px; display: flex; gap: 8px; align-items: center; font-family: "Roboto Slab", serif; font-size: 14px; }
+.whead .t { flex: 1; }
+.wbody { display: flex; min-height: 820px; }
+.side { flex: 0 0 230px; background: var(--side); padding: 14px; display: flex; flex-direction: column; gap: 10px; border-right: 1px solid color-mix(in srgb, var(--color-text-primary) 14%, transparent); }
+.side .pic { height: 170px; border-radius: 6px; background: linear-gradient(135deg,#6b5a3e,#2c2418); }
+.side h2 { margin: 0; font-family: "Roboto Slab", serif; font-size: 20px; }
+.side .sub { font-size: 12px; color: var(--color-text-subtle); margin-top: -6px; }
+.side .stat { display: flex; justify-content: space-between; padding: 6px 10px; border-radius: 4px; background: color-mix(in srgb, var(--color-text-primary) 7%, transparent); font-size: 13px; }
+.main { flex: 1; min-width: 0; padding: 12px 12px 18px; }
+.rail { flex: 0 0 36px; display: flex; flex-direction: column; gap: 4px; padding-top: 14px; align-items: center; border-left: 1px solid color-mix(in srgb, var(--color-text-primary) 14%, transparent); }
+.rail span { width: 26px; height: 26px; border-radius: 4px; background: color-mix(in srgb, var(--color-text-primary) 8%, transparent); }
+.rail span.on { background: #c9893a; }
+.tabname { font-family: "Roboto Slab", serif; font-size: 15px; margin: 0 0 10px; color: var(--color-text-secondary); }
+
+/* ── Anti-Hammer (theme tokens) ── */
+.ah { --ink: var(--color-text-primary); --dim: var(--color-text-secondary); --mute: var(--color-text-subtle);
+  --line: color-mix(in srgb, var(--ink) 15%, transparent); --line2: color-mix(in srgb, var(--ink) 28%, transparent);
+  --surf: color-mix(in srgb, var(--ink) 5%, transparent); --surf2: color-mix(in srgb, var(--ink) 10%, transparent);
+  --cell: color-mix(in srgb, var(--ink) 6%, transparent); --cellline: color-mix(in srgb, var(--ink) 13%, transparent);
+  --accent: #c9893a; --good: #4f9a4f; --bad: #c4504a;
+  --k-weapon: #c0603f; --k-armor: #6f88b0; --k-tool: #b48a32; --k-cons: #5c9c58; --k-gear: #8f78b8; --k-other: #8a8578; --k-ammo: #a3876a;
+  color: var(--ink); container-type: inline-size; }
+.kind-weapon { --kc: var(--k-weapon); } .kind-armor { --kc: var(--k-armor); } .kind-tool { --kc: var(--k-tool); } .kind-cons { --kc: var(--k-cons); }
+.kind-gear { --kc: var(--k-gear); } .kind-other { --kc: var(--k-other); } .kind-ammo { --kc: var(--k-ammo); }
+.ah-h { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; padding-bottom: 5px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.ah-h b { font-size: 11.5px; letter-spacing: .09em; text-transform: uppercase; }
+.ah-h .meta { color: var(--mute); font-size: 12px; }
+.ah-h .sp { flex: 1; }
+.btn { font: inherit; font-size: 11.5px; padding: 2px 8px; border: 1px solid var(--line2); border-radius: 3px; background: var(--surf); color: var(--ink); cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+
+/* body: figure between two columns, rows aligned */
+.doll { display: grid; grid-template-columns: minmax(0,1fr) 74px minmax(0,1fr); gap: 5px 8px; margin: 2px 0 16px; }
+.doll .fig { grid-column: 2; grid-row: 1 / span 7; display: flex; align-items: center; justify-content: center; }
+.doll .fig img { width: 100%; max-height: 360px; object-fit: contain; opacity: .5; user-select: none; -webkit-user-drag: none; }
+.theme-dark .doll .fig img { filter: invert(1) brightness(.6); }
+.slot { position: relative; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 1px; min-height: 44px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--surf); cursor: pointer; }
+.slot.l { grid-column: 1; } .slot.r { grid-column: 3; text-align: right; }
+.slot .k { display: flex; justify-content: space-between; gap: 6px; font-size: 9.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--mute); }
+.slot.r .k { flex-direction: row-reverse; }
+.slot .k i { font-style: normal; letter-spacing: 0; text-transform: none; font-variant-numeric: tabular-nums; }
+.slot .k i.full { color: var(--good); }
+.slot .v { font-size: 13px; font-weight: 600; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slot.filled { background: var(--surf2); border-left: 3px solid var(--kc); }
+.slot.r.filled { border-left: 1px solid var(--line); border-right: 3px solid var(--kc); }
+.slot.empty { border-style: dashed; background: none; }
+.slot.empty .v { color: var(--mute); font-weight: 400; font-size: 12px; }
+.slot:hover { border-color: var(--line2); } .slot.empty:hover { border-color: var(--accent); border-style: solid; }
+.slot.hand.filled { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--kc) 45%, transparent); }
+.slot.multi { cursor: default; }
+.chips { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 2px; }
+.slot.r .chips { justify-content: flex-end; }
+.chip { font-size: 11.5px; font-weight: 600; padding: 1px 6px; border-radius: 3px; background: color-mix(in srgb, var(--kc) 22%, transparent); border: 1px solid color-mix(in srgb, var(--kc) 55%, transparent); cursor: pointer; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.chip:hover { background: color-mix(in srgb, var(--kc) 38%, transparent); }
+.peg { font-size: 11.5px; padding: 1px 7px; border-radius: 3px; border: 1px dashed var(--line2); color: var(--mute); cursor: pointer; }
+.peg:hover { border-color: var(--accent); border-style: solid; color: var(--ink); }
+.bagmark { font-weight: 400; color: var(--accent); margin-left: 3px; }
+@keyframes land { 0% { transform: scale(1.06); background: color-mix(in srgb, var(--accent) 30%, transparent); } 100% { transform: none; } }
+.landed { animation: land .45s cubic-bezier(.22,1,.36,1); }
+
+/* bags */
+.meter { height: 7px; border-radius: 3px; background: var(--cell); overflow: hidden; margin: -1px 0 10px; }
+.meter i { display: block; height: 100%; background: var(--good); transition: width .4s; }
+.bags { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+.bag { border: 1px solid var(--line); border-radius: 4px; background: var(--surf); padding: 6px 8px; max-width: 100%; }
+.bag-h { display: flex; align-items: baseline; gap: 6px; margin-bottom: 5px; font-size: 12.5px; }
+.bag-h b { font-weight: 600; } .bag-h .where { font-size: 10.5px; color: var(--mute); }
+.bag-h .n { margin-left: auto; padding-left: 8px; color: var(--mute); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.bag-h .n.full { color: var(--good); font-weight: 600; } .bag-h .n.full::after { content: " ✓"; }
+.bag svg { display: block; max-width: 100%; height: auto; }
+.hx-cell { fill: var(--cell); stroke: var(--cellline); stroke-width: 1; }
+.hx-fill { fill: var(--kc); fill-opacity: .42; }
+.hx-edge { fill: none; stroke: var(--kc); stroke-width: 2; stroke-linecap: round; }
+.hx-it { cursor: pointer; } .hx-it:hover .hx-fill { fill-opacity: .72; }
+.hx-name { fill: var(--ink); font: 600 9.5px Signika; pointer-events: none; paint-order: stroke; stroke: color-mix(in srgb, var(--sheet) 70%, transparent); stroke-width: 3px; stroke-linejoin: round; }
+.over { margin-top: 8px; padding: 5px 9px; border: 1px solid color-mix(in srgb, var(--bad) 50%, transparent); background: color-mix(in srgb, var(--bad) 12%, transparent); border-radius: 3px; font-size: 12px; }
+
+/* the system's own list, now saying where each thing is */
+.native { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 8px; font-size: 12.5px; }
+.native h4 { margin: 0 0 6px; font-family: "Roboto Slab", serif; color: var(--dim); font-size: 13px; font-weight: 500; }
+.native .r { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 3px 4px; border-bottom: 1px solid color-mix(in srgb, var(--ink) 8%, transparent); color: var(--dim); cursor: pointer; }
+.native .r:hover { background: var(--surf); }
+.native .r .w { color: var(--mute); font-size: 11.5px; }
+.native .r.np { color: var(--ink); }
+.native .r.np .w { color: var(--bad); font-weight: 600; }
+
+/* menu */
+.menu { position: absolute; z-index: 20; min-width: 200px; max-width: 250px; background: Canvas; color: var(--ink); border: 1px solid var(--line2); border-radius: 5px; box-shadow: 0 12px 30px rgba(0,0,0,.4); padding: 4px; font-size: 12.5px; }
+.menu .h { padding: 4px 8px 6px; border-bottom: 1px solid var(--line); margin-bottom: 3px; }
+.menu .h b { display: block; font-size: 13px; } .menu .h i { font-style: normal; color: var(--mute); font-size: 11px; }
+.menu .g { font-size: 9.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--mute); padding: 6px 8px 2px; }
+.menu button { display: flex; justify-content: space-between; gap: 10px; width: 100%; padding: 5px 8px; border: none; border-radius: 3px; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.menu button i { font-style: normal; color: var(--mute); font-size: 11px; }
+.menu button:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.menu button:disabled { color: var(--mute); cursor: default; } .menu button:disabled:hover { background: none; }
+.menu .none { padding: 6px 8px; color: var(--mute); font-style: italic; }
+
+/* narrow sheet: figure steps aside, the two columns stay */
+@container (max-width: 430px) {
+  .doll { grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
+  .doll .fig { display: none; }
+  .slot.r { grid-column: 2; }
+}
+</style>
+</head>
+<body>
+<div id="bar"><b>Anti-Hammer · C prototype</b>
+  <label>Theme <select id="theme"><option>dark</option><option>light</option></select></label>
+  <label>Sheet width <select id="w"><option>800</option><option>720</option><option>640</option><option>960</option></select></label>
+  <button id="reset">Reset</button><span id="log">click any slot or item</span></div>
+<div id="stage"></div>
+<script>
+// ── model ───────────────────────────────────────────────────────
+// slot keys → label, side, row, cap (multi = attachment rows)
+const SLOTS = {
+  head: ["Head", "l", 1, 1, "helmet, hood"], face: ["Face", "r", 1, 1, "mask, goggles"],
+  neck: ["Neck", "l", 2, 1, "amulet, symbol"], back: ["Back", "r", 2, 2, null],
+  clothes: ["Clothes", "l", 3, 1, "clothing"], chest: ["Armour", "r", 3, 1, "armour"],
+  main: ["Main hand", "l", 4, 1, "weapon, tool"], off: ["Off hand", "r", 4, 1, "shield, torch"],
+  belt: ["Belt", "l", 5, 4, null], feet: ["Feet", "r", 5, 1, "boots"],
+  lhip: ["Left hip", "l", 6, 1, null], rhip: ["Right hip", "r", 6, 1, null],
+  lring: ["Left ring", "l", 7, 1, "ring"], rring: ["Right ring", "r", 7, 1, "ring"],
+}
+const MULTI = new Set(["back", "belt", "lhip", "rhip"])
+// id: [name, kind, spaces, allowed slots, start {slot}|{bag}|null, provides bag {cap, cols, only}]
+const START = {
+  longsword: ["Longsword", "weapon", 1, ["main", "off", "lhip", "rhip", "back"], { slot: "main" }],
+  dagger: ["Dagger", "weapon", 1, ["main", "off", "lhip", "rhip", "belt"], { slot: "lhip" }],
+  shortbow: ["Shortbow", "weapon", 2, ["main", "back"], null],
+  torch: ["Torch", "tool", 1, ["main", "off", "belt"], null],
+  chain: ["Chain Shirt", "armor", 0, ["chest"], { slot: "chest" }],
+  clothes: ["Traveler's Clothes", "armor", 0, ["clothes"], { slot: "clothes" }],
+  boots: ["Boots", "armor", 0, ["feet"], { slot: "feet" }],
+  symbol: ["Holy Symbol", "other", 1, ["neck", "main", "off"], { slot: "neck" }],
+  backpack: ["Backpack", "gear", 2, ["back"], { slot: "back" }, { cap: 20, cols: 5, only: null }],
+  quiver: ["Quiver", "gear", 1, ["back", "lhip", "rhip"], { slot: "back" }, { cap: 8, cols: 2, only: "ammo" }],
+  pouch: ["Pouch", "gear", 1, ["belt"], { slot: "belt" }, { cap: 6, cols: 3, only: "small" }],
+  waterskin: ["Waterskin", "cons", 1, ["belt"], { slot: "belt" }],
+  rope: ["Rope, Hempen", "tool", 3, [], { bag: "backpack" }],
+  rations: ["Rations ×5", "cons", 4, [], { bag: "backpack" }],
+  crowbar: ["Crowbar", "tool", 2, ["belt"], { bag: "backpack" }],
+  tinderbox: ["Tinderbox", "tool", 1, [], { bag: "backpack" }],
+  lantern: ["Lantern", "tool", 2, ["belt", "off"], { bag: "backpack" }],
+  bedroll: ["Bedroll", "other", 3, ["back"], { bag: "backpack" }],
+  arrows: ["Arrows ×20", "ammo", 4, [], { bag: "quiver" }],
+  healing: ["Healing ×2", "cons", 2, [], { bag: "pouch" }],
+  chalk: ["Chalk", "other", 1, [], { bag: "pouch" }],
+  coins: ["Coins", "other", 1, [], { bag: "pouch" }],
+}
+let items
+const reset = () => { items = Object.fromEntries(Object.entries(START).map(([id, [n, k, sp, slots, at, bag]]) => [id, { id, n, k, sp, slots, at: at ? { ...at } : null, bag: bag || null }])) }
+reset()
+const KL = { weapon: "Weapon", armor: "Armour", tool: "Tool", cons: "Consumable", gear: "Container", other: "Other", ammo: "Ammo" }
+const wornIn = (slot) => Object.values(items).filter(i => i.at && i.at.slot === slot)
+const freeIn = (slot) => SLOTS[slot][3] - wornIn(slot).length
+const bags = () => Object.values(items).filter(i => i.bag && i.at && i.at.slot)
+const accepts = (bag, it) => !it.bag && it.sp > 0 && (!bag.bag.only || (bag.bag.only === "ammo" ? it.k === "ammo" : it.sp <= 2))
+// auto-pack each bag: biggest first, first fit, col-major 4-row grid (the bridge's Tidy order)
+const SHAPE = { 1: [[0,0]], 2: [[0,0],[1,0]], 3: [[0,0],[1,0],[2,0]], 4: [[0,0],[1,0],[0,1],[1,1]] }
+function pack(bag) {
+  const rows = 4, cap = bag.bag.cap, valid = new Set(), occ = new Set(), out = []
+  for (let i = 0; i < cap; i++) valid.add(Math.floor(i / rows) + "," + (i % rows))
+  const inside = Object.values(items).filter(i => i.at && i.at.bag === bag.id).sort((a, b) => b.sp - a.sp || a.n.localeCompare(b.n))
+  let overflow = []
+  for (const it of inside) {
+    const sh = SHAPE[Math.min(4, it.sp)] || SHAPE[1]; let done = false
+    for (let c = 0; c < bag.bag.cols && !done; c++) for (let r = 0; r < rows && !done; r++) {
+      const cells = sh.map(([dc, dr]) => [c + dc, r + dr])
+      if (cells.every(([x, y]) => valid.has(x + "," + y) && !occ.has(x + "," + y))) { cells.forEach(([x, y]) => occ.add(x + "," + y)); out.push([it, cells]); done = true }
+    }
+    if (!done) overflow.push(it)
+  }
+  return { placed: out, overflow }
+}
+const usedOf = (bag) => Object.values(items).filter(i => i.at && i.at.bag === bag.id).reduce((a, i) => a + i.sp, 0)
+const canFit = (bag, it) => accepts(bag, it) && usedOf(bag) + it.sp <= bag.bag.cap
+function whereText(it) {
+  if (!it.at) return "not packed"
+  if (it.at.slot) return MULTI.has(it.at.slot) ? "on " + SLOTS[it.at.slot][0] : (it.at.slot === "main" || it.at.slot === "off" ? SLOTS[it.at.slot][0] : "worn · " + SLOTS[it.at.slot][0])
+  return "in " + items[it.at.bag].n
+}
+
+// ── actions ─────────────────────────────────────────────────────
+let landed = null
+function equip(it, slot) {
+  if (slot === "main" || slot === "off") for (const o of wornIn(slot)) o.at = null
+  it.at = { slot }; landed = it.id; say(it.n + " → " + SLOTS[slot][0])
+}
+function takeOff(it, toBag) {
+  if (it.bag) for (const c of Object.values(items)) if (c.at && c.at.bag === it.id) c.at = null   // its contents spill out (not packed)
+  it.at = toBag ? { bag: toBag } : null; landed = it.id; say(it.n + (toBag ? " → " + items[toBag].n : " taken off (not packed)"))
+}
+function packInto(it, bagId) { it.at = { bag: bagId }; landed = it.id; say(it.n + " → " + items[bagId].n) }
+const say = (t) => { document.getElementById("log").textContent = t }
+
+// ── render ──────────────────────────────────────────────────────
+const S = 17, HW = Math.sqrt(3) * S
+const cen = (c, r) => ({ x: HW / 2 + 3 + HW * (c + 0.5 * (r & 1)), y: S + 3 + 1.5 * S * r })
+const pts = (x, y, s) => { let p = ""; for (let i = 0; i < 6; i++) { const a = (60 * i - 90) * Math.PI / 180; p += (x + s * Math.cos(a)).toFixed(1) + "," + (y + s * Math.sin(a)).toFixed(1) + " " } return p }
+function bagSVG(bag) {
+  const rows = 4, cols = bag.bag.cols, { placed } = pack(bag)
+  const w = HW * (cols + 0.5) + 6, h = 1.5 * S * (rows - 1) + 2 * S + 6
+  let s = `<svg viewBox="0 0 ${w.toFixed(0)} ${h.toFixed(0)}" width="${w.toFixed(0)}" height="${h.toFixed(0)}">`
+  for (let i = 0; i < bag.bag.cap; i++) { const p = cen(Math.floor(i / rows), i % rows); s += `<polygon class="hx-cell" points="${pts(p.x, p.y, S - 1)}"/>` }
+  for (const [it, cells] of placed) {
+    const cs = cells.map(([c, r]) => cen(c, r)); let d = ""
+    for (const c of cs) for (let i = 0; i < 6; i++) {
+      const a = (60 * i - 60) * Math.PI / 180, nx = c.x + HW * Math.cos(a), ny = c.y + HW * Math.sin(a)
+      if (cs.some(o => Math.abs(o.x - nx) < 2 && Math.abs(o.y - ny) < 2)) continue
+      const v = (j) => { const t = (60 * j - 90) * Math.PI / 180; return [c.x + (S + .4) * Math.cos(t), c.y + (S + .4) * Math.sin(t)] }
+      const p1 = v(i), p2 = v(i + 1); d += `M${p1[0].toFixed(1)} ${p1[1].toFixed(1)}L${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`
+    }
+    const mx = cs.reduce((a, c) => a + c.x, 0) / cs.length, my = cs.reduce((a, c) => a + c.y, 0) / cs.length
+    const span = Math.max(...cs.map(c => c.x)) - Math.min(...cs.map(c => c.x)) + HW
+    const maxCh = Math.max(3, Math.floor(span / 5.6)), label = it.n.length > maxCh ? it.n.slice(0, maxCh - 1) + "…" : it.n
+    s += `<g class="hx-it kind-${it.k}${landed === it.id ? " landed" : ""}" data-it="${it.id}"><title>${it.n} · ${it.sp} space${it.sp === 1 ? "" : "s"}</title>${cs.map(c => `<polygon class="hx-fill" points="${pts(c.x, c.y, S + .4)}"/>`).join("")}<path class="hx-edge" d="${d}"/><text class="hx-name" x="${mx.toFixed(1)}" y="${(my + 3.3).toFixed(1)}" text-anchor="middle">${label}</text></g>`
+  }
+  return s + "</svg>"
+}
+function slotHTML(key) {
+  const [label, side, row, cap, hint] = SLOTS[key], worn = wornIn(key)
+  const pos = `style="grid-row:${row}"`
+  if (MULTI.has(key)) {
+    const n = worn.length, kind = worn[0] ? worn[0].k : "gear"
+    return `<div class="slot ${side} multi ${n ? "filled" : "empty"} kind-${kind}" ${pos}><span class="k">${label}<i class="${n >= cap ? "full" : ""}">${n} / ${cap}${n >= cap ? " · full" : ""}</i></span>
+      <div class="chips">${worn.map(i => `<span class="chip kind-${i.k}${landed === i.id ? " landed" : ""}" data-it="${i.id}">${i.n}${i.bag ? `<span class="bagmark">▸</span>` : ""}</span>`).join("")}${Array.from({ length: cap - n }, () => `<span class="peg" data-slot="${key}">+</span>`).join("")}</div></div>`
+  }
+  const it = worn[0]
+  if (it) return `<div class="slot ${side} filled ${key === "main" || key === "off" ? "hand" : ""} kind-${it.k}${landed === it.id ? " landed" : ""}" ${pos} data-it="${it.id}"><span class="k">${label}${key === "main" || key === "off" ? `<i>${it.k === "weapon" ? "holding" : "in hand"}</i>` : ""}</span><span class="v">${it.n}</span></div>`
+  return `<div class="slot ${side} empty ${key === "main" || key === "off" ? "hand" : ""}" ${pos} data-slot="${key}"><span class="k">${label}</span><span class="v">+ ${hint}</span></div>`
+}
+function render() {
+  const theme = document.getElementById("theme").value, W = +document.getElementById("w").value
+  const bs = bags(), packed = bs.reduce((a, b) => a + usedOf(b), 0), cap = bs.reduce((a, b) => a + b.bag.cap, 0)
+  const np = Object.values(items).filter(i => !i.at)
+  const html = `<section class="app theme-${theme}" style="width:${W}px"><div class="whead"><span class="t">Thorn Ashvale</span>✕</div><div class="wbody">
+    <aside class="side"><div class="pic"></div><h2>Thorn Ashvale</h2><div class="sub">Human Fighter 5</div>
+      <div class="stat"><span>AC</span><b>16</b></div><div class="stat"><span>HP</span><b>44 / 44</b></div><div class="stat"><span>Speed</span><b>30 ft</b></div></aside>
+    <div class="main"><div class="tabname">Inventory</div>
+      <div class="ah" id="ah">
+        <div class="ah-h"><b>Body</b><span class="meta">click to equip</span><span class="sp"></span><button class="btn">Suit up</button><button class="btn">Strip</button><button class="btn">Outfits ▾</button></div>
+        <div class="doll"><div class="fig"><img src="../../assets/paperdoll-male.svg" alt=""></div>${Object.keys(SLOTS).map(slotHTML).join("")}</div>
+        <div class="ah-h"><b>Bags</b><span class="meta">${packed} / ${cap} packed</span><span class="sp"></span><button class="btn">Tidy</button><button class="btn">+ Add</button></div>
+        <div class="meter"><i style="width:${cap ? (packed / cap * 100).toFixed(0) : 0}%"></i></div>
+        <div class="bags">${bs.map(b => { const u = usedOf(b); return `<div class="bag"><div class="bag-h"><b>${b.n}</b><span class="where">on ${SLOTS[b.at.slot][0]}${b.bag.only ? " · " + (b.bag.only === "ammo" ? "ammo" : "small") : ""}</span><span class="n ${u >= b.bag.cap ? "full" : ""}">${u} / ${b.bag.cap}</span></div>${bagSVG(b)}</div>` }).join("") || `<div class="meta">No bags worn.</div>`}</div>
+        ${np.length ? `<div class="over"><b>${np.length} not packed</b> — ${np.map(i => i.n).join(", ")}. Click one to pack or wear it.</div>` : ""}
+        <div class="native"><h4>dnd5e inventory</h4>${Object.values(items).sort((a, b) => a.n.localeCompare(b.n)).map(i => `<div class="r ${i.at ? "" : "np"}" data-it="${i.id}"><span>${i.n}</span><span class="w">${whereText(i)}</span></div>`).join("")}</div>
+      </div></div>
+    <nav class="rail"><span></span><span></span><span class="on"></span><span></span><span></span><span></span></nav>
+  </div></section>`
+  document.getElementById("stage").innerHTML = html
+  setTimeout(() => { landed = null }, 0)
+}
+
+// ── menus ───────────────────────────────────────────────────────
+function openMenu(x, y, head, groups) {
+  document.querySelectorAll(".menu").forEach(m => m.remove())
+  const app = document.querySelector(".app"), ar = app.getBoundingClientRect()
+  const m = document.createElement("div"); m.className = "menu ah"; let n = 0; const fns = []
+  m.innerHTML = head + groups.filter(g => g.rows.length).map(g => (g.t ? `<div class="g">${g.t}</div>` : "") + g.rows.map(r => { fns.push(r.fn); return `<button data-i="${n++}" ${r.off ? "disabled" : ""}><span>${r.l}</span>${r.s ? `<i>${r.s}</i>` : ""}</button>` }).join("")).join("") || head + `<div class="none">Nothing fits here right now.</div>`
+  app.appendChild(m)
+  const left = Math.min(x - ar.left + 4, ar.width - m.offsetWidth - 8), top = Math.min(y - ar.top + 4, ar.height - m.offsetHeight - 8)
+  m.style.left = Math.max(8, left) + "px"; m.style.top = Math.max(8, top) + "px"
+  m.onclick = (e) => { const b = e.target.closest("button[data-i]"); if (!b || b.disabled) return; m.remove(); fns[+b.dataset.i](); render() }
+}
+function itemMenu(it, x, y) {
+  const head = `<div class="h"><b>${it.n}</b><i>${KL[it.k]}${it.sp ? " · " + it.sp + " space" + (it.sp === 1 ? "" : "s") : ""} · ${whereText(it)}</i></div>`
+  const groups = []
+  if (it.at && it.at.slot) {
+    const g = { t: "Take off", rows: [] }
+    if (!it.bag) for (const b of bags()) g.rows.push({ l: "Into " + b.n, s: canFit(b, it) ? (b.bag.cap - usedOf(b)) + " free" : accepts(b, it) ? "full" : "can't hold", off: !canFit(b, it), fn: () => takeOff(it, b.id) })
+    g.rows.push({ l: "Take off", s: it.bag ? "its contents spill out" : "not packed", fn: () => takeOff(it, null) })
+    groups.push(g)
+  }
+  const wear = { t: "Wear / hold", rows: [] }
+  for (const s of it.slots) if (!(it.at && it.at.slot === s)) { const hand = s === "main" || s === "off"; const free = freeIn(s) > 0; wear.rows.push({ l: SLOTS[s][0], s: free ? "" : hand ? "swap" : "full", off: !free && !hand, fn: () => equip(it, s) }) }
+  groups.push(wear)
+  if (!it.bag && it.sp > 0) {
+    const g = { t: it.at && it.at.bag ? "Move to" : "Pack into", rows: [] }
+    for (const b of bags()) if (!(it.at && it.at.bag === b.id)) g.rows.push({ l: b.n, s: canFit(b, it) ? (b.bag.cap - usedOf(b)) + " free" : accepts(b, it) ? "full" : "can't hold", off: !canFit(b, it), fn: () => packInto(it, b.id) })
+    if (it.at && it.at.slot) {} else groups.push(g)
+    if (it.at && it.at.bag) groups.push({ t: "", rows: [{ l: "Take out", s: "not packed", fn: () => { it.at = null; say(it.n + " taken out") } }] })
+  }
+  openMenu(x, y, head, groups)
+}
+function slotMenu(slot, x, y) {
+  const fit = Object.values(items).filter(i => i.slots.includes(slot) && !(i.at && i.at.slot === slot))
+  const head = `<div class="h"><b>${SLOTS[slot][0]}</b><i>${MULTI.has(slot) ? freeIn(slot) + " open" : "empty"}</i></div>`
+  openMenu(x, y, head, [{ t: "Fits here", rows: fit.map(i => ({ l: i.n, s: whereText(i), fn: () => equip(i, slot) })) }])
+}
+document.addEventListener("click", (e) => {
+  if (e.target.closest(".menu")) return
+  document.querySelectorAll(".menu").forEach(m => m.remove())
+  const it = e.target.closest("[data-it]"); if (it) return itemMenu(items[it.dataset.it], e.clientX, e.clientY)
+  const sl = e.target.closest("[data-slot]"); if (sl) return slotMenu(sl.dataset.slot, e.clientX, e.clientY)
+})
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") document.querySelectorAll(".menu").forEach(m => m.remove()) })
+const Q = new URLSearchParams(location.search)
+if (Q.get("theme")) document.getElementById("theme").value = Q.get("theme")
+if (Q.get("w")) document.getElementById("w").value = Q.get("w")
+document.getElementById("theme").onchange = render; document.getElementById("w").onchange = render
+document.getElementById("reset").onclick = () => { reset(); render() }
+render()
+// screenshot presets: ?menu=<itemId> opens that item's menu; ?slotmenu=<slot>
+setTimeout(() => {
+  const at = (sel) => { const el = document.querySelector(sel); if (!el) return null; const r = el.getBoundingClientRect(); return [r.x + Math.min(40, r.width / 2), r.y + r.height / 2] }
+  if (Q.get("menu")) { const p = at(`[data-it="${Q.get("menu")}"]`); if (p) itemMenu(items[Q.get("menu")], ...p) }
+  if (Q.get("slotmenu")) { const p = at(`[data-slot="${Q.get("slotmenu")}"]`); if (p) slotMenu(Q.get("slotmenu"), ...p) }
+}, 300)
+</script>
+</body>
+</html>
