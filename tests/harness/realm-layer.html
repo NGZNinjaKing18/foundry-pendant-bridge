@@ -83,7 +83,8 @@ const town = (id, name, tier, x, y, extra = {}) => {
   const r = R.asDrawnPlace({ id, name, tier, x, y, population: { capital: 450, city: 192, town: 115, village: 23 }[tier], ...extra }, {}, { natColour: '#2f8be0' })
   const rec = R.placeRecord(r, { zoomVis: ZV, alt: true, artFor: (t) => t, id })
   const px = rec.marker.px
-  rec.marker = { art: { rs: ink('#dfe6ee', '#9a5a48', px), more: ink('#9dc3ea', '#7a5a68', px) }, w: px + 9, h: px + 9 }
+  const art = { rs: ink('#dfe6ee', '#9a5a48', px), more: ink('#9dc3ea', '#7a5a68', px) }
+  rec.marker = { art, vec: art, w: px + 9, h: px + 9 }   // vec: the same SVG, redrawn sharp when big on screen
   return { ...rec, fitPx: FIT, views: ['v1', 'v2'] }
 }
 const box = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]

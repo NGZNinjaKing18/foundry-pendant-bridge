@@ -68,7 +68,7 @@ const colour = (c, d = 0xffffff) => {
 
 // ── the canvas ────────────────────────────────────────────────
 
-const S = { root: null, parts: null, items: [], tex: new Map(), raf: 0, sharpT: 0, tip: null, hover: null, held: null, holdT: 0 }
+const S = { root: null, parts: null, items: [], tex: new Map(), vec: new Map(), svgText: new Map(), raf: 0, sharpT: 0, tip: null, hover: null, held: null, holdT: 0 }
 const RAISE_AFTER = 1500   // ms on a town (its marker or its name) before it comes to the top (the user, 2026-10-30)
 
 function dims() { return canvas?.dimensions || null }
@@ -252,7 +252,7 @@ function update(full = false) {
   const z = mapZoom(), k = scale(), d = dims()
   const { current } = viewsOf(canvas.scene)
   // A view showing borders → the ink markers in RealmScreen's colours; none → more of the nation's colour.
-  const borders = seeing("borders") && S.items.some(it => it.r.kind === "nation" && visibleFor(it.r, current))
+  const borders = S.borders = seeing("borders") && S.items.some(it => it.r.kind === "nation" && visibleFor(it.r, current))
   for (const it of S.items) {
     const r = it.r
     const shown = visibleFor(r, current)
@@ -350,10 +350,88 @@ function update(full = false) {
   S.sharpT = setTimeout(sharpen, 160)
 }
 
+// ── vector markers ────────────────────────────────────────────
+// RealmScreen sends each ink / shape marker as an SVG too (lib/markerPng.js vectorSvg). On a scene much bigger than
+// RealmScreen's map (the user's |World Map| is 65× it) the uploaded picture is stretched past sharp, so when zooming
+// stops, a marker on screen bigger than its picture is redrawn from its SVG at the next power of two of its size
+// on screen (one texture per drawing and size, shared). Off screen, or small, it goes back to the picture, and
+// redrawings nothing uses are let go — Foundry memory stays small (the user: low Foundry memory).
+const VEC_MAX = 2048
+// A new texture on a sprite, at the size it already has (a sprite keeps its scale, not its size).
+function setTex(sp, t) { const w = sp.width, h = sp.height; sp.texture = t; sp.width = w; sp.height = h }
+function vecSrcOf(m, borders) {
+  const v = m?.vec
+  if (!v) return null
+  return v.src || (borders ? v.rs : (v.more || v.rs)) || null
+}
+function vecTexture(src, step) {
+  const key = `${src}@${step}`
+  let e = S.vec.get(key)
+  if (e) return e
+  e = { key, tex: null, waiting: [] }
+  S.vec.set(key, e)
+  const text = S.svgText.get(src) || fetch(src).then(r => { if (!r.ok) throw new Error(r.status); return r.text() })
+  S.svgText.set(src, text)
+  Promise.resolve(text).then(svg => new Promise((res, rej) => {
+    const W = Number(/width="([\d.]+)"/.exec(svg)?.[1]) || 16, H = Number(/height="([\d.]+)"/.exec(svg)?.[1]) || 16
+    const f = step / Math.max(W, H)
+    const sized = svg.replace(/width="[\d.]+"/, `width="${W * f}"`).replace(/height="[\d.]+"/, `height="${H * f}"`)
+    const img = new Image()
+    img.onload = () => {
+      const c = document.createElement("canvas")
+      c.width = Math.max(1, Math.round(W * f)); c.height = Math.max(1, Math.round(H * f))
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height)
+      res(PIXI.Texture.from(c, { mipmap: PIXI.MIPMAP_MODES?.ON }))
+    }
+    img.onerror = () => rej(new Error("svg"))
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(sized)
+  })).then(t => {
+    if (!S.vec.has(key)) { t.destroy(true); return }
+    e.tex = t
+    for (const sp of e.waiting) if (!sp.destroyed && sp._vecKey === key) setTex(sp, t)
+    e.waiting = []
+  }).catch(() => { S.vec.delete(key) })   // no SVG (or it failed): the picture stays
+  return e
+}
+function sharpenMarkers(k, dpr, borders) {
+  const used = new Set()
+  const sr = canvas.app?.renderer?.screen
+  let view = null
+  try {
+    const a = S.root.toLocal({ x: 0, y: 0 }), b = S.root.toLocal({ x: sr.width, y: sr.height })
+    const mx = (b.x - a.x) * 0.25, my = (b.y - a.y) * 0.25
+    view = { x0: a.x - mx, y0: a.y - my, x1: b.x + mx, y1: b.y + my }
+  } catch { view = null }
+  for (const it of S.items) {
+    const sp = it.sprite
+    if (!sp || sp.destroyed || it.r.kind !== "settlement") continue
+    const src = vecSrcOf(it.r.marker, borders)
+    const png = S.tex.get(sp._src)?.tex
+    let want = null
+    if (src && sp._want !== false && png) {
+      const onScreen = Math.max(sp.width, sp.height) * k * dpr
+      const inView = !view || (sp.x > view.x0 && sp.x < view.x1 && sp.y > view.y0 && sp.y < view.y1)
+      if (inView && onScreen > Math.max(png.width, png.height)) {
+        const step = Math.min(VEC_MAX, 2 ** Math.ceil(Math.log2(Math.max(64, onScreen))))
+        if (step > Math.max(png.width, png.height)) want = vecTexture(src, step)
+      }
+    }
+    if (want) {
+      used.add(want.key)
+      if (sp._vecKey !== want.key) {
+        sp._vecKey = want.key
+        if (want.tex) setTex(sp, want.tex); else want.waiting.push(sp)   // keeps the picture until it's drawn
+      }
+    } else if (sp._vecKey) { sp._vecKey = null; if (png) setTex(sp, png) }
+  }
+  for (const [key, e] of S.vec) if (!used.has(key)) { S.vec.delete(key); e.tex?.destroy(true) }
+}
+
 // Text is rasterised at BASE px; when zooming stops, give every visible name enough pixels for its size now.
 function sharpen() {
   if (!S.root || S.root.destroyed) return
   const k = scale(), dpr = window.devicePixelRatio || 1
+  try { sharpenMarkers(k, dpr, S.borders) } catch (e) { console.warn("[pendant-bridge] realm layer: markers", e) }
   for (const t of [...S.parts.townNames.children, ...S.parts.nationNames.children]) {
     if (!t.visible) continue
     const onScreen = BASE * t.scale.x * k
@@ -461,7 +539,7 @@ Hooks.on("canvasReady", () => {
   const view = canvas?.app?.view
   if (view && !view._pbRealmTip) { view._pbRealmTip = true; view.addEventListener("pointermove", onMove); view.addEventListener("pointerleave", () => { if (S.tip) S.tip.hidden = true; hold(null) }) }
 })
-Hooks.on("canvasTearDown", () => { clearTimeout(S.holdT); S.raised = null; S.held = null; S.root = null; S.items = []; if (S.tip) S.tip.hidden = true })
+Hooks.on("canvasTearDown", () => { for (const e of S.vec.values()) e.tex?.destroy(true); S.vec.clear(); clearTimeout(S.holdT); S.raised = null; S.held = null; S.root = null; S.items = []; if (S.tip) S.tip.hidden = true })
 Hooks.on("canvasPan", () => schedule())
 Hooks.on("updateScene", (scene, changes) => {
   if (scene?.id !== canvas?.scene?.id) return
