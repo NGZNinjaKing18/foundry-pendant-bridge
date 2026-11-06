@@ -309,8 +309,8 @@ Hooks.once("init", () => {
     default: false,
     onChange: () => ahRerenderSheets()
   })
-  // The overhauled panel look (same Body · Bag · Loose · Storage, same data). Per client, so each
-  // player can try it; "classic" stays the default until the new look is signed off.
+  // The overhauled panel look (same data as the classic one). Per client; "new" is the default
+  // (2026-11-06) — anyone can switch back to Classic in Module Settings.
   game.settings.register(MOD, "ahLook", {
     name:    "Anti-Hammer: panel look",
     hint:    "Classic = the panel as it has been. New = the overhauled look: the body as two lined-up columns beside the figure, item names on the bag shapes, one menu for every item, where-tags in the inventory list, readable at any sheet width.",
@@ -318,7 +318,7 @@ Hooks.once("init", () => {
     config:  true,
     type:    String,
     choices: { classic: "Classic", new: "New" },
-    default: "classic",
+    default: "new",
     onChange: () => ahRerenderSheets()
   })
 })
@@ -7126,7 +7126,7 @@ function ahInjectPanel(app, html) {
   if (!host) return
   // which look: a sheet can pin one (data-ah-look — the dev harness shows both side by side), else the client setting
   let look = root.getAttribute && root.getAttribute("data-ah-look")
-  if (!look) { try { look = game.settings.get(MOD, "ahLook") } catch { look = "classic" } }
+  if (!look) { try { look = game.settings.get(MOD, "ahLook") } catch { look = "new" } }
   let panel
   try { panel = ahBuildPanel(actor, { v2: look === "new" }) } catch (e) { console.warn("[pendant-bridge] AH panel build failed", e); return }
   panel.setAttribute("data-ah-actor", ahActorKey(actor)); panel.setAttribute("data-ah-look", look === "new" ? "new" : "classic")
