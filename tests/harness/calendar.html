@@ -164,10 +164,11 @@ const cal = {
     { id: "e6", name: "Arrive at the hunting lodge", memberId: "m5", day: 17, year: 2, seenBy: { campaignId: "ash" } },
     { id: "e7", name: "Ambush on the river road", memberId: "m5", day: 23, year: 2, playerHidden: true },
     { id: "e8", name: "Coronation in the capital", memberId: "m5", day: 26, year: 2, publicEarly: true, note: "Announced across the realm." },
-    { id: "e9", name: "Market day", memberId: "m5", day: 2, year: 2 },
+    { id: "e9", name: "Market day", memberId: "m5", day: 2, year: 2, time: "dawn" },
     { id: "e10", name: "Siege of Harrowgate", memberId: "m5", day: 5, year: 2, endMemberId: "m5", endDay: 12, endYear: 2, color: "#d2553b" },
   ],
-  holidays: [{ id: "h1", name: "Lantern Night", memberId: "m5", day: 21, recurring: true, year: null, description: "Lanterns on every door." }],
+  holidays: [{ id: "h1", name: "Lantern Night", memberId: "m5", day: 21, recurring: true, year: null, time: "20:00", description: "Lanterns on every door." }],
+  spans: [{ id: "sp1", name: "Harvest Fair", color: "#a78bfa", startMemberId: "m5", startDay: 24, endMemberId: "m6", endDay: 2, recurring: true, description: "Stalls along the river." }],
   characters: [{ id: "c1", name: "Garret", birthday: { memberId: "m5", day: 4 } }],
   sessions: [{ id: "s1", number: 15, title: "", date: { year: 2, segIdx: 5, dayNum: 9 }, campaignId: "ash" }, { id: "s2", number: 16, title: "", date: { year: 2, segIdx: 5, dayNum: 17 }, campaignId: "ash" }],
 }

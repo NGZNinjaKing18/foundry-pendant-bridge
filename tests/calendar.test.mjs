@@ -126,3 +126,15 @@ test("moving a multi-day entry moves its last day with it", () => {
   const out = overlay(items, [{ op: "update", list: "event", id: "a", k: 20, from: 10 }])
   assert.equal(out[0].k, 20); assert.equal(out[0].k2, 24)
 })
+
+test("spans and times: a recurring span shows ahead like a holiday; a one-off waits for its day", () => {
+  const c = { ...cal, items: [
+    { id: "r:s:1", kind: "span", name: "Long Thaw", k: 135, k2: 140, who: "all", early: true, rec: true },
+    { id: "r:t:1", kind: "span", name: "The Siege", k: 125, k2: 130, who: "all", early: false },
+    { id: "e9", kind: "event", name: "Dawn rite", k: 110, time: "Dawn", who: "all", early: false, edit: { type: "event", id: "9" } },
+  ] }
+  const mine = calendarFor(c, "u1")
+  assert.deepEqual(names(mine), ["Dawn rite", "Long Thaw"])
+  assert.equal(mine.items.find(i => i.name === "Dawn rite").time, "Dawn", "the time travels with the entry")
+  assert.equal(mine.items.find(i => i.name === "Long Thaw").k2, 140)
+})

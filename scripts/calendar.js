@@ -34,8 +34,9 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<"
 const str = (v) => (typeof v === "string" ? v.trim() : "")
 const arr = (v) => (Array.isArray(v) ? v : [])
 const flagsOf = (m) => m?.flags?.[MOD] || {}
-const KIND = { event: "Event", note: "Note", holiday: "Holiday", session: "Session", bday: "Birthday" }
-const KCOL = { event: "#38bdf8", note: "#8fd0a3", holiday: "#f59e0b", session: "#b49be8", bday: "#ff69b4" }
+const KIND = { event: "Event", note: "Note", holiday: "Holiday", session: "Session", bday: "Birthday", span: "Span" }
+const READONLY = { session: "Sessions are set by running one in RealmScreen.", bday: "Birthdays are set in Character Profiles.", span: "Spans are made in RealmScreen’s calendar." }
+const KCOL = { event: "#38bdf8", note: "#8fd0a3", holiday: "#f59e0b", session: "#b49be8", bday: "#ff69b4", span: "#a78bfa" }
 
 // ── the data ──────────────────────────────────────────────────
 const isGM = () => !!game.user?.isGM
@@ -227,7 +228,7 @@ function winClass() {
           <button type="button" data-action="next" data-tooltip="Next" aria-label="Next month"><i class="fa-solid fa-chevron-right"></i></button>
           <button type="button" data-action="today">Today</button>
           <span class="pb-cal-sp"></span>
-          <span class="pb-cal-legend">${["event", "holiday", "session", "note", "bday"].map(k => `<span><i style="--k:${KCOL[k]}"></i>${KIND[k]}</span>`).join("")}</span>
+          <span class="pb-cal-legend">${["event", "holiday", "span", "session", "note", "bday"].map(k => `<span><i style="--k:${KCOL[k]}"></i>${KIND[k]}</span>`).join("")}</span>
         </header>
         <div class="pb-cal-body">
           <div class="pb-cal-gridwrap">
@@ -261,9 +262,9 @@ function winClass() {
           <strong>${esc(it.name)}</strong>
           ${lastDay(it) > it.k ? `<p class="hint">${esc(dayLabel(cal, it.k))} – ${esc(dayLabel(cal, lastDay(it)))} · day ${k - it.k + 1} of ${lastDay(it) - it.k + 1}</p>` : ""}
           ${it.note ? `<p>${esc(it.note)}</p>` : ""}
-          <div class="pb-cal-meta"><span>${KIND[it.kind] || "Event"}</span>${gm ? `<span class="pb-cal-who${it.who === "gm" ? " gm" : ""}">${esc(whoLabel(cal, it.who))}</span>${it.early && it.kind !== "holiday" && it.kind !== "bday" && it.who !== "gm" ? `<span>shows early</span>` : ""}${it.pending ? `<span>${statusWord(it.pending)}</span>` : ""}` : ""}</div>
+          <div class="pb-cal-meta"><span>${KIND[it.kind] || "Event"}</span>${it.time ? `<span><i class="fa-regular fa-clock"></i> ${esc(it.time)}</span>` : ""}${gm ? `<span class="pb-cal-who${it.who === "gm" ? " gm" : ""}">${esc(whoLabel(cal, it.who))}</span>${it.early && !it.rec && it.kind !== "holiday" && it.kind !== "bday" && it.who !== "gm" ? `<span>shows early</span>` : ""}${it.pending ? `<span>${statusWord(it.pending)}</span>` : ""}` : ""}</div>
           ${editable ? `<div class="pb-cal-acts"><button type="button" data-action="edit" data-id="${esc(it.id)}"><i class="fa-solid fa-pen"></i> Edit</button><button type="button" data-action="remove" data-id="${esc(it.id)}"><i class="fa-solid fa-trash"></i> Remove</button></div>` : ""}
-          ${gm && !it.edit && (it.kind === "session" || it.kind === "bday") ? `<p class="hint">${it.kind === "session" ? "Sessions are set by running one in RealmScreen." : "Birthdays are set in Character Profiles."}</p>` : ""}
+          ${gm && !it.edit && READONLY[it.kind] ? `<p class="hint">${READONLY[it.kind]}</p>` : ""}
         </article>`
       }
       if (gm && !(this.form && this.form.k === k) && !isFest(cal, k))
@@ -413,7 +414,7 @@ function tabHtml() {
   const items = entries(cal)
   const mineC = arr(cal.camps)
   const head = isGM() ? "World date" : (mineC.find(c => c.id === cal.live) || mineC.find(c => c.k === t) || mineC[0])?.name || "Today"
-  const li = (it) => `<li><a data-action="jump" data-k="${it.k}"><span class="pb-caltab-when">${esc(shortDay(cal, it.k))}</span><span class="pb-caltab-what" style="--k:${esc(it.color || KCOL[it.kind] || KCOL.event)}">${esc(it.name)}</span></a></li>`
+  const li = (it) => `<li><a data-action="jump" data-k="${it.k}"><span class="pb-caltab-when">${esc(shortDay(cal, it.k))}</span><span class="pb-caltab-what" style="--k:${esc(it.color || KCOL[it.kind] || KCOL.event)}">${esc(it.name)}${it.time ? ` · ${esc(it.time)}` : ""}</span></a></li>`
   const up = t == null ? [] : items.filter(i => i.k > t).slice(0, 6)
   const late = t == null ? [] : items.filter(i => i.k <= t).slice(-6).reverse()
   return `
