@@ -24,7 +24,7 @@
 import { mySlice, onSlice, setFull, fullCalendar, sendOp } from "./private.js"
 import { realmLive } from "./live.js"
 import { applyTheme } from "./campaign-page.js"
-import { parseWho, monthAt, daysOf, dayLabel, weekdayName, overlay } from "./calendar-model.js"
+import { parseWho, monthAt, daysOf, dayLabel, yearLabel, weekdayName, overlay } from "./calendar-model.js"
 
 const MOD = "pendant-bridge"
 const CHANNEL = `module.${MOD}`
@@ -212,7 +212,7 @@ function winClass() {
       el.innerHTML = `
         <header class="pb-cal-tools">
           <button type="button" data-action="prev" data-tooltip="Previous" aria-label="Previous month"><i class="fa-solid fa-chevron-left"></i></button>
-          <h2 class="pb-cal-mon">${esc(m.name)} <span>${esc(m.year)}</span></h2>
+          <h2 class="pb-cal-mon">${esc(m.name)} <span>${esc(yearLabel(m))}</span></h2>
           <button type="button" data-action="next" data-tooltip="Next" aria-label="Next month"><i class="fa-solid fa-chevron-right"></i></button>
           <button type="button" data-action="today">Today</button>
           <span class="pb-cal-sp"></span>
@@ -413,13 +413,13 @@ function tabHtml() {
     <h4 class="pb-caltab-h">Lately</h4>
     ${late.length ? `<ul class="pb-caltab-list">${late.map(li).join("")}</ul>` : `<p class="hint">Nothing yet.</p>`}`
 }
-// "18 Bloo" — with the year when it isn't this year ("4 Bloo 392").
+// "18 Bloo" — with the year when it isn't this year ("4 Bloo · StarFall", the year's own name).
 function shortDay(cal, k) {
   const m = arr(cal.months)[monthAt(cal, k)]
   if (!m) return ""
   const d = daysOf(m)[k - m.k0]
   const t = Number.isFinite(cal.world) ? arr(cal.months)[monthAt(cal, cal.world)] : null
-  const yr = t && t.year !== m.year ? ` ${m.year}` : ""
+  const yr = t && t.year !== m.year ? ` · ${yearLabel(m).split(" · ").pop()}` : ""
   return (m.festival ? m.name : d.fest ? d.fest : `${d.n} ${m.name.slice(0, 4)}`) + yr
 }
 

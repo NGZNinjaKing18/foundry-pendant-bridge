@@ -151,7 +151,7 @@ log(`Sidebar tabs: ${Object.keys(foundry.applications.sidebar.Sidebar.TABS).join
 // A made-up calendar shaped like a real one: 13 months of 28 days, a festival day after month 6.
 const MONTHS = ["Frostwane", "Thawmoot", "Seedfall", "Greening", "Mistwake", "Bloomrise", "Highsun", "Rainreach", "Embertide", "Reaping", "Stores", "Darkfall", "Longnight"]
 const cal = {
-  id: "calH", name: "Harness Calendar", currentYear: 2, currentSegIdx: 5, currentDay: 18, currentHour: 9, hoursPerDay: 24,
+  id: "calH", name: "Harness Calendar", superYear: { name: "Winter", years: 4, names: ["Thawen", "HighSun", "StarFall", "Gray-den"], namesNamed: true }, dateFormat: { pattern: "{ageNum} • {year}/4  →  {month} • {day02} " }, currentYear: 2, currentSegIdx: 5, currentDay: 18, currentHour: 9, hoursPerDay: 24,
   cycle: { enabled: true, dayNames: ["Firstday", "Twoday", "Midweek", "Thorsday", "Fryday", "Restday", "Holyday"], epochOffset: 0 },
   groupLevels: [{ members: MONTHS.map((n, i) => ({ id: "m" + i, name: n, size: 28 })) }],
   intercalary: [{ id: "fx", name: "Midyear", size: 1, afterMemberId: "m6", eraYear: null, mid: false }],

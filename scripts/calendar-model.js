@@ -83,10 +83,17 @@ export function daysOf(m) {
   }
   return out
 }
-/** "18 MistMorn 391" (a festival day: "Ward & Bond 391"). */
+/** The year in the calendar's own words ("Winter 98 · StarFall"); older RealmScreen: the number. */
+export function yearLabel(m) {
+  return m ? (str(m.yl) || String(m.year)) : ""
+}
+/** The day exactly as RealmScreen writes it (its "Read as" pattern); older RealmScreen:
+ *  "18 MistMorn 391" (a festival day: "Ward & Bond 391"). */
 export function dayLabel(cal, k) {
   const m = arr(cal?.months)[monthAt(cal, k)]
   if (!m) return ""
+  const own = str(arr(m.dl)[k - m.k0])
+  if (own) return own
   const d = daysOf(m)[k - m.k0]
   if (m.festival) return `${m.name}${m.len > 1 ? ` ${d.n}` : ""} ${m.year}`
   return d.fest ? `${d.fest} ${m.year}` : `${d.n} ${m.name} ${m.year}`

@@ -2,7 +2,7 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 
 globalThis.Hooks = { on() {}, once() {}, callAll() {} }
-const { parseWho, todayFor, playerSees, calendarFor, monthAt, daysOf, dayLabel, overlay } = await import("../scripts/calendar-model.js")
+const { parseWho, todayFor, playerSees, calendarFor, monthAt, daysOf, dayLabel, yearLabel, overlay } = await import("../scripts/calendar-model.js")
 const { slicesOf } = await import("../scripts/private.js")
 
 // Two campaigns on one calendar: Ashfall (u1, u2) at day 120, Bramble (u3) at day 110.
@@ -102,4 +102,11 @@ test("the GM's waiting changes lay over the entries", () => {
   assert.ok(!by.e2)
   assert.equal(by.h1.k, 142)
   assert.equal(cal.items.find(i => i.id === "e1").k, 105, "the input is not changed")
+})
+
+test("labels come from RealmScreen when it sends them (its own date format and year names)", () => {
+  const own = { ...cal, months: cal.months.map(m => ({ ...m, yl: "Winter 1 · Thawen", dl: Array.from({ length: m.len }, (_, i) => `1 • 1/4 → ${m.name} • ${String(i + 1).padStart(2, "0")}`) })) }
+  assert.equal(dayLabel(own, 120), "1 • 1/4 → Alpha • 21")
+  assert.equal(dayLabel(cal, 120), "21 Alpha 1", "older RealmScreen: the plain label")
+  assert.equal(yearLabel(own.months[0]), "Winter 1 · Thawen")
 })
