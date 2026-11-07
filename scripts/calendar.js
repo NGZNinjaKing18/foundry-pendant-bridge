@@ -24,7 +24,7 @@
 import { mySlice, onSlice, setFull, fullCalendar, sendOp } from "./private.js"
 import { realmLive } from "./live.js"
 import { applyTheme } from "./campaign-page.js"
-import { parseWho, monthAt, daysOf, dayLabel, yearLabel, weekdayName, overlay } from "./calendar-model.js"
+import { parseWho, monthAt, daysOf, dayLabel, yearLabel, weekdayName, overlay, lastDay, coversDay } from "./calendar-model.js"
 
 const MOD = "pendant-bridge"
 const CHANNEL = `module.${MOD}`
@@ -192,9 +192,20 @@ function winClass() {
       const days = daysOf(m)
       const lead = m.festival ? 0 : (days[0]?.w || 0) % cols
       const byDay = new Map()
-      for (const it of items) { if (it.k >= m.k0 && it.k < m.k0 + m.len) { if (!byDay.has(it.k)) byDay.set(it.k, []); byDay.get(it.k).push(it) } }
+      // A multi-day entry (k → k2) sits on every day it runs through; its name shows on its first day
+      // and at the start of each week row, the other days carry the bar on its own.
+      for (const it of items) {
+        const a = Math.max(it.k, m.k0), b = Math.min(lastDay(it), m.k0 + m.len - 1)
+        for (let k = a; k <= b; k++) { if (!byDay.has(k)) byDay.set(k, []); byDay.get(k).push(it) }
+      }
       const flags = (k) => gm ? arr(cal.camps).filter(c => c.k === k).map(c => `<span class="pb-cal-flag" data-tooltip="${esc(c.name)} is here">${esc(c.short)}</span>`).join("") : ""
-      const chip = (it) => `<div class="pb-cal-chip${it.who === "gm" && gm ? " gmonly" : ""}" style="--k:${esc(it.color || KCOL[it.kind] || KCOL.event)}" data-id="${esc(it.id)}"${gm && it.edit ? ` draggable="true"` : ""} data-tooltip="${esc(it.name)}"><span>${esc(it.name)}</span>${it.pending ? `<i class="pb-cal-dot ${it.pending}"></i>` : ""}</div>`
+      const rowStart = (k) => k === m.k0 || ((lead + (k - m.k0)) % cols === 0)
+      const chip = (it, k) => {
+        const multi = lastDay(it) > it.k
+        const cls = multi ? `${k === it.k ? " s" : ""}${k === lastDay(it) ? " e" : ""}${k !== it.k ? " cont" : ""}` : ""
+        const named = !multi || k === it.k || rowStart(k)
+        return `<div class="pb-cal-chip${multi ? " multi" : ""}${cls}${it.who === "gm" && gm ? " gmonly" : ""}" style="--k:${esc(it.color || KCOL[it.kind] || KCOL.event)}" data-id="${esc(it.id)}" data-at="${k}"${gm && it.edit ? ` draggable="true"` : ""} data-tooltip="${esc(it.name)}"><span>${named ? esc(it.name) : "&nbsp;"}</span>${it.pending && named ? `<i class="pb-cal-dot ${it.pending}"></i>` : ""}</div>`
+      }
       let cells = ""
       for (let i = 0; i < lead; i++) cells += `<div class="pb-cal-cell blank"></div>`
       for (const d of days) {
@@ -202,7 +213,7 @@ function winClass() {
         const cls = ["pb-cal-cell", d.k === today ? "today" : "", today != null && d.k < today ? "past" : "", d.k === this.sel ? "sel" : "", d.fest && !m.festival ? "fest" : ""].filter(Boolean).join(" ")
         cells += `<div class="${cls}" data-action="pick" data-k="${d.k}" tabindex="0" aria-label="${esc(dayLabel(cal, d.k))}">
           <div class="pb-cal-dn"><b>${d.n != null ? d.n : esc(d.fest)}</b>${flags(d.k)}</div>
-          ${list.slice(0, 3).map(chip).join("")}${list.length > 3 ? `<div class="pb-cal-more">+${list.length - 3} more</div>` : ""}
+          ${list.slice(0, 3).map(it => chip(it, d.k)).join("")}${list.length > 3 ? `<div class="pb-cal-more">+${list.length - 3} more</div>` : ""}
           ${gm && !isFest(cal, d.k) ? `<button type="button" class="pb-cal-add" data-action="add" data-k="${d.k}" data-tooltip="Add on this day" aria-label="Add on this day"><i class="fa-solid fa-plus"></i></button>` : ""}
         </div>`
       }
@@ -237,7 +248,7 @@ function winClass() {
     #dayPanel(cal, items, gm) {
       const k = this.sel
       if (k == null) return ""
-      const list = items.filter(i => i.k === k)
+      const list = items.filter(i => coversDay(i, k))
       const here = gm ? arr(cal.camps).filter(c => c.k === k).map(c => c.name) : []
       const wd = weekdayName(cal, k)
       let h = `<h3>${esc(dayLabel(cal, k))}</h3>${wd ? `<p class="hint">${esc(wd)}</p>` : ""}`
@@ -248,6 +259,7 @@ function winClass() {
         const editable = gm && it.edit && !it.pending
         h += `<article class="pb-cal-item" style="--k:${esc(it.color || KCOL[it.kind] || KCOL.event)}">
           <strong>${esc(it.name)}</strong>
+          ${lastDay(it) > it.k ? `<p class="hint">${esc(dayLabel(cal, it.k))} – ${esc(dayLabel(cal, lastDay(it)))} · day ${k - it.k + 1} of ${lastDay(it) - it.k + 1}</p>` : ""}
           ${it.note ? `<p>${esc(it.note)}</p>` : ""}
           <div class="pb-cal-meta"><span>${KIND[it.kind] || "Event"}</span>${gm ? `<span class="pb-cal-who${it.who === "gm" ? " gm" : ""}">${esc(whoLabel(cal, it.who))}</span>${it.early && it.kind !== "holiday" && it.kind !== "bday" && it.who !== "gm" ? `<span>shows early</span>` : ""}${it.pending ? `<span>${statusWord(it.pending)}</span>` : ""}` : ""}</div>
           ${editable ? `<div class="pb-cal-acts"><button type="button" data-action="edit" data-id="${esc(it.id)}"><i class="fa-solid fa-pen"></i> Edit</button><button type="button" data-action="remove" data-id="${esc(it.id)}"><i class="fa-solid fa-trash"></i> Remove</button></div>` : ""}
@@ -302,11 +314,12 @@ function winClass() {
       })
       root.addEventListener("change", (ev) => { if (ev.target.name === "cWho") { this.#keep(); this.render() } })
       // Drag an entry to another day (GM).
-      let drag = null
+      let drag = null, dragAt = null
       root.addEventListener("dragstart", (ev) => {
         const c = ev.target.closest?.(".pb-cal-chip[draggable]")
         if (!c) return
         drag = c.dataset.id
+        dragAt = Number(c.dataset.at)   // the day it was picked up on: a multi-day entry moves by the distance dragged
         ev.dataTransfer.effectAllowed = "move"
         ev.dataTransfer.setData("text/plain", drag)
       })
@@ -324,10 +337,12 @@ function winClass() {
         if (!c || !drag) return
         ev.preventDefault()
         const it = entries(this.#cal()).find(i => i.id === drag)
-        drag = null
-        const k = Number(c.dataset.k)
+        const grab = Number.isFinite(dragAt) ? dragAt : it?.k
+        drag = null; dragAt = null
+        const drop = Number(c.dataset.k)
+        const k = it ? it.k + (drop - grab) : drop   // the new first day
         if (!it?.edit || it.k === k) return this.render()
-        this.sel = k
+        this.sel = drop
         send({ op: "update", list: it.edit.type, id: it.edit.id, k, from: it.k })
       })
     }

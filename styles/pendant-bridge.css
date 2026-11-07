@@ -1266,6 +1266,10 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
 .pb-calendar .pb-cal-chip span { overflow: hidden; text-overflow: ellipsis; }
 .pb-calendar .pb-cal-chip.gmonly { border-left-style: dashed; }
 .pb-calendar .pb-cal-chip[draggable="true"] { cursor: grab; }
+/* a multi-day entry: one bar through its days (left edge on the first day, square ends between) */
+.pb-calendar .pb-cal-chip.multi { border-left-width: 0; border-top: 2px solid var(--k); border-radius: 0; margin-inline: -4px; padding-inline: 8px 4px; }
+.pb-calendar .pb-cal-chip.multi.s { border-left-width: 3px; margin-left: 0; padding-left: 4px; border-top-left-radius: 2px; }
+.pb-calendar .pb-cal-chip.multi.e { margin-right: 0; border-top-right-radius: 2px; }
 .pb-calendar .pb-cal-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; margin-left: auto; background: var(--pb-cal-accent); }
 .pb-calendar .pb-cal-dot.waiting { background: none; border: 1.5px solid var(--color-warm-2); }
 .pb-calendar .pb-cal-dot.saving { animation: pb-cal-pulse .8s infinite alternate; }

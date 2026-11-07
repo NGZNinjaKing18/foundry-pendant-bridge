@@ -110,3 +110,19 @@ test("labels come from RealmScreen when it sends them (its own date format and y
   assert.equal(dayLabel(cal, 120), "21 Alpha 1", "older RealmScreen: the plain label")
   assert.equal(yearLabel(own.months[0]), "Winter 1 · Thawen")
 })
+
+// ── multi-day entries (k → k2, 2026-11-07) ─────────────────────────────────
+import { lastDay, coversDay } from "../scripts/calendar-model.js"
+test("a multi-day entry runs through every day from k to k2; a one-day entry is just k", () => {
+  assert.equal(lastDay({ k: 10, k2: 14 }), 14)
+  assert.equal(lastDay({ k: 10 }), 10)
+  assert.equal(lastDay({ k: 10, k2: 9 }), 10)                      // a bad end never runs backwards
+  assert.equal(coversDay({ k: 10, k2: 14 }, 12), true)
+  assert.equal(coversDay({ k: 10, k2: 14 }, 15), false)
+  assert.equal(coversDay({ k: 10 }, 10), true)
+})
+test("moving a multi-day entry moves its last day with it", () => {
+  const items = [{ id: "e:a", kind: "event", name: "Siege", k: 10, k2: 14, edit: { type: "event", id: "a" } }]
+  const out = overlay(items, [{ op: "update", list: "event", id: "a", k: 20, from: 10 }])
+  assert.equal(out[0].k, 20); assert.equal(out[0].k2, 24)
+})

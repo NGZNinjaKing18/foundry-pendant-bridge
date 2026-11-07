@@ -54,6 +54,14 @@ export function playerSees(item, cal, uid) {
   return today != null && k <= today
 }
 
+/** The last day of an entry: `k2` for a multi-day event or session (RealmScreen sends it), else `k`. */
+export function lastDay(item) {
+  const k = num(item?.k), k2 = num(item?.k2)
+  return k2 != null && k != null && k2 > k ? k2 : k
+}
+/** Does entry `item` run through day `k`? */
+export const coversDay = (item, k) => num(item?.k) != null && k >= item.k && k <= lastDay(item)
+
 /** One player's cut of the full calendar (see the header). */
 export function calendarFor(cal, uid) {
   if (!cal || !uid) return null
@@ -132,6 +140,8 @@ export function overlay(items, ops) {
         // A move: a recurring holiday moves in every year by the same number of days.
         if (o.k !== undefined && num(o.k) != null && num(o.from) != null) n.k = i.k + (num(o.k) - num(o.from))
         else if (o.k !== undefined && num(o.k) != null) n.k = num(o.k)
+        // a multi-day entry moves whole: its last day goes with its first
+        if (num(i.k2) != null && n.k !== i.k) n.k2 = i.k2 + (n.k - i.k)
         return n
       })
     }
