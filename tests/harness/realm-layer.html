@@ -99,6 +99,8 @@ const recs = [
   { ...R.routeRecord('road', { id: 'r1', name: "King's Road" }, [[0.18, 0.55], [0.33, 0.5], [0.45, 0.47], [0.6, 0.42], [0.72, 0.62]], { color: '#caa14e', width: 4, casing: true }, { zoomVis: ZV }), fitPx: FIT, views: ['v2'] },
   { ...R.routeRecord('road', { id: 'r2', name: 'Marrow Lane' }, [[0.33, 0.5], [0.3, 0.7], [0.24, 0.8]], { color: '#9a8f80', width: 2, dash: 'dotted' }, { zoomVis: ZV }), fitPx: FIT, views: ['v2'] },
   { ...R.routeRecord('road', { id: 'r3', name: 'Fort Way' }, [[0.33, 0.5], [0.28, 0.3], [0.22, 0.2]], { color: '#b0a080', width: 2.5, dash: 'dashed' }, { zoomVis: ZV }), fitPx: FIT, views: ['v2'] },
+  // A footpath that only shows zoomed in past 8.8× (most of the user's Divinity roads): hidden when the layer is built.
+  { ...R.routeRecord('road', { id: 'r4', name: 'Rookwater trail', zoomVis: { min: 8.8, max: 30 } }, [[0.36, 0.36], [0.38, 0.4], [0.4, 0.42]], { color: '#9a8f80', width: 0.5, dash: 'dotted' }, { zoomVis: ZV }), fitPx: FIT, views: ['v2'] },
   { ...R.routeRecord('river', { id: 'w1', name: 'River Ashe' }, [[0.55, 0.05], [0.52, 0.25], [0.5, 0.45], [0.53, 0.62]], { color: '#3f7590', width: 4 }, { zoomVis: ZV }), fitPx: FIT, views: ['v1', 'v2'] },
   town('t1', 'Omacatl', 'capital', 0.72, 0.62),
   town('t2', 'prosperous', 'city', 0.33, 0.5),

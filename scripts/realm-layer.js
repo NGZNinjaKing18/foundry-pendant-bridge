@@ -261,7 +261,8 @@ function update(full = false) {
       if (it.fill) { it.fill.visible = lines; it.fill.alpha = (r.fill.opacity ?? 0.3) * bandFade(z, r.fill.zoom) }
       const g = it.border
       g.visible = lines
-      if (lines && (full || !r.border?.map)) {
+      if (lines && (full || !r.border?.map || !it.drawn)) {   // land-sized: once, when first shown
+        it.drawn = true
         g.clear()
         g.lineStyle({ width: px(r.border?.px ?? 2, !!r.border?.map, r.fitPx), color: colour(r.border?.color, 0xffd166), alpha: 1, join: "round", cap: "round" })
         for (const { outer, holes } of r.land || []) {
@@ -282,7 +283,10 @@ function update(full = false) {
     } else if (r.kind === "road" || r.kind === "river") {
       const on = shown && inBand(z, r.zoom)
       it.line.visible = on; if (it.under) it.under.visible = on
-      if (!on || (!full && r.map)) continue
+      // A land-sized line only needs drawing once — but once it is first ON: one outside its zoom range when the
+      // layer was built (a "zoom in to see" footpath) was never drawn, so it came on empty (2026-11-10).
+      if (!on || (!full && r.map && it.drawn)) continue
+      it.drawn = true
       const w = px(r.px ?? 2, !!r.map, r.fitPx)
       const g = it.line
       g.clear(); g.alpha = r.opacity ?? 1
