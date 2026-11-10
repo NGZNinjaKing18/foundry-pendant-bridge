@@ -7130,7 +7130,7 @@ function ahInjectPanel(app, html) {
   let panel
   try { panel = ahBuildPanel(actor, { v2: look === "new" }) } catch (e) { console.warn("[pendant-bridge] AH panel build failed", e); return }
   panel.setAttribute("data-ah-actor", ahActorKey(actor)); panel.setAttribute("data-ah-look", look === "new" ? "new" : "classic")
-  host.insertBefore(panel, host.firstChild)   // at the TOP of the Inventory tab, above the native dnd5e item list
+  host.appendChild(panel)   // at the BOTTOM of the Inventory tab, below the native dnd5e item list
   if (look === "new") ahV2DecorateNative(host, panel._ahCtx)   // each dnd5e inventory row says where the thing is
   // (v0.82) keep the player's scroll place: every AH action setFlag→re-renders the sheet, which otherwise
   // snaps to the top (jarring on a long inventory). Track the scroll container's position (never saving 0,

@@ -90,6 +90,7 @@
   color: var(--ah-ink);
   font: 13px/1.4 "Signika", system-ui, -apple-system, "Segoe UI", sans-serif;
 }
+.ah-panel { margin-top: 16px; }   /* sits below the native inventory list */
 /* over-capacity: a 2px red underline instead of a full red card frame */
 .ah-panel.is-over { box-shadow: inset 0 -2px 0 var(--ah-bad); }
 /* state motion on every interactive surface (degrades to instant — see end) */
