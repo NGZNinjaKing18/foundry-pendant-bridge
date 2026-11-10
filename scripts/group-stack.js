@@ -21,6 +21,8 @@
 // replaced classes.
 // ──────────────────────────────────────────────────────────────
 
+import { rationBadge } from "./rations.js"   // GM-only ration counts + Take rations on party groups
+
 const MOD = "pendant-bridge"
 const FLAG = "groupStack"                 // actor flag { sig, file, off }
 const OURS = "pendantGroupStack"          // update option on our own writes
@@ -345,7 +347,7 @@ Hooks.on("renderActorSheetV2", async (app, html) => {
 // A group token keeps only visibility, elevation, lock and settings in
 // view; every other HUD button (status effects, movement mode, target, combat,
 // other modules' buttons) folds behind one ⋯ button. Group tokens only.
-const KEEP = new Set(["visibility", "locked", "config"])
+const KEEP = new Set(["visibility", "locked", "config", "pb-rations"])
 const foldable = (root) => [...root.querySelectorAll(".col.left .control-icon, .col.right .control-icon")]
   .filter(b => b.tagName !== "INPUT" && !b.closest(".elevation, .palette") && !b.classList.contains("pb-gfold-more") && !KEEP.has(b.dataset.action))
 let foldOpen = false
@@ -395,6 +397,8 @@ Hooks.on("renderTokenHUD", async (hud, html) => {
     const img = el("img", "", { src: tokenArt(m.actor).src, alt: "" })
     img.draggable = false
     face.append(img)
+    const ration = rationBadge(actor, m.actor)              // GM only; null for players
+    if (ration) { face.append(ration); face.dataset.tooltip = `${m.actor.name} — ${ration.textContent} ration${ration.textContent === "1" ? "" : "s"} — drag onto the map` }
     face.addEventListener("dragstart", (ev) => {
       ev.stopPropagation()
       ev.dataTransfer.setData("text/plain", JSON.stringify({ type: "Actor", uuid: m.actor.uuid }))
@@ -404,6 +408,7 @@ Hooks.on("renderTokenHUD", async (hud, html) => {
     face.addEventListener("dblclick", () => m.actor.sheet?.render(true))
     fan.append(face)
   })
+  root.querySelector(".pb-gfan")?.remove()               // a render that overlapped this one finished first
   root.append(fan)
   requestAnimationFrame(() => requestAnimationFrame(() => fan.classList.add("open")))
 })

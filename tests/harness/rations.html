@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rations Harness</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<link rel="stylesheet" href="../../styles/pendant-bridge.css">
+<style>
+/* Dev harness (not loaded by Foundry): the REAL scripts/rations.js + group-stack.js in a tiny stand-in for
+   Foundry — a party token's HUD fan, the group sheet's Members tab, the Take rations dialog and the GM whisper.
+   Serve the Downloads folder (launch config "campaign-page-harness") and open
+   /foundry-pendant-bridge/tests/harness/rations.html. Made-up people. */
+:root { --font-body: sans-serif; --color-level-error: #d65a4a; --color-cool-4: #1d1c25; --color-text-light-highlight: #f0f0e0; --color-border-highlight: #ff6400; }
+.theme-dark { --color-text-primary: #e7e1d4; --color-text-secondary: #b5aea0; --color-border: #4a4842; --background: #1c1b22; color: var(--color-text-primary); }
+.theme-light { --color-text-primary: #2b2a24; --color-text-secondary: #4b4a44; --color-border: #9a978c; --background: #e9dfc9; color: var(--color-text-primary); }
+body { margin: 0; background: #0d100c; font: 14px/1.4 sans-serif; color: #ddd; }
+#bar { display: flex; gap: 10px; padding: 8px 12px; background: #151515; border-bottom: 1px solid #333; }
+#bar button { background: #2a2a2a; color: #ddd; border: 1px solid #444; border-radius: 3px; padding: 3px 9px; cursor: pointer; }
+#stage { display: flex; gap: 40px; padding: 24px; align-items: flex-start; flex-wrap: wrap; }
+#token-hud { position: relative; width: 100px; height: 100px; margin: 130px; background: url(https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/svgs/solid/users.svg) center/60% no-repeat #554; border-radius: 4px; }
+#token-hud .col { position: absolute; top: 0; display: flex; flex-direction: column; gap: 4px; }
+#token-hud .col.left { left: -50px } #token-hud .col.right { right: -50px }
+#token-hud .control-icon { width: 40px; height: 40px; background: rgba(0,0,0,.6); color: #ddd; border: 1px solid #000; border-radius: 6px; display: grid; place-items: center; cursor: pointer; box-sizing: border-box; }
+#token-hud .control-icon.pb-gfold { display: none }
+#token-hud .pb-gfan-face { border-radius: 50%; }
+#token-hud .pb-gfan-face img { border-radius: 50%; }
+.application { background: var(--background); border: 1px solid #000; border-radius: 6px; box-shadow: 0 0 20px #000; width: 380px; }
+.window-header { background: #0e0d13; color: #ddd; padding: 6px 10px; }
+.window-content { padding: 8px; }
+.application button { background: rgba(127,127,127,.12); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 3px; padding: 3px 9px; cursor: pointer; }
+.form-group { display: flex; gap: 8px; align-items: center; } .form-group input { width: 60px; }
+.dlg-back { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: grid; place-items: center; }
+footer.buttons { display: flex; gap: 6px; padding: 8px; } footer.buttons button { flex: 1 }
+#chat { width: 320px; } #chat .msg { background: #222; border: 1px solid #444; border-radius: 4px; padding: 6px; margin-bottom: 6px; }
+#notes { font: 12px monospace; color: #9c9; }
+</style>
+</head>
+<body class="theme-dark">
+<div id="bar"><button id="theme">Light / dark</button><button id="player">Be a player</button><button id="gm">Be the GM</button><span id="notes"></span></div>
+<div id="stage">
+  <div id="token-hud"><div class="col left"><button class="control-icon" data-action="visibility"><i class="fa-solid fa-eye-slash"></i></button><button class="control-icon" data-action="target"><i class="fa-solid fa-bullseye"></i></button></div><div class="col right"><button class="control-icon" data-action="config"><i class="fa-solid fa-gear"></i></button></div></div>
+  <div class="application" id="sheet"><div class="window-header">The Wayfarers (Group)</div><div class="window-content"><div data-application-part="members"><section><h3>Members</h3><ul class="members"></ul></section></div></div></div>
+  <div id="chat"></div>
+</div>
+<script>
+const hooks = {}
+window.Hooks = { on(n, f) { (hooks[n] ||= []).push(f) }, once() {}, callAll(n, ...a) { for (const f of hooks[n] || []) f(...a) } }
+const face = (c) => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><circle cx='5' cy='5' r='5' fill='${c}'/></svg>`)}`
+class Item { constructor(d, parent) { Object.assign(this, d); this.parent = parent } }
+class Actor {
+  constructor(id, name, color, items) { this.id = id; this.name = name; this.type = "character"; this.uuid = "Actor." + id; this.img = face(color); this.prototypeToken = { texture: { src: face(color) } }; this.items = items.map(i => new Item(i, this)) }
+  async updateEmbeddedDocuments(t, rows) { for (const r of rows) { const it = this.items.find(i => i.id === r._id); it.system.quantity = r["system.quantity"]; Hooks.callAll("updateItem", it) } return rows }
+}
+const it = (id, name, q) => ({ id, name, type: "consumable", system: { quantity: q } })
+const members = [
+  new Actor("ari", "Ari Thorne", "#c84", [it("r1", "Rations (1 day)", 3)]),
+  new Actor("bo", "Bo", "#48c", []),
+  new Actor("cy", "Cyrene of the Long Road", "#8c4", [it("r2", "Rations (1 day)", 5), it("r3", "Iron Rations", 1)]),
+  new Actor("dee", "Dee", "#c48", [it("r4", "Rations (1 day)", 1)]),
+]
+const group = { id: "g", name: "The Wayfarers", type: "group", getFlag: () => null, system: { getMembers: async () => members.map(actor => ({ actor })), toObject: () => ({ members: members.map(m => ({ actor: m.id })) }) } }
+const hud = { document: { actor: group }, rendered: true, render: () => drawHud() }
+const sheet = { document: group, rendered: true, isEditable: true, render: () => drawSheet() }
+window.canvas = { scene: { tokens: [] }, hud: { token: hud } }
+window.ui = { notifications: { info: (m) => note(m), warn: (m) => note("⚠ " + m) } }
+const note = (m) => { document.getElementById("notes").textContent = m }
+window.game = { user: { isGM: true, id: "gm" }, users: [{ id: "gm", isGM: true }], settings: { get: () => null } }
+window.ChatMessage = { create: async (m) => { const d = document.createElement("div"); d.className = "msg"; d.innerHTML = `<b>${m.speaker.alias}</b> <i>(whisper: GM)</i>` + m.content; document.getElementById("chat").prepend(d) } }
+window.foundry = { utils: { hasProperty: () => false }, applications: { instances: new Map([["s", sheet]]), api: { DialogV2: { wait: (cfg) => new Promise(res => {
+  const back = document.createElement("div"); back.className = "dlg-back"
+  back.innerHTML = `<form class="application ${cfg.classes.join(" ")}"><div class="window-header"><i class="${cfg.window.icon}"></i> ${cfg.window.title}</div><div class="window-content">${cfg.content}</div><footer class="buttons">${cfg.buttons.map(b => `<button type="button" data-action="${b.action}"><i class="${b.icon}"></i> ${b.label}</button>`).join("")}</footer></form>`
+  document.body.append(back)
+  const form = back.querySelector("form")
+  form.addEventListener("submit", (e) => e.preventDefault())
+  for (const b of cfg.buttons) back.querySelector(`[data-action="${b.action}"]`).onclick = () => { const btn = { form }; const r = b.callback(null, btn); back.remove(); res(r) }
+  cfg.render?.(null, { element: form })
+}) } } } }
+async function drawHud() {
+  const root = document.getElementById("token-hud")
+  root.querySelectorAll(".pb-rat-hud").forEach(e => e.remove())
+  root.querySelectorAll(".pb-gfold").forEach(e => e.classList.remove("pb-gfold"))
+  Hooks.callAll("renderTokenHUD", hud, root)
+}
+function drawSheet() {
+  const root = document.getElementById("sheet")
+  root.querySelector("ul.members").innerHTML = members.map(m => `<li class="member" data-uuid="${m.uuid}">${m.name}</li>`).join("")
+  Hooks.callAll("renderActorSheetV2", sheet, root)
+}
+document.getElementById("theme").onclick = () => { document.body.classList.toggle("theme-dark"); document.body.classList.toggle("theme-light") }
+document.getElementById("player").onclick = () => { game.user.isGM = false; drawHud(); drawSheet(); note("player view") }
+document.getElementById("gm").onclick = () => { game.user.isGM = true; drawHud(); drawSheet(); note("GM view") }
+window.requestAnimationFrame ||= (f) => setTimeout(f, 16)
+</script>
+<script type="module">
+await import("../../scripts/group-stack.js")
+const r = await import("../../scripts/rations.js")
+window.takeRations = r.takeRations
+Hooks.callAll("ready")
+document.getElementById("gm").click()
+</script>
+</body>
+</html>
