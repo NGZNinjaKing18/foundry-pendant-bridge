@@ -35,6 +35,7 @@ import { setMusicSender, setMusicState, musicNote } from "./music-panel.js"   //
 import { timelineStatus, applyFromRealm, broadcastFromRealm, isTimelineWriter } from "./timeline.js"
 import { setMapBuilders, mapViewsState, mapViewsSet, mapSend, mapViewsEdit, mapRemove, mapReveal } from "./mapviews.js"
 import {} from "./realm-layer.js"   // draws the sent World Map itself (records in flags.realm)
+import {} from "./people-chips.js"  // RealmScreen's people as numbers on each viewer's canvas; one town spreads at max zoom
 import { seeing, views } from "./my-view.js"   // each account's own eye switches (the grid overlay obeys "grid")
 
 const MOD = "pendant-bridge"

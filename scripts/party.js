@@ -26,6 +26,8 @@
 // read as a drag. (The 2026-10-04 pause switch and `party.moved` notes were replaced 2026-10-30.)
 // ──────────────────────────────────────────────────────────────
 
+import { realmRecords } from "./mapviews.js"
+
 const MOD = "pendant-bridge"
 const SYNC = "pendantPartySync"          // update option on our own writes
 
@@ -45,12 +47,36 @@ const toScene = (scene, nx, ny) => {
   return [d.x + Math.max(0, Math.min(1, Number(nx) || 0)) * d.w, d.y + Math.max(0, Math.min(1, Number(ny) || 0)) * d.h]
 }
 
-// The token's top-left so its CENTRE sits on the map point.
+// RealmScreen map units → scene px, the way the Realm layer sizes roads: × sceneWidth ÷ the map's fit width
+// (carried on the scene's realm records; 1200 like realm-layer.js when none were sent).
+export function unitPx(scene) {
+  let fit = 0
+  try { for (const r of realmRecords(scene)) if (r.fitPx > 0) { fit = r.fitPx; break } } catch { /* no realm records */ }
+  return scene.dimensions.sceneWidth / (fit > 0 ? fit : 1200)
+}
+
+// People are about a road's width, part of the map (pendant-home worldmap/PeopleLayer.jsx, the user 2026-11-11).
+// `t.size` map units across → grid cells. Foundry keeps a token at least half a cell, so a smaller one is a
+// half-cell token whose picture is scaled down to the size (texture scale). → { width, height, scale } | null
+function sizeOf(scene, t) {
+  if (!(Number(t.size) > 0)) return null
+  const cells = (Number(t.size) * unitPx(scene)) / dims(scene).size
+  const w = cells >= 0.5 ? Math.max(0.5, Math.round(cells * 2) / 2) : 0.5
+  return { width: w, height: w, scale: Math.round((cells / w) * 1000) / 1000 }
+}
+
+// The token's top-left so its CENTRE sits on the map point — plus its place on the arc above the town
+// (`spot.dx/dy`, map units), where it stands when that town is spread out (people-chips.js).
 function topLeft(scene, t, wCells, hCells) {
   const d = dims(scene)
-  const [cx, cy] = toScene(scene, t.nx, t.ny)
+  let [cx, cy] = toScene(scene, t.nx, t.ny)
+  if (t.spot) { const u = unitPx(scene); cx += (Number(t.spot.dx) || 0) * u; cy += (Number(t.spot.dy) || 0) * u }
   return { x: Math.round(cx - (wCells * d.size) / 2), y: Math.round(cy - (hCells * d.size) / 2) }
 }
+const sameFlag = (a, b) => !!a && a.key === b.key && (a.campaignId || "") === b.campaignId && !!a.adopted === !!b.adopted
+  && (a.people || 1) === (b.people || 1) && (a.spot?.key || "") === (b.spot?.key || "") && !!a.spot?.road === !!b.spot?.road
+// What the flag keeps: who it is, and the spot it belongs to (people-chips.js reads it on every client).
+const flagOf = (t, key, extra = {}) => ({ key, campaignId: String(t.campaignId || ""), ...(t.spot ? { spot: { key: String(t.spot.key), road: !!t.spot.road, nx: Number(t.nx), ny: Number(t.ny) }, people: Math.max(1, Number(t.people) || 1) } : {}), ...extra })
 
 /** The token centre back as a 0..1 map fraction. */
 export function mapFraction(scene, tokenDoc) {
@@ -62,17 +88,21 @@ export function mapFraction(scene, tokenDoc) {
 
 // A new token's data: the linked actor's own prototype token when there is one, else a stand-in.
 async function newTokenData(scene, t, key) {
-  const flags = { [MOD]: { party: { key, campaignId: String(t.campaignId || "") } } }
+  const flags = { [MOD]: { party: flagOf(t, key) } }
+  const sz = sizeOf(scene, t)
   const actor = t.actorId ? game.actors.get(t.actorId) : null
   if (actor) {
     let data
     try { data = (await actor.getTokenDocument({}, { parent: scene })).toObject() } catch { data = foundry.utils.deepClone(actor.prototypeToken.toObject()) }
-    const pos = topLeft(scene, t, data.width || 1, data.height || 1)
-    return foundry.utils.mergeObject(data, { ...pos, actorId: actor.id, hidden: !!t.hidden, flags }, { inplace: false })
+    const w = sz ? sz.width : data.width || 1, h = sz ? sz.height : data.height || 1
+    const pos = topLeft(scene, t, w, h)
+    return foundry.utils.mergeObject(data, { ...pos, actorId: actor.id, hidden: !!t.hidden, flags,
+      ...(sz ? { width: w, height: h, texture: { scaleX: sz.scale, scaleY: sz.scale } } : {}) }, { inplace: false })
   }
+  const w = sz ? sz.width : 1
   return {
-    name: String(t.name || "Party"), ...topLeft(scene, t, 1, 1), width: 1, height: 1, hidden: !!t.hidden,
-    texture: { src: String(t.src || "icons/svg/mystery-man.svg") },
+    name: String(t.name || "Party"), ...topLeft(scene, t, w, w), width: w, height: w, hidden: !!t.hidden,
+    texture: { src: String(t.src || "icons/svg/mystery-man.svg"), ...(sz ? { scaleX: sz.scale, scaleY: sz.scale } : {}) },
     disposition: CONST.TOKEN_DISPOSITIONS.FRIENDLY,
     displayName: CONST.TOKEN_DISPLAY_MODES.HOVER,
     lockRotation: true,
@@ -192,15 +222,24 @@ export async function syncParty(msg) {
       const own = t.actorId && game.actors.get(t.actorId) ? adoptable(t.actorId) : null
       if (own) {
         adopted.add(own.id)
-        updates.push({ _id: own.id, ...topLeft(scene, t, own.width || 1, own.height || 1), hidden: !!t.hidden,
-          [`flags.${MOD}.party`]: { key, campaignId: String(t.campaignId || ""), adopted: true } })
+        const sz = sizeOf(scene, t)
+        const w = sz ? sz.width : own.width || 1, h = sz ? sz.height : own.height || 1
+        updates.push({ _id: own.id, ...topLeft(scene, t, w, h), hidden: !!t.hidden,
+          ...(sz ? { width: w, height: h, "texture.scaleX": sz.scale, "texture.scaleY": sz.scale } : {}),
+          [`flags.${MOD}.party`]: flagOf(t, key, { adopted: true }) })
         continue
       }
       creates.push(await newTokenData(scene, t, key)); continue
     }
-    const pos = topLeft(scene, t, doc.width || 1, doc.height || 1)
+    const sz = sizeOf(scene, t)
+    const w = sz ? sz.width : doc.width || 1, h = sz ? sz.height : doc.height || 1
+    const pos = topLeft(scene, t, w, h)
     const hidden = !!t.hidden
     const u = { _id: doc.id }
+    if (sz && (doc.width !== w || doc.height !== h)) { u.width = w; u.height = h }
+    if (sz && (doc.texture?.scaleX !== sz.scale || doc.texture?.scaleY !== sz.scale)) { u["texture.scaleX"] = sz.scale; u["texture.scaleY"] = sz.scale }
+    const fl = flagOf(t, key, partyFlag(doc)?.adopted ? { adopted: true } : {})
+    if (!sameFlag(partyFlag(doc), fl)) u[`flags.${MOD}.party`] = fl
     // (a forced sync — Resync, a cancelled trip card, a date change — sends the position even when this window
     // thinks it's already there: found live 2026-11-01, a window holding a stale copy changed nothing)
     if (msg.force || doc.x !== pos.x || doc.y !== pos.y) { u.x = pos.x; u.y = pos.y }
@@ -209,7 +248,7 @@ export async function syncParty(msg) {
       // Stand-ins carry RealmScreen's name and picture; an actor token keeps its own.
       const name = String(t.name || "Party"), src = String(t.src || "icons/svg/mystery-man.svg")
       if (doc.name !== name) u.name = name
-      if (doc.texture?.src !== src) u.texture = { src }
+      if (doc.texture?.src !== src) u["texture.src"] = src
     }
     if (Object.keys(u).length > 1) updates.push(u)
   }
