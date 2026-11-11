@@ -7,9 +7,9 @@
 // own canvas (nothing is written):
 //   • every spot is one round number — how many people there that THIS viewer may see — and its tokens
 //     are not drawn; the number is part of the map (it grows and shrinks with it, like the roads)
-//   • only at Foundry's max zoom, the ONE town nearest the middle of the screen shows its tokens instead
-//     (people out on the road never do — RealmScreen's rule)
-//   • click a number: the view zooms all the way in on that town, which spreads it
+//   • once zoomed in far enough that faces are ~34 screen px (NOT Foundry's max zoom — the user, 2026-11-11),
+//     the ONE town nearest the middle of the screen shows its tokens instead (road people never do)
+//   • click a number: the view zooms in on that town just past that point, which spreads it
 // Tokens without a spot (an older RealmScreen) are left alone.
 // ──────────────────────────────────────────────────────────────
 import { unitPx } from "./party.js"
@@ -23,9 +23,14 @@ const FONT = "'RealmScreen Plex', 'IBM Plex Sans', Signika, sans-serif"
 const FILL = 0x9a4f62           // RealmScreen's muted rose (Glass accent fill), white digits
 const S = { root: null, chips: [], raf: 0, hidden: new Set() }
 
+const FACE = 4                  // map units across one face (RealmScreen's FACE)
+const SPREAD_PX = 34            // a town spreads once a face is this many SCREEN px across (not Foundry's max zoom)
 const flagOf = (t) => t?.document?.getFlag?.(MOD, "party") || null
 const scale = () => canvas?.stage?.scale?.x || 1
-const atMax = () => scale() >= (CONFIG.Canvas?.maxZoom ?? 3) * 0.98
+const maxZoom = () => CONFIG.Canvas?.maxZoom ?? 3
+// The zoom where faces are big enough to tell apart — never above Foundry's max, so it is always reachable.
+const spreadZoom = (scene) => Math.min(maxZoom() * 0.98, SPREAD_PX / (FACE * unitPx(scene)))
+const atSpread = (scene) => scale() >= spreadZoom(scene) * 0.999
 
 function ensureRoot() {
   const primary = canvas?.primary
@@ -70,7 +75,7 @@ function draw() {
   }
   // The one town that spreads: at max zoom, the nearest to the middle of the screen.
   let spread = null
-  if (atMax()) {
+  if (atSpread(scene)) {
     const c = canvas.stage.pivot
     let best = Infinity
     for (const [k, s] of spots) {
@@ -109,7 +114,7 @@ function onUp(e) {
   const p = canvas?.mousePosition
   if (!p) return
   const hit = S.chips.find(c => Math.hypot(p.x - c.x, p.y - c.y) <= c.r * 1.15)
-  if (hit) canvas.animatePan({ x: hit.sx, y: hit.sy, scale: CONFIG.Canvas?.maxZoom ?? 3, duration: 400 })
+  if (hit) canvas.animatePan({ x: hit.sx, y: hit.sy, scale: Math.max(scale(), spreadZoom(canvas.scene) * 1.05), duration: 400 })
 }
 
 Hooks.on("canvasReady", () => {
