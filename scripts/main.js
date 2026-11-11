@@ -23,6 +23,7 @@ import { setLook, previewLook, currentLook } from "./look.js"
 import { beginStats, collectStats } from "./boxscore.js"
 import { setClock, currentClock, setClockSender, setClockLive } from "./clock.js"
 import { setCalendar, calendarAck } from "./calendar.js"   // RealmScreen's calendar: sidebar tab + window
+import { setTableLog, tableLogAck } from "./table-log.js"   // players write into the session log: Table log tab, /note, chat menu
 import {} from "./sidebar-fold.js"   // folds some sidebar tabs while RealmScreen is connected
 import {} from "./scene-control.js"  // the RealmScreen (DM screen) control set
 import { setCampaigns, noteCampaigns, setCampaignSender } from "./campaigns.js"
@@ -3780,6 +3781,16 @@ async function handleCommand(msg) {
     }
     case "calendar.ack": {
       return bridge.reply(msg.reqId, { type: "calendar.ack", ...calendarAck(msg) })
+    }
+    // ── RealmScreen table log (scripts/table-log.js) ──
+    // { log } — the running game's player notes (each player gets their part in their
+    // private whisper). { clientId, ok, text, to } — RealmScreen's answer to one note.
+    case "tablelog.set": {
+      const r = await setTableLog(msg.log || null)
+      return bridge.reply(msg.reqId, { type: "tablelog.set", ...r })
+    }
+    case "tablelog.ack": {
+      return bridge.reply(msg.reqId, { type: "tablelog.ack", ...tableLogAck(msg) })
     }
     // ── RealmScreen campaign party on the overland scene (scripts/party.js) ──
     // { sceneId, tokens: [{ key, campaignId, name, nx, ny, src, hidden }] } — the

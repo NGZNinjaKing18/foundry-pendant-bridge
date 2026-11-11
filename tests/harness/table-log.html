@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Table Log Harness</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Signika:wght@400;600&family=Roboto+Slab:wght@500;700&display=swap">
+<link rel="stylesheet" href="../../styles/pendant-bridge.css">
+<link rel="stylesheet" href="../../styles/table-log.css">
+<style>
+/* Dev harness (not loaded by Foundry): the REAL scripts/table-log.js + private.js slices in a tiny
+   stand-in for Foundry, fed and answered by the REAL RealmScreen model
+   (pendant-home lib/tableNotes.mjs: canWrite, composePlayerLine, buildTableLog, canWithdraw).
+   Serve the Downloads folder (launch config "campaign-page-harness") and open
+   /foundry-pendant-bridge/tests/harness/table-log.html. Made-up people. */
+:root {
+  --color-warm-2: #ee9b3a; --color-level-success: #3ba55d; --color-level-error: #d65a4a; --color-light-1: #fff;
+  --color-cool-5: #0b0a13; --font-primary: "Signika", sans-serif; --font-body: "Signika", sans-serif;
+  --font-size-10: 10px; --font-size-11: 11px; --font-size-12: 12px; --font-size-13: 13px; --font-size-14: 14px; --font-size-16: 16px;
+}
+.theme-dark { --color-text-emphatic: #f0f0e0; --color-text-primary: #e7e1d4; --color-text-secondary: #b5aea0; --color-text-subtle: #8a847a;
+  --color-border: #4a4842; --table-row-color-even: rgba(255,255,255,.05); --background: #1c1b22; color: var(--color-text-primary); color-scheme: dark; }
+.theme-light { --color-text-emphatic: #191813; --color-text-primary: #2b2a24; --color-text-secondary: #4b4a44; --color-text-subtle: #6e6c62;
+  --color-border: #9a978c; --table-row-color-even: rgba(0,0,0,.05); --background: #e9dfc9; color: var(--color-text-primary); color-scheme: light; }
+body { margin: 0; background: #0d100c; font: 14px/1.4 var(--font-primary); color: #ddd; }
+#bar { display: flex; gap: 10px; align-items: center; padding: 8px 12px; background: #151515; border-bottom: 1px solid #333; flex-wrap: wrap; }
+#bar button, #bar select { background: #2a2a2a; color: #ddd; border: 1px solid #444; border-radius: 3px; padding: 3px 9px; font: inherit; cursor: pointer; }
+#log { margin-left: auto; font: 12px monospace; color: #9c9; max-width: 45vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#stage { display: flex; gap: 14px; padding: 14px; align-items: flex-start; }
+.application { background: var(--background); color: var(--color-text-primary); border: 1px solid #000; border-radius: 6px; box-shadow: 0 0 20px #000; display: flex; flex-direction: column; overflow: hidden; flex: none; }
+.application.pb-tablog { order: 2; width: 300px !important; height: 640px !important; padding: 0; }
+#chat { width: 380px; background: #1c1b22; border: 1px solid #000; border-radius: 6px; padding: 8px; color: #e7e1d4; }
+#chat .cm { border: 1px solid #4a4842; border-radius: 4px; padding: 5px 8px; margin-bottom: 6px; cursor: context-menu; }
+#chat .cm b { color: #ee9b3a; }
+#chat input { width: 100%; box-sizing: border-box; background: rgba(0,0,0,.2); color: #e7e1d4; border: 1px solid #4a4842; border-radius: 3px; padding: 5px; font: inherit; }
+.ctx { position: fixed; background: #111; border: 1px solid #444; border-radius: 4px; z-index: 70; min-width: 200px; }
+.ctx div { padding: 6px 10px; cursor: pointer; } .ctx div:hover { background: #2c2a33; }
+.window-header { background: #0e0d13; color: #ddd; padding: 6px 10px; display: flex; gap: 8px; align-items: center; border-bottom: 1px solid #333; }
+.window-header .t { flex: 1; }
+.window-content { overflow: auto; flex: 1; }
+a { cursor: pointer; } button { background: rgba(127,127,127,.12); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 3px; padding: 3px 9px; font: inherit; cursor: pointer; min-height: 26px; }
+.application input[type=text], .application textarea, .application select { background: rgba(0,0,0,.15); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 3px; padding: 3px 6px; font: inherit; width: 100%; box-sizing: border-box; }
+.form-group { display: flex; gap: 8px; } .form-group.stacked { flex-direction: column; }
+.hint { color: var(--color-text-subtle); font-size: 12px; margin: 0; }
+h2, h3, h4 { font-family: "Roboto Slab", serif; }
+.dlg-back { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: grid; place-items: center; z-index: 50; }
+.dlg { width: 400px; background: #1c1b22; color: #e7e1d4; border: 1px solid #000; border-radius: 6px; }
+.dlg form { padding: 10px 14px; } .dlg footer { display: flex; gap: 6px; justify-content: flex-end; padding: 8px 14px; border-top: 1px solid #333; }
+.toast { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: #222; color: #ddd; border: 1px solid var(--color-warm-2); padding: 6px 12px; border-radius: 4px; z-index: 60; font-size: 13px; }
+.toast.warn { border-color: #d65a4a; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <strong>Table log harness</strong>
+  <span>Viewing as</span><select id="who"></select>
+  <span>Theme</span><select id="theme"><option>dark</option><option>light</option></select>
+  <span>Game</span><select id="game"><option value="on">running (Ashfall)</option><option value="off">none</option></select>
+  <span>Lines</span><select id="mode"><option value="straight">straight in</option><option value="wait">wait for GM</option></select>
+  <span>Log</span><select id="show"><option value="on">everyone's</option><option value="off">own only</option></select>
+  <span id="log"></span>
+</div>
+<div id="stage"><div id="chat"><div id="msgs"></div><input id="say" placeholder="Chat… (try /note the toll went up)"></div></div>
+<script type="module">
+const MOD = "pendant-bridge"
+const $ = (s) => document.querySelector(s)
+const log = (t) => { $("#log").textContent = t; console.log("[harness]", t) }
+const hooks = {}
+globalThis.Hooks = { on: (n, f) => { (hooks[n] ??= []).push(f) }, once: (n, f) => { (hooks[n] ??= []).push(f) }, callAll: (n, ...a) => { for (const f of hooks[n] || []) f(...a) } }
+class Coll extends Array { get(id) { return this.find(x => x.id === id) } }
+const users = Coll.from([
+  { id: "gm", name: "Gamemaster", isGM: true, active: true },
+  { id: "u1", name: "Sam", isGM: false, active: true },
+  { id: "u2", name: "Ana", isGM: false, active: true },
+  { id: "u3", name: "Jo", isGM: false, active: true },
+])
+const store = new Map([["uiConfig", { colorScheme: { applications: "dark", interface: "dark" } }]])
+let me = users[0]
+const allMsgs = []
+let msgN = 0
+const canGet = (m, u) => u.isGM || !m.whisper.length || m.whisper.includes(u.id)
+globalThis.game = {
+  get user() { return me }, users, actors: Coll.from([]), scenes: Coll.from([]), journal: Coll.from([]),
+  get messages() { return Coll.from(allMsgs.filter(m => canGet(m, me))) },
+  modules: new Map([[MOD, { version: "harness" }]]),
+  settings: { reg: {}, register(m, k, cfg) { this.reg[k] = cfg; if (!store.has(k)) store.set(k, cfg.default ?? null) }, get(m, k) { return store.get(k) }, async set(m, k, v) { store.set(k, JSON.parse(JSON.stringify(v))); this.reg[k]?.onChange?.(v); return v } },
+  socket: { on() {}, emit() {} },
+}
+const toast = (t, cls = "") => { const d = document.createElement("div"); d.className = "toast " + cls; d.textContent = t; document.body.append(d); setTimeout(() => d.remove(), 2600) }
+globalThis.ui = { notifications: { info: (t) => toast(t), warn: (t) => toast(t, "warn") } }
+class Msg {
+  constructor(d) { Object.assign(this, JSON.parse(JSON.stringify(d))); this.id = "m" + (++msgN); this.author = me; this.timestamp = Date.now(); this.whisper ||= [] }
+  async update(ch) { for (const [k, v] of Object.entries(ch)) { const p = k.split("."); let o = this; while (p.length > 1) { const x = p.shift(); o = o[x] ??= {} } o[p[0]] = v } Hooks.callAll("updateChatMessage", this) }
+  async delete() { const i = allMsgs.indexOf(this); if (i >= 0) allMsgs.splice(i, 1); Hooks.callAll("deleteChatMessage", this) }
+}
+globalThis.ChatMessage = { async create(d) { const m = new Msg(d); allMsgs.push(m); Hooks.callAll("createChatMessage", m); return m } }
+const instances = new Map()
+class ApplicationV2 {
+  constructor(options = {}) {
+    const chain = []; for (let c = this.constructor; c && c !== Object; c = Object.getPrototypeOf(c)) if (Object.hasOwn(c, "DEFAULT_OPTIONS")) chain.unshift(c.DEFAULT_OPTIONS)
+    this.options = Object.assign({}, ...chain, options)
+    this.options.actions = Object.assign({}, ...chain.map(o => o.actions || {}))
+    this.options.classes = chain.flatMap(o => o.classes || [])
+  }
+  get id() { return this.options.id || this.constructor.tabName }
+  get title() { return this.options.window?.title || "" }
+  get rendered() { return !!this.element?.isConnected }
+  async render() {
+    if (!this.element) {
+      const el = document.createElement("div")
+      el.className = ["application", ...(this.options.classes || [])].join(" ")
+      el.style.width = (this.options.position?.width || 600) + "px"
+      el.style.height = (this.options.position?.height || 600) + "px"
+      el.innerHTML = `<header class="window-header"><i class="${this.options.window?.icon || ""}"></i><span class="t"></span><a data-close>✕</a></header><section class="window-content"></section>`
+      $("#stage").append(el)
+      this.element = el
+      el.addEventListener("click", (ev) => {
+        if (ev.target.closest("[data-close]")) { el.remove(); this.element = null; instances.delete(this.id); return }
+        const t = ev.target.closest("[data-action]")
+        if (!t || !el.contains(t)) return
+        const h = this.options.actions[t.dataset.action]
+        if (h) h.call(this, ev, t); else console.warn("no action", t.dataset.action)
+      })
+      instances.set(this.id, this)
+    }
+    this.element.querySelector(".window-header .t").textContent = this.title
+    const r = await this._renderHTML()
+    this._replaceHTML(r, this.element.querySelector(".window-content"))
+    this._onRender?.()
+    return this
+  }
+  bringToFront() {}
+}
+const DialogV2 = {
+  confirm({ window, content }) {
+    return new Promise((res) => {
+      const back = document.createElement("div"); back.className = "dlg-back"
+      back.innerHTML = `<div class="dlg"><header class="window-header"><span class="t">${window?.title || ""}</span></header><form>${content}</form><footer><button type="button" data-a="no">No</button><button type="button" data-a="yes">Yes</button></footer></div>`
+      back.querySelector("footer").onclick = (ev) => { const a = ev.target.dataset.a; if (!a) return; back.remove(); res(a === "yes") }
+      document.body.append(back)
+    })
+  },
+}
+const TABS = { chat: {}, journal: {}, settings: {} }
+globalThis.CONFIG = { ui: {} }
+globalThis.foundry = { applications: { api: { ApplicationV2, DialogV2 }, instances, sidebar: { Sidebar: { TABS }, AbstractSidebarTab: class extends ApplicationV2 {} } }, utils: {} }
+
+// ── the real bridge ─────────────────────────────────────────
+const live = await import("../../scripts/live.js")
+const camps = await import("../../scripts/campaigns.js")
+const tl = await import("../../scripts/table-log.js")
+// ── the real RealmScreen rules ──────────────────────────────
+const T = await import("../../../pendant-home/src/renderer/src/lib/tableNotes.mjs")
+Hooks.callAll("init")
+ui.realmtable = new CONFIG.ui.realmtable()
+log(`Sidebar tabs: ${Object.keys(foundry.applications.sidebar.Sidebar.TABS).join(", ")}`)
+
+// RealmScreen's side: a running game of Ashfall, Sam + Ana seated, Jo in another campaign.
+const entities = [
+  { id: "character:varek", name: "Varek", type: "character" }, { id: "character:nira", name: "Nira", type: "character" },
+  { id: "character:mother oss", name: "Mother Oss", type: "character", secret: true }, { id: "loc1", name: "Saltreach", type: "location" },
+]
+const chars = { u1: "Brannoc", u2: "Nira", u3: "Sefa" }
+for (const u of users) if (chars[u.id]) u.character = { name: chars[u.id] }
+let gameOn = true
+const campaign = { id: "ash", name: "Ashfall", tableNotes: { wait: false, showLog: true } }
+const seated = ["u1", "u2"]
+const lines = [], pending = []
+let n = 0
+const liveRec = () => (gameOn ? { live: true, campaignId: "ash", number: 14, id: "s14" } : null)
+const asGM = async (fn) => { const was = me; me = users[0]; try { return await fn() } finally { me = was } }
+const resetSlice = () => Hooks.callAll("updateChatMessage", { flags: { [MOD]: { slice: {} } } })
+async function push() {
+  await asGM(() => tl.setTableLog(T.buildTableLog({ live: liveRec(), campaign, seated, lines, pending })))
+  await new Promise(r => setTimeout(r, 400))
+  resetSlice()
+}
+const ack = (m, ok, text = "") => asGM(() => tl.tableLogAck({ clientId: m.clientId, ok, text, to: [m.userId] }))
+camps.setCampaignSender((m) => {
+  setTimeout(async () => {
+    if (m.type === "tablelog.note") {
+      const g = T.canWrite({ live: liveRec(), campaign, seated, userId: m.userId, isGM: m.isGM })
+      if (!g.ok) { log("RealmScreen refused: " + g.why); return ack(m, false, g.why) }
+      const r = T.composePlayerLine(m.text, { entities: T.visibleTo(entities, { canSee: e => !e.secret }), by: { uid: m.userId, name: m.foundryName, character: m.userName }, just: m.just, quote: m.quote, allowJust: true, now: { key: 1, label: "23 Frostmoot · 4 pm" } })
+      if (!r.ok) return ack(m, false, r.why)
+      const d = r.event.data
+      const line = { id: "L" + (++n), ts: Date.now(), label: r.event.label, kind: d.kind, marks: d.marks || [], campaignDate: d.campaignDate, by: d.by, just: d.just, data: d }
+      if (campaign.tableNotes.wait) { pending.push(line); log(`waiting for the GM: ${line.label}`); await ack(m, true, "Sent to the GM. It joins the log once they say yes.") }
+      else { lines.push(line); log(`filed: ${line.label}${line.just ? " (just me)" : ""}${r.unresolved.length ? " · not linked: " + r.unresolved.join(", ") : ""}`); await ack(m, true) }
+      await push()
+    } else if (m.type === "tablelog.undo") {
+      const i = lines.findIndex(l => l.id === m.lineId), p = pending.findIndex(l => l.id === m.lineId)
+      const line = lines[i] || pending[p]
+      if (!line) return ack(m, false, "That line isn’t in this game’s log.")
+      if (!m.isGM && !T.canWithdraw({ ts: line.ts, data: { by: line.by } }, m.userId)) return ack(m, false, "Only your own lines, for ten minutes.")
+      if (i >= 0) lines.splice(i, 1); else pending.splice(p, 1)
+      log("taken back: " + line.label); await ack(m, true, "Taken back."); await push()
+    }
+  }, 300)
+  return true
+})
+live.setLinked(true)
+await push()
+ui.realmtable.render()
+
+// ── a stand-in chat log: /note goes through the real chatMessage hook; right-click = the real menu entries ──
+const chatMsgs = [
+  { id: "c1", speaker: { alias: "Nira" }, content: "<p>I didn't stab him, I <em>relocated</em> my knife</p>", rolls: [] },
+  { id: "c2", speaker: { alias: "Brannoc" }, content: "", flavor: "Insight check", rolls: [{ total: 17, formula: "1d20+3" }] },
+]
+for (const m of chatMsgs) Object.assign(m, { flags: {}, author: users[1] })
+Object.defineProperty(game, "messages", { configurable: true, get() { const c = Coll.from(allMsgs.filter(m => canGet(m, me))); c.get = (id) => chatMsgs.find(m => m.id === id) || c.find(m => m.id === id); return c } })
+function drawChat() {
+  $("#msgs").innerHTML = chatMsgs.map(m => `<div class="cm" data-message-id="${m.id}"><b>${m.speaker.alias}</b> ${m.rolls.length ? `${m.flavor}: ${m.rolls[0].total}` : m.content}</div>`).join("")
+}
+drawChat()
+$("#msgs").addEventListener("contextmenu", (ev) => {
+  const li = ev.target.closest(".cm"); if (!li) return
+  ev.preventDefault(); document.querySelector(".ctx")?.remove()
+  const opts = []; for (const f of hooks.getChatMessageContextOptions || []) f(null, opts)
+  const menu = document.createElement("div"); menu.className = "ctx"; menu.style.left = ev.clientX + "px"; menu.style.top = ev.clientY + "px"
+  for (const o of opts.filter(o => !o.condition || o.condition(li))) { const d = document.createElement("div"); d.innerHTML = `${o.icon} ${o.name}`; d.onclick = () => { menu.remove(); o.callback(li) }; menu.append(d) }
+  if (!menu.childElementCount) menu.innerHTML = "<div>(nothing for this user)</div>"
+  document.body.append(menu); setTimeout(() => document.addEventListener("click", () => menu.remove(), { once: true }), 0)
+})
+$("#say").addEventListener("keydown", (ev) => {
+  if (ev.key !== "Enter") return
+  const text = ev.target.value; ev.target.value = ""
+  let swallowed = false
+  for (const f of hooks.chatMessage || []) if (f(null, text, {}) === false) swallowed = true
+  if (!swallowed) { chatMsgs.push({ id: "c" + (chatMsgs.length + 1), speaker: { alias: chars[me.id] || me.name }, content: text, rolls: [], flags: {}, author: me }); drawChat() }
+  log(swallowed ? "chat: /note was taken by the Table log (not posted)" : "chat: posted")
+})
+
+for (const u of users) $("#who").append(new Option(u.isGM ? "GM" : `${u.name} as ${chars[u.id]}${seated.includes(u.id) ? "" : " (not seated)"}`, u.id))
+$("#who").onchange = (e) => { me = users.get(e.target.value); resetSlice(); ui.realmtable.render() }
+$("#theme").onchange = (e) => { for (const el of document.querySelectorAll(".application")) { el.classList.remove("theme-dark", "theme-light"); el.classList.add("themed", "theme-" + e.target.value) } }
+$("#game").onchange = async (e) => { gameOn = e.target.value === "on"; log(gameOn ? "game running" : "no game"); await push() }
+$("#mode").onchange = async (e) => { campaign.tableNotes.wait = e.target.value === "wait"; await push() }
+$("#show").onchange = async (e) => { campaign.tableNotes.showLog = e.target.value === "on"; await push() }
+setTimeout(() => $("#theme").onchange({ target: { value: "dark" } }), 50)
+window.__h = { tl, T, lines, pending, push, users, setMe: (id) => { $("#who").value = id; $("#who").onchange({ target: { value: id } }) }, allMsgs, approve: async () => { lines.push(...pending.splice(0)); await push() } }
+</script>
+</body>
+</html>

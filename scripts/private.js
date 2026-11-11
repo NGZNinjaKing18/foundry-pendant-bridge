@@ -25,6 +25,7 @@
 
 import { linkedHere } from "./live.js"
 import { calendarFor } from "./calendar-model.js"
+import { logFor, cleanLog } from "./table-log-model.js"
 
 const MOD = "pendant-bridge"
 const str = (v) => (typeof v === "string" ? v.trim() : "")
@@ -75,13 +76,15 @@ export function pageFor(page, uid) {
 /** Every slice to write: { gm: full, [userId]: theirs } (players with nothing are left out).
  *  `calendar` = RealmScreen's calendar (scripts/calendar-model.js cuts each player's part). */
 export function slicesOf(full, playerIds) {
-  const out = { gm: { roster: full.roster || null, pages: full.pages || {}, ...(full.calendar ? { calendar: full.calendar } : {}) } }
+  const gmLog = full.tablelog ? cleanLog(full.tablelog) : null
+  const out = { gm: { roster: full.roster || null, pages: full.pages || {}, ...(full.calendar ? { calendar: full.calendar } : {}), ...(gmLog ? { tablelog: gmLog } : {}) } }
   for (const uid of playerIds) {
     const pages = {}
     for (const [cid, p] of Object.entries(full.pages || {})) { const x = pageFor(p, uid); if (x) pages[cid] = x }
     const roster = rosterFor(full.roster, uid)
     const calendar = full.calendar ? calendarFor(full.calendar, uid) : null
-    if (Object.keys(pages).length || roster.campaigns.length || roster.active || calendar) out[uid] = { roster, pages, ...(calendar ? { calendar } : {}) }
+    const tablelog = gmLog ? logFor(gmLog, uid) : null      // the Table log: only a seated player's part
+    if (Object.keys(pages).length || roster.campaigns.length || roster.active || calendar || tablelog) out[uid] = { roster, pages, ...(calendar ? { calendar } : {}), ...(tablelog ? { tablelog } : {}) }
   }
   return out
 }
@@ -102,13 +105,15 @@ const listeners = new Set()
 export function onSlice(fn) { listeners.add(fn) }
 
 // ── writing the slices (the linked GM window) ─────────────────
-const full = { roster: null, pages: null, calendar: undefined }
+const full = { roster: null, pages: null, calendar: undefined, tablelog: undefined }
 const written = new Map()            // key → json last written
 /** RealmScreen sent part of the full picture (`roster` or `pages`). */
 export function setFull(part, value) { full[part] = value; schedule() }
 export const fullPages = () => full.pages || mySlice().pages || {}
 /** The GM's full calendar (the linked window's copy, else the GMs' last slice). */
 export const fullCalendar = () => full.calendar || mySlice().calendar || null
+/** The GM's full table log (the linked window's copy, else the GMs' last slice). */
+export const fullTableLog = () => full.tablelog || mySlice().tablelog || null
 let pubT = 0, busy = false, again = false
 function schedule() { clearTimeout(pubT); pubT = setTimeout(publish, 150) }
 const gmIds = () => (game.users?.filter(u => u.isGM) ?? []).map(u => u.id)
@@ -118,11 +123,12 @@ async function publish() {
   if (busy) { again = true; return }
   busy = true
   try {
-    if (!full.roster || !full.pages || full.calendar === undefined) {   // part of the picture: fill from what GMs last had
+    if (!full.roster || !full.pages || full.calendar === undefined || full.tablelog === undefined) {   // part of the picture: fill from what GMs last had
       const had = (() => { try { return JSON.parse(flagsOf(sliceMsg("gm")).slice?.json || "null") } catch { return null } })()
       full.roster ??= had?.roster ?? null
       full.pages ??= had?.pages ?? {}
       if (full.calendar === undefined) full.calendar = had?.calendar ?? null
+      if (full.tablelog === undefined) full.tablelog = had?.tablelog ?? null
     }
     const players = (game.users?.filter(u => !u.isGM) ?? []).map(u => u.id)
     const want = slicesOf(full, players)
