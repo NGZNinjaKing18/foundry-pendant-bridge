@@ -113,13 +113,17 @@ function onStepClick(ev) {
   ev.preventDefault()
   askStep({ days: n(b.dataset.days), hours: n(b.dataset.hours) })
 }
+/** The one step a player may ask for: the hotbar's Next day (next day, 6 am) — after an "are you sure". */
+export const PLAYER_STEP = { days: 1, hours: 0, atHour: 6 }
+export const isPlayerStep = (st) => n(st?.days) === PLAYER_STEP.days && n(st?.hours) === PLAYER_STEP.hours && n(st?.atHour, null) === PLAYER_STEP.atHour
+
 /**
- * Ask RealmScreen to move the clock (GM only — the date is never moved here).
+ * Ask RealmScreen to move the clock (the GM; a player only for PLAYER_STEP — the date is never moved here).
  * `{ days, hours, atHour }`; atHour = land on that hour (the hotbar's Next day = { days: 1, atHour: 6 }).
  * RealmScreen moves the running campaign's date, or the world date when no session runs.
  */
 export function askStep({ days = 0, hours = 0, atHour = null } = {}) {
-  if (!game.user?.isGM) return false
+  if (!game.user?.isGM && !isPlayerStep({ days, hours, atHour })) return false
   const msg = { type: "clock.step", days: n(days), hours: n(hours) }
   if (atHour != null && Number.isFinite(Number(atHour))) msg.atHour = Number(atHour)
   if (linkedHere() && sender && sender(msg)) return true
@@ -130,11 +134,13 @@ export function askStep({ days = 0, hours = 0, atHour = null } = {}) {
   return false
 }
 const CHANNEL = `module.${MOD}`
-/** A GM's step from another window, for the window holding the link. Exported for tests. */
+/** A GM's step (or a player's Next day) from another window, for the window holding the link. Exported for tests. */
 export function onClockAsk(m) {
   if (!m || m.t !== "clock.ask" || !linkedHere() || !sender) return false
-  if (!game.users?.get?.(m.user)?.isGM) return false
+  const asker = game.users?.get?.(m.user)
   const st = m.msg || {}
+  if (!asker || (!asker.isGM && !isPlayerStep(st))) return false
+  if (!asker.isGM) ui.notifications?.info?.(`${asker.name || "A player"} moved the day on (next day, 6 am).`)
   const out = { type: "clock.step", days: n(st.days), hours: n(st.hours) }
   if (st.atHour != null && Number.isFinite(Number(st.atHour))) out.atHour = Number(st.atHour)
   return !!sender(out)

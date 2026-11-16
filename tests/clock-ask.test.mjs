@@ -27,3 +27,12 @@ test("the linked window passes on another GM's step; never a player's, never whe
   assert.deepEqual(sent.at(-1), { type: "clock.step", days: 0, hours: 1 })
   assert.equal(clock.onClockAsk({ t: "clock.ask", user: "p1", msg: { days: 1, hours: 0 } }), false, "a player can't move the date")
 })
+
+test("a player may ask for Next day (next day, 6 am) — nothing else", () => {
+  live.setLinked(true)
+  assert.equal(clock.onClockAsk({ t: "clock.ask", user: "p1", msg: { days: 1, hours: 0, atHour: 6 } }), true)
+  assert.deepEqual(sent.at(-1), { type: "clock.step", days: 1, hours: 0, atHour: 6 })
+  assert.equal(clock.onClockAsk({ t: "clock.ask", user: "p1", msg: { days: 1, hours: 0, atHour: 7 } }), false)
+  assert.equal(clock.onClockAsk({ t: "clock.ask", user: "p1", msg: { days: 2, hours: 0, atHour: 6 } }), false)
+  assert.equal(clock.onClockAsk({ t: "clock.ask", user: "nobody", msg: { days: 1, hours: 0, atHour: 6 } }), false)
+})

@@ -8,8 +8,9 @@
 // Boxes so far (the rest stay empty):
 //   1  Grid      — RealmScreen's world-map grid, this account only (my-view.js)
 //   2  Nations   — the nation borders RealmScreen sent, this account only
-//   3  Next day  — GM only: the running campaign's date (no session = the world
-//                  date) moves to the next day, 6 am. RealmScreen moves it (clock.js askStep).
+//   3  Next day  — the running campaign's date (no session = the world date) moves
+//                  to the next day, 6 am. RealmScreen moves it (clock.js askStep).
+//                  Players get it too, behind an "are you sure"; the GM doesn't.
 // Grid / Nations = the same switches as the eye's column; lit = showing.
 // Icons: assets/icon-*.svg, drawn as masks in the button's text colour (pendant-bridge.css).
 //
@@ -18,17 +19,32 @@
 // ──────────────────────────────────────────────────────────────
 
 import { seeing, toggleSee } from "./my-view.js"
-import { askStep } from "./clock.js"
+import { askStep, PLAYER_STEP } from "./clock.js"
 
 export const SLOT_COUNT = 10
 /** The boxes that do something, in order from the left. */
 export const SLOTS = [
   { see: "grid", label: "Grid", icon: "grid" },
   { see: "borders", label: "Nations", icon: "nations" },
-  { act: "nextDay", label: "Next day (6 am)", icon: "next-day", gm: true },
+  { act: "nextDay", label: "Next day (6 am)", icon: "next-day" },
 ]
 /** What an action box asks for. */
-export const ACTS = { nextDay: { days: 1, atHour: 6 } }
+export const ACTS = { nextDay: PLAYER_STEP }
+
+/** A player's "are you sure" before an action box (the GM goes straight through). → true = go. */
+export async function confirmAct(a, gm = !!globalThis.game?.user?.isGM) {
+  if (gm) return true
+  const D = globalThis.foundry?.applications?.api?.DialogV2
+  if (!D) return false
+  const s = SLOTS.find(x => x.act === a)
+  return !!(await D.confirm({
+    window: { title: s?.label || "Are you sure?" },
+    content: "<p>Move the day on? It becomes the next day, 6 am, for the whole table.</p>",
+    yes: { label: "Next day" }, no: { label: "Cancel" },
+    rejectClose: false,
+  }).catch(() => false))
+}
+const doAct = async (a) => { if (await confirmAct(a)) askStep(ACTS[a]) }
 const OPEN = "pb-realm-open"
 let open = false
 
@@ -58,7 +74,7 @@ export function paintBar(root = document.getElementById("hotbar"), see = seeing)
 }
 
 /** Wire one rendered hotbar (Foundry re-renders it, so this runs each time). */
-export function wireHotbar(el, flip = toggleSee, see = seeing, act = (a) => askStep(ACTS[a])) {
+export function wireHotbar(el, flip = toggleSee, see = seeing, act = doAct) {
   if (!el) return
   const btn = el.querySelector('button[data-action="menu"]')
   if (!btn) return
