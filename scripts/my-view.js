@@ -26,6 +26,9 @@ export function seeing(key) {
   try { const v = game.settings.get(MOD, setKey(key)); return typeof v === "boolean" ? v : d } catch { return d }
 }
 
+/** Flip one switch for this account (the eye's column and the hotbar's realm menu both use it). */
+export const toggleSee = (key) => game.settings.set(MOD, setKey(key), !seeing(key))
+
 // ── the flyout: one square button per thing, in a column beside the eye ──
 // Built like Foundry's own control buttons (the eye's classes copied), lit = showing.
 let fly = null, anchor = null
@@ -74,7 +77,7 @@ export function openMyView(event) {
     b.dataset.see = s.key
     b.addEventListener("click", async (e) => {
       e.preventDefault(); e.stopPropagation()
-      await game.settings.set(MOD, setKey(s.key), !seeing(s.key))
+      await toggleSee(s.key)
       paint()
     })
     li.append(b)
@@ -92,6 +95,7 @@ Hooks.once("init", () => {
       scope: "user", config: false, type: Boolean, default: s.on,
       onChange: () => {
         Hooks.callAll(s.key === "grid" ? "pendantGridSeen" : "pendantRealmRedraw")
+        Hooks.callAll("pendantSeeChanged", s.key)
         paint()
       },
     })

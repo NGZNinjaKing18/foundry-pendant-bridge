@@ -37,6 +37,7 @@ import { setMapBuilders, mapViewsState, mapViewsSet, mapSend, mapViewsEdit, mapR
 import {} from "./realm-layer.js"   // draws the sent World Map itself (records in flags.realm)
 import {} from "./people-chips.js"  // RealmScreen's people as numbers on each viewer's canvas; one town spreads at max zoom
 import { seeing, views } from "./my-view.js"   // each account's own eye switches (the grid overlay obeys "grid")
+import {} from "./realm-menu.js"     // hotbar hooded button → empty slot-row menu in the hotbar's place
 
 const MOD = "pendant-bridge"
 const FS_LEDGER = "fileSortLedger"

@@ -111,12 +111,23 @@ function onStepClick(ev) {
   const b = ev.target.closest?.("button[data-days]")
   if (!b) return
   ev.preventDefault()
-  const msg = { type: "clock.step", days: n(b.dataset.days), hours: n(b.dataset.hours) }
-  if (linkedHere() && sender && sender(msg)) return
+  askStep({ days: n(b.dataset.days), hours: n(b.dataset.hours) })
+}
+/**
+ * Ask RealmScreen to move the clock (GM only — the date is never moved here).
+ * `{ days, hours, atHour }`; atHour = land on that hour (the hotbar's Next day = { days: 1, atHour: 6 }).
+ * RealmScreen moves the running campaign's date, or the world date when no session runs.
+ */
+export function askStep({ days = 0, hours = 0, atHour = null } = {}) {
+  if (!game.user?.isGM) return false
+  const msg = { type: "clock.step", days: n(days), hours: n(hours) }
+  if (atHour != null && Number.isFinite(Number(atHour))) msg.atHour = Number(atHour)
+  if (linkedHere() && sender && sender(msg)) return true
   // Another GM window holds the RealmScreen link (found live 2026-11-01: two GMs logged in, and the buttons in the
   // other one did nothing) — ask it over the module socket; it checks the ask came from a GM.
-  if (realmLive()) { try { game.socket?.emit(CHANNEL, { t: "clock.ask", user: game.user?.id || null, msg }) } catch { /* socket not ready */ } return }
+  if (realmLive()) { try { game.socket?.emit(CHANNEL, { t: "clock.ask", user: game.user?.id || null, msg }) } catch { /* socket not ready */ } return true }
   ui.notifications?.warn("RealmScreen isn’t connected, so the date can’t move from here.")
+  return false
 }
 const CHANNEL = `module.${MOD}`
 /** A GM's step from another window, for the window holding the link. Exported for tests. */
@@ -124,7 +135,9 @@ export function onClockAsk(m) {
   if (!m || m.t !== "clock.ask" || !linkedHere() || !sender) return false
   if (!game.users?.get?.(m.user)?.isGM) return false
   const st = m.msg || {}
-  return !!sender({ type: "clock.step", days: n(st.days), hours: n(st.hours) })
+  const out = { type: "clock.step", days: n(st.days), hours: n(st.hours) }
+  if (st.atHour != null && Number.isFinite(Number(st.atHour))) out.atHour = Number(st.atHour)
+  return !!sender(out)
 }
 
 // The dial only shows while RealmScreen is connected (live.js decides, the same
