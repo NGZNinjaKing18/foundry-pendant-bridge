@@ -30,6 +30,7 @@ import { setCampaigns, noteCampaigns, setCampaignSender } from "./campaigns.js"
 import { setPages, whisperCampaign } from "./campaign-page.js"
 import {} from "./group-stack.js"    // dnd5e group tokens: stacked art, pile order, pull-out fan
 import { syncParty, syncTrails, setPartySender, partySwitch, partyGroups } from "./party.js"
+import { syncCaravans } from "./caravans.js"   // RealmScreen's caravans: a vehicle actor + token each, driving the roads
 import { setTripSender, tripAnswer } from "./trips.js"
 import { setMusicSender, setMusicState, musicNote } from "./music-panel.js"   // RealmScreen music in the Playlists tab
 import { timelineStatus, applyFromRealm, broadcastFromRealm, isTimelineWriter } from "./timeline.js"
@@ -3821,6 +3822,11 @@ async function handleCommand(msg) {
     case "party.trails": {
       const r = await syncTrails(msg)
       return bridge.reply(msg.reqId, { type: "party.trails", ok: true, ...r })
+    }
+    // { sceneId, caravans: [...], remove? } — RealmScreen's caravans on that scene (scripts/caravans.js): the FULL list.
+    case "caravan.sync": {
+      const r = await syncCaravans(msg)
+      return bridge.reply(msg.reqId, { type: "caravan.sync", ok: true, ...r })
     }
 
     // ── World Map things "into views" (scripts/mapviews.js) ───
