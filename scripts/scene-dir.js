@@ -8,7 +8,7 @@
 //   Folders     quiet look: the folder colour is a thin left edge + the folder icon, not a full bar.
 //               Each folder has two switches in its own Edit Folder window:
 //                 • Show as pictures — its scenes as a 2-wide picture grid (concept C) instead of rows
-//                 • Coloured bar     — its header keeps a bar in its colour (C's tinted bar)
+//                 • Coloured bar     — its header keeps a bar in its colour (C's tinted bar); ON by default
 //               Saved on the folder (flags[MOD].dir = { pictures, bar }), so everyone sees the same.
 //
 // Native-first: a render hook on Foundry's own SceneDirectory adds to its DOM; nothing is replaced. Clicks on
@@ -54,7 +54,7 @@ export const hasTag = (scene, tag) => !tag || tagsOf(scene).some(t => t.toLowerC
 /** A folder's own switches. */
 export function dirOf(folder) {
   const d = folder?.flags?.[MOD]?.dir ?? folder?.getFlag?.(MOD, "dir") ?? {}
-  return { pictures: !!d.pictures, bar: !!d.bar }
+  return { pictures: !!d.pictures, bar: d.bar !== false }   // the coloured bar is on unless switched off (the user, 2026-11-17)
 }
 /** The strip's two rows: live + pinned (live first, no repeats, only scenes that still exist), recent (minus those). */
 export function stripRows({ live, pins, recent, exists }) {

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scene Dir Harness</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Signika:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<link rel="stylesheet" href="../../styles/pendant-bridge.css">
+<style>
+/* Dev harness (not loaded by Foundry): Foundry V14's Scenes sidebar DOM as read from the user's world
+   (li.folder > header.folder-header with an inline background + ol.subdirectory; entries li[data-entry-id] with
+   img.thumbnail + a.entry-name), sticky headers like Foundry's, and the REAL scripts/scene-dir.js decorate(). */
+body { margin: 0; background: #1d1b22; color: #e7e1d4; font: 14px Signika, sans-serif; }
+#scenes { width: 300px; height: 520px; display: flex; flex-direction: column; background: rgba(11, 10, 19, .85); margin: 12px; }
+.directory-list { flex: 1; overflow-y: auto; list-style: none; margin: 0; padding: 0; }
+.subdirectory { list-style: none; margin: 0; padding: 0 0 0 8px; border-left: 2px solid; }
+li.folder:not(.expanded) > .subdirectory { display: none; }
+.folder-header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 6px; color: #fff; font-weight: 600; }
+li[data-entry-id] { display: flex; align-items: center; gap: 6px; height: 64px; padding: 0 4px; }
+li[data-entry-id] img.thumbnail { width: 100%; height: 60px; object-fit: cover; position: absolute; inset: 2px 0; opacity: .8; }
+li[data-entry-id] a.entry-name { position: relative; margin: auto; font-size: 18px; font-weight: 600; color: #fff; text-shadow: 0 1px 3px #000; }
+</style>
+</head>
+<body>
+<section id="scenes" class="tab sidebar-tab directory flexcol scenes-sidebar active">
+  <header class="directory-header" style="padding:6px"><input placeholder="Search Scenes" style="width:100%"></header>
+  <ol class="directory-list plain"></ol>
+</section>
+<script type="module">
+const pic = (c) => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="300" height="80"><rect width="300" height="80" fill="${c}"/><rect x="40" y="10" width="220" height="60" fill="#0005"/></svg>`)
+const folders = [{ id: "f0", name: "Chronicles of Albuna", c: "#12942f", kids: ["f1"] }, { id: "f1", name: "Battle Maps", c: "#d9434a", kids: ["f2"] }, { id: "f2", name: "indoor", c: "#e8a33a", kids: [], pictures: true }]
+const scenes = [["s1", "Academy: Metal Depot", "#556", ["battlemap", "indoors"]], ["s2", "Ad verticem Map", "#433", ["battlemap"]], ["s3", "B-room", "#445", ["indoors"]], ["s4", "Ball room", "#733", ["battlemap", "indoors"]], ["s5", "Courtyard Default", "#454", ["outside"]]]
+const sceneObjs = scenes.map(([id, name, c, tags]) => ({ id, name, thumb: pic(c), flags: { "pendant-bridge": { tags } } }))
+for (let i = 0; i < 180; i++) sceneObjs.push({ id: "x" + i, name: "x" + i, flags: { "pendant-bridge": { tags: ["tag" + (i % 170)] } } })
+const S = new Map(sceneObjs.map(s => [s.id, s])); S.contents = sceneObjs
+const F = new Map(folders.map(f => [f.id, { ...f, type: "Scene", flags: { "pendant-bridge": { dir: { pictures: !!f.pictures } } } }]))
+globalThis.Hooks = { on() {}, once() {}, callAll() {} }
+globalThis.game = { scenes: Object.assign(S, { active: sceneObjs[1] }), folders: F, user: { getFlag: () => ["s4"] }, settings: { get: () => ["s3", "s5"] } }
+globalThis.ui = {}
+const entry = ([id, name, c]) => `<li class="directory-item entry document scene" data-entry-id="${id}" style="position:relative"><img class="thumbnail" src="${pic(c)}"><a class="entry-name">${name}</a></li>`
+const folder = (f) => `<li class="directory-item folder flexcol expanded" data-folder-id="${f.id}"><header class="folder-header" style="background-color: ${f.c};"><i class="fa-solid fa-folder-open fa-fw"></i><span class="folder-name ellipsis">${f.name}</span></header>
+  <ol class="subdirectory plain" style="border-left-color: ${f.c};">${f.kids.map(k => folder(folders.find(x => x.id === k))).join("")}${f.id === "f2" || f.id === "f0" ? scenes.map(entry).join("") : ""}</ol></li>`
+document.querySelector(".directory-list").innerHTML = folder(folders[0])
+const mod = await import("../../scripts/scene-dir.js")
+mod._test.decorate(document.getElementById("scenes"))
+document.querySelector(".directory-list").scrollTop = 150
+window.__mod = mod
+</script>
+</body>
+</html>

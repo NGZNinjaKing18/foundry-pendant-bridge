@@ -1579,13 +1579,16 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
 .pb-dir-face img, .pb-dir-nothumb { display: grid; place-items: center; width: 64px; height: 40px; object-fit: cover; border-radius: 3px; border: 1px solid var(--color-border, #3c3946); margin-bottom: 2px; background: rgba(255, 255, 255, .05); }
 .pb-dir-face.live img { outline: 2px solid var(--color-warm-1, #ff6400); outline-offset: -2px; }
 .pb-dir-face > span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pb-dir-tags { display: flex; flex-wrap: wrap; gap: 4px; padding-top: 2px; }
-.pb-dir-tag { flex: none; width: auto; height: auto; line-height: 1.3; margin: 0; padding: 2px 7px; border-radius: 3px; border: 1px solid var(--color-border, #3c3946); background: transparent; font-size: var(--font-size-12, 12px); color: var(--color-text-secondary, #a8a194); }
+.pb-dir-tags { display: flex; flex-wrap: wrap; gap: 2px; padding-top: 1px; }
+.pb-dir-tag { flex: none; width: auto; height: 16px; min-height: 0; line-height: 14px; margin: 0; padding: 0 4px; border-radius: 2px; border: 1px solid var(--color-border, #3c3946); background: transparent; font-size: 10px; font-weight: 400; color: var(--color-text-secondary, #a8a194); }
 .pb-dir-tag:hover { color: var(--color-text-primary, #e7e1d4); }
 .pb-dir-tag.on { border-color: var(--color-warm-1, #ff6400); color: var(--color-text-primary, #e7e1d4); }
 /* folders: the quiet look (colour = thin left edge + icon) unless the folder keeps its coloured bar */
-.pb-dir li.folder[data-folder-id] > .folder-header { background: none !important; border-left: 3px solid var(--pb-c, transparent); color: var(--color-text-primary, #e7e1d4); text-shadow: none; }
-.pb-dir li.folder.pb-bar > .folder-header { background: color-mix(in srgb, var(--pb-c, transparent) 22%, transparent) !important; }
+.pb-dir { --pb-head: var(--color-cool-5, #0b0a13); --pb-solid: #0e0d14; }
+.theme-light .pb-dir, .pb-dir.theme-light { --pb-head: var(--color-light-2, #e8e4da); --pb-solid: #e8e4da; }
+/* headers stay pinned while scrolling (Foundry), so they must be opaque */
+.pb-dir li.folder[data-folder-id] > .folder-header { background: linear-gradient(var(--pb-head), var(--pb-head)), var(--pb-solid) !important; border-left: 3px solid var(--pb-c, transparent); color: var(--color-text-primary, #e7e1d4); text-shadow: none; }
+.pb-dir li.folder.pb-bar > .folder-header { background: linear-gradient(color-mix(in srgb, var(--pb-c, transparent) 28%, transparent), color-mix(in srgb, var(--pb-c, transparent) 28%, transparent)), var(--pb-solid) !important; }
 .pb-dir li.folder[data-folder-id] > .folder-header :is(.fa-folder, .fa-folder-open, .fa-folder-closed) { color: var(--pb-c, inherit); }
 /* a folder shown as pictures: its scenes two to a row, the picture with the name over it */
 .pb-dir li.folder.pb-pics > .subdirectory::after { content: ""; display: block; clear: both; }
@@ -1603,5 +1606,5 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
 .pb-dir .pb-dir-out { display: none !important; }
 .pb-dir li.folder.pb-dir-open > .subdirectory { display: block !important; }
 .pb-dir-switches { margin: 6px 0; }
-.pb-dir-alltags { max-height: 132px; overflow-y: auto; padding-top: 0; }
+.pb-dir-alltags { max-height: 72px; overflow-y: auto; padding-top: 0; }
 .pb-dir-tag.pb-dir-more { color: var(--color-text-subtle, #7d776c); }

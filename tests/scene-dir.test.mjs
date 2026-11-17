@@ -20,9 +20,9 @@ test("tags: each once (any case), sorted; a scene matches ignoring case", () => 
   assert.equal(hasTag(sc("1", []), null), true)
 })
 
-test("a folder's switches default off", () => {
-  assert.deepEqual(dirOf({}), { pictures: false, bar: false })
-  assert.deepEqual(dirOf({ flags: { "pendant-bridge": { dir: { pictures: true } } } }), { pictures: true, bar: false })
+test("a folder's switches: pictures off, coloured bar on, by default", () => {
+  assert.deepEqual(dirOf({}), { pictures: false, bar: true })
+  assert.deepEqual(dirOf({ flags: { "pendant-bridge": { dir: { pictures: true, bar: false } } } }), { pictures: true, bar: false })
 })
 
 test("strip: live first, pinned after, recent without those; gone scenes dropped", () => {
