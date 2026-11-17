@@ -36,6 +36,7 @@ import { timelineStatus, applyFromRealm, broadcastFromRealm, isTimelineWriter } 
 import { setMapBuilders, mapViewsState, mapViewsSet, mapSend, mapViewsEdit, mapRemove, mapReveal } from "./mapviews.js"
 import {} from "./realm-layer.js"   // draws the sent World Map itself (records in flags.realm)
 import {} from "./scene-doors.js"   // GM-only signs on a scene that lead to another scene (flags.doors)
+import {} from "./scene-dir.js"     // Scenes sidebar while RealmScreen is connected: live/pinned/recent strip, tags, quiet folders, picture folders
 import {} from "./people-chips.js"  // RealmScreen's people as numbers on each viewer's canvas; one town spreads at max zoom
 import { seeing, views } from "./my-view.js"   // each account's own eye switches (the grid overlay obeys "grid")
 import {} from "./realm-menu.js"     // hotbar hooded button → empty slot-row menu in the hotbar's place

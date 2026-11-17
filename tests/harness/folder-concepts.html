@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Folder Concepts</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Signika:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>
+/* MOCKUP (not loaded by Foundry): ways the bridge could upgrade the sidebar's folders (Scenes shown; the same
+   applies to Actors, Items, Entries…). Stand-in for Foundry V13/14's dark sidebar, its own variables and sizes. */
+:root {
+  --color-text-primary: #e7e1d4; --color-text-secondary: #a8a194; --color-text-subtle: #7d776c;
+  --color-border: #3c3946; --sidebar-bg: rgba(11, 10, 19, 0.92); --hover: rgba(255, 255, 255, 0.06);
+  --warm-1: #ff6400; --warm-2: #ff9a5c; --input-bg: rgba(255, 255, 255, 0.06);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: #1d1b22 radial-gradient(circle at 30% 20%, #2b3a2a, #15141a 70%); color: var(--color-text-primary); font: 14px/1.35 Signika, sans-serif; min-height: 100vh; }
+.wrap { display: flex; gap: 18px; padding: 16px; overflow-x: auto; align-items: flex-start; }
+.col { flex: none; width: 300px; display: flex; flex-direction: column; gap: 6px; }
+.col > h2 { margin: 0; font-size: 15px; font-weight: 700; }
+.col > p { margin: 0 0 4px; font-size: 12.5px; color: var(--color-text-secondary); min-height: 34px; }
+.sb { background: var(--sidebar-bg); border: 1px solid var(--color-border); border-radius: 6px; height: 560px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 4px 18px #0008; }
+.sb-head { display: flex; gap: 6px; align-items: center; padding: 6px; border-bottom: 1px solid var(--color-border); }
+.search { flex: 1; display: flex; align-items: center; gap: 6px; background: var(--input-bg); border: 1px solid var(--color-border); border-radius: 4px; padding: 3px 7px; color: var(--color-text-subtle); font-style: italic; }
+.search input { all: unset; flex: 1; color: var(--color-text-primary); font-style: normal; }
+.ib { all: unset; cursor: pointer; width: 26px; height: 26px; display: grid; place-items: center; color: var(--color-text-secondary); border-radius: 4px; }
+.ib:hover { color: var(--color-text-primary); background: var(--hover); }
+.ib.on { color: var(--warm-2); }
+.list { flex: 1; overflow-y: auto; padding: 2px 0 8px; }
+.empty { padding: 10px; color: var(--color-text-subtle); font-size: 12.5px; }
+
+/* ── today (stock Foundry) ── */
+.stock .fh { display: flex; align-items: center; gap: 8px; height: 37px; padding: 0 8px; font-weight: 700; font-size: 15px; color: #fff; cursor: pointer; border-top: 1px solid #0006; text-shadow: 0 1px 2px #000a; }
+.stock .fh .acts { margin-left: auto; display: flex; gap: 8px; opacity: .9; }
+.stock .sub { padding-left: 10px; }
+.stock .sc { display: flex; align-items: center; gap: 8px; padding: 3px 8px; cursor: pointer; }
+.stock .sc:hover { background: var(--hover); }
+.stock .sc img { width: 48px; height: 48px; object-fit: cover; border: 1px solid #000; }
+
+/* ── A: quiet colour ── */
+.qa .row { display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 8px 0 calc(8px + var(--d, 0) * 16px); cursor: pointer; position: relative; }
+.qa .row:hover { background: var(--hover); }
+.qa .row.f { font-weight: 600; }
+.qa .row.f::before { content: ""; position: absolute; left: calc(var(--d, 0) * 16px); top: 5px; bottom: 5px; width: 3px; border-radius: 2px; background: var(--c); }
+.qa .row .fi { color: var(--c); width: 16px; text-align: center; }
+.qa .row .n { margin-left: auto; font-size: 11.5px; color: var(--color-text-subtle); font-weight: 400; }
+.qa .row .add { display: none; color: var(--color-text-secondary); }
+.qa .row.f:hover .add { display: inline; }
+.qa .row.f:hover .n { display: none; }
+.qa .row.s img { width: 34px; height: 22px; object-fit: cover; border-radius: 2px; border: 1px solid #0008; }
+.qa .row.s .live { margin-left: auto; color: var(--warm-2); font-size: 11px; }
+.qa .kids { position: relative; }
+.qa .kids::before { content: ""; position: absolute; left: calc(15px + var(--d, 0) * 16px); top: 0; bottom: 6px; border-left: 1px solid #ffffff1c; }
+
+/* ── B: drill in ── */
+.dr .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 7px 8px; border-bottom: 1px solid var(--color-border); font-size: 13px; color: var(--color-text-secondary); }
+.dr .crumbs a { cursor: pointer; color: var(--color-text-secondary); }
+.dr .crumbs a:hover { color: var(--color-text-primary); }
+.dr .crumbs b { color: var(--color-text-primary); }
+.dr .row { display: flex; align-items: center; gap: 9px; height: 40px; padding: 0 10px; cursor: pointer; border-bottom: 1px solid #ffffff0a; }
+.dr .row:hover { background: var(--hover); }
+.dr .row .fi { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 4px; background: color-mix(in srgb, var(--c) 30%, transparent); color: color-mix(in srgb, var(--c) 70%, white); }
+.dr .row .t { flex: 1; min-width: 0; }
+.dr .row .t small { display: block; font-size: 11.5px; color: var(--color-text-subtle); }
+.dr .row .go { color: var(--color-text-subtle); }
+.dr .row img { width: 46px; height: 30px; object-fit: cover; border-radius: 2px; border: 1px solid #0008; }
+
+/* ── C: picture shelf ── */
+.ps .fh { display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 8px; cursor: pointer; font-weight: 600; border-left: 3px solid var(--c); margin: 4px 6px 0; border-radius: 2px; background: color-mix(in srgb, var(--c) 12%, transparent); }
+.ps .fh .n { margin-left: auto; font-size: 11.5px; color: var(--color-text-subtle); font-weight: 400; }
+.ps .shelf { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; padding: 5px 6px 2px 14px; }
+.ps .tile { position: relative; aspect-ratio: 16 / 10; border-radius: 3px; overflow: hidden; cursor: pointer; border: 1px solid #0009; }
+.ps .tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ps .tile span { position: absolute; left: 0; right: 0; bottom: 0; padding: 10px 5px 3px; font-size: 11.5px; font-weight: 600; background: linear-gradient(transparent, #000c); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ps .tile.live { outline: 2px solid var(--warm-1); outline-offset: -2px; }
+.ps .tile:hover img { filter: brightness(1.15); }
+.ps .sub { padding-left: 10px; }
+
+/* ── D: pinned + recent + tags ── */
+.pr .strip { padding: 6px 8px; border-bottom: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 5px; }
+.pr .strip h4 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--color-text-subtle); font-weight: 600; }
+.pr .faces { display: flex; gap: 5px; overflow-x: auto; }
+.pr .faces .tile { flex: none; width: 62px; cursor: pointer; text-align: center; font-size: 10.5px; color: var(--color-text-secondary); }
+.pr .faces img { width: 62px; height: 40px; object-fit: cover; border-radius: 3px; border: 1px solid #0009; display: block; margin-bottom: 2px; }
+.pr .faces .tile.live img { outline: 2px solid var(--warm-1); outline-offset: -2px; }
+.pr .faces .tile span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pr .tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.pr .tag { cursor: pointer; padding: 2px 7px; border-radius: 3px; border: 1px solid var(--color-border); font-size: 12px; color: var(--color-text-secondary); background: transparent; }
+.pr .tag:hover { color: var(--color-text-primary); }
+.pr .tag.on { border-color: var(--warm-1); color: var(--color-text-primary); }
+.pr .row { display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 8px 0 calc(8px + var(--d, 0) * 16px); cursor: pointer; }
+.pr .row:hover { background: var(--hover); }
+.pr .row.f { font-weight: 600; }
+.pr .row .fi { color: var(--c); width: 16px; text-align: center; }
+.pr .row img { width: 34px; height: 22px; object-fit: cover; border-radius: 2px; border: 1px solid #0008; }
+.pr .row .star { margin-left: auto; color: var(--color-text-subtle); visibility: hidden; }
+.pr .row:hover .star, .pr .row .star.on { visibility: visible; }
+.pr .row .star.on { color: var(--warm-2); }
+.pr .row .n { margin-left: auto; font-size: 11.5px; color: var(--color-text-subtle); font-weight: 400; }
+mark { background: none; color: var(--warm-2); }
+</style>
+</head>
+<body>
+<div class="wrap" id="wrap"></div>
+<script>
+// ── the world's scenes (folders as in the user's screenshot) ──
+let seed = 11
+const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647
+function thumb(kind) {
+  const w = 160, h = 100, s = []
+  const P = { world: ['#2f5470', '#55603f'], town: ['#3b3226', '#8c7a63'], battle: ['#26331f', '#4e6a3a'], cave: ['#1d1c22', '#4b4756'], den: ['#2a1f18', '#7d5a3c'], cover: ['#2a2238', '#6d4c8f'] }[kind]
+  s.push(`<rect width="${w}" height="${h}" fill="${P[0]}"/>`)
+  if (kind === 'world') s.push(`<path d="M10 25 50 8 100 10 135 30 140 70 115 92 60 95 20 80 8 50z" fill="${P[1]}"/>`)
+  else for (let i = 0; i < 9; i++) s.push(`<rect x="${rnd() * 120}" y="${rnd() * 70}" width="${14 + rnd() * 30}" height="${10 + rnd() * 24}" fill="${P[1]}" stroke="#0005"/>`)
+  for (let x = 0; x < w; x += 10) s.push(`<line x1="${x}" y1="0" x2="${x}" y2="${h}" stroke="#000" stroke-opacity=".15"/>`)
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">${s.join('')}</svg>`)
+}
+const sc = (id, name, kind, tags = []) => ({ id, name, img: thumb(kind), tags })
+const TREE = { id: 'f0', name: 'Chronicles of Albuna', c: '#22a33f', scenes: [sc('s0', 'World Map', 'world', ['Overland'])], kids: [
+  { id: 'f1', name: 'Sin & coin', c: '#111111', scenes: [sc('s1', 'Gambling den', 'den', ['Town']), sc('s2', 'Coin vault', 'den', ['Dungeon'])], kids: [] },
+  { id: 'f2', name: 'Locations & Settlements', c: '#3d7be0', scenes: [sc('s3', 'Omacatl', 'town', ['Town']), sc('s4', 'Fort Delta', 'town', ['Town']), sc('s5', 'Burgen', 'town', ['Town']), sc('s6', 'The Lame Goat', 'den', ['Town'])], kids: [
+    { id: 'f2a', name: 'Perseus', c: '#3d7be0', scenes: [sc('s7', 'prosperous', 'town', ['Town']), sc('s8', 'Kulkel', 'town', ['Town'])], kids: [] }] },
+  { id: 'f3', name: 'Battle Maps', c: '#d9434a', scenes: [sc('s9', 'Ashe Ford ambush', 'battle', ['Battle']), sc('s10', 'Rookwater Caves', 'cave', ['Battle', 'Dungeon']), sc('s11', 'Tomb of Seven', 'cave', ['Dungeon'])], kids: [] },
+  { id: 'f4', name: 'Cover', c: '#8a3fd6', scenes: [sc('s12', 'Title card', 'cover')], kids: [] },
+  { id: 'f5', name: 'HIDE', c: '#111111', scenes: [sc('s13', 'Old world map', 'world')], kids: [] },
+  { id: 'f6', name: 'Delete', c: '#111111', scenes: [], kids: [] },
+] }
+const LIVE = 's0'
+const all = []; (function walk(f, path) { for (const s of f.scenes) all.push({ ...s, folder: f, path: [...path, f] }); for (const k of f.kids) walk(k, [...path, f]) })(TREE, [])
+const count = (f) => f.scenes.length + f.kids.reduce((n, k) => n + count(k), 0)
+const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+// folder colour → visible on the dark sidebar (black folders read as the default grey)
+const ink = (c) => (c === '#111111' ? '#8f8a80' : c)
+
+const COLS = [
+  { key: 'stock', title: 'Today', blurb: 'Stock Foundry: each folder is a full-width bar in its colour.' },
+  { key: 'qa', title: 'A · Quiet colour', blurb: 'Colour becomes a thin edge + icon. Tree lines, counts, small pictures. Live scene marked.' },
+  { key: 'dr', title: 'B · Drill in', blurb: 'One folder at a time, with a path to go back. Big rows, what\'s inside under the name.' },
+  { key: 'ps', title: 'C · Picture shelf', blurb: 'Scenes as pictures in a 2-wide grid; folders stay slim.' },
+  { key: 'pr', title: 'D · Pinned + tags', blurb: 'Live, pinned (★ on hover) and recent scenes on top; tags filter the tree.' },
+]
+const state = { open: new Set(['f0', 'f2', 'f3']), q: '', drill: [], pins: new Set(['s10', 's3']), recent: ['s9', 's4', 's11'], tag: null }
+document.getElementById('wrap').innerHTML = COLS.map(c => `<section class="col"><h2>${c.title}</h2><p>${c.blurb}</p>
+  <div class="sb ${c.key}"><div class="sb-head"><label class="search"><i class="fa-solid fa-magnifying-glass"></i><input data-q placeholder="Search Scenes"></label>
+  <button class="ib" title="Sort"><i class="fa-solid fa-arrow-down-a-z"></i></button><button class="ib" data-collapse title="Collapse all"><i class="fa-solid fa-folder-tree"></i></button></div>
+  <div class="list" data-list="${c.key}"></div></div></section>`).join('')
+
+const match = (s) => !state.q || s.name.toLowerCase().includes(state.q)
+const hasMatch = (f) => f.scenes.some(match) || f.kids.some(hasMatch)
+const hi = (name) => state.q ? esc(name).replace(new RegExp(state.q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), m => `<mark>${m}</mark>`) : esc(name)
+const isOpen = (f) => state.q ? hasMatch(f) : state.open.has(f.id)
+
+function stock(f, d = 0) {
+  if (state.q && !hasMatch(f)) return ''
+  return `<div class="fh" data-f="${f.id}" style="background:${f.c}"><i class="fa-solid fa-folder${isOpen(f) ? '-open' : ''}"></i>${esc(f.name)}<span class="acts"><i class="fa-solid fa-folder-plus"></i><i class="fa-solid fa-map"></i></span></div>
+    ${isOpen(f) ? `<div class="sub">${f.kids.map(k => stock(k, d + 1)).join('')}${f.scenes.filter(match).map(s => `<div class="sc"><img src="${s.img}">${hi(s.name)}</div>`).join('')}</div>` : ''}`
+}
+function quiet(f, d = 0) {
+  if (state.q && !hasMatch(f)) return ''
+  const c = ink(f.c)
+  return `<div class="row f" data-f="${f.id}" style="--d:${d};--c:${c}"><i class="fi fa-solid fa-folder${isOpen(f) ? '-open' : ''}"></i>${esc(f.name)}<span class="n">${count(f)}</span><span class="add"><i class="fa-solid fa-folder-plus"></i>&nbsp; <i class="fa-solid fa-map"></i></span></div>
+    ${isOpen(f) ? `<div class="kids" style="--d:${d}">${f.kids.map(k => quiet(k, d + 1)).join('')}${f.scenes.filter(match).map(s => `<div class="row s" style="--d:${d + 1}"><img src="${s.img}">${hi(s.name)}${s.id === LIVE ? '<span class="live" title="Active scene"><i class="fa-solid fa-bullseye"></i></span>' : ''}</div>`).join('')}</div>` : ''}`
+}
+function drill() {
+  if (state.q) return all.filter(match).map(s => `<div class="row"><img src="${s.img}"><span class="t">${hi(s.name)}<small>${s.path.map(p => esc(p.name)).join(' › ')}</small></span></div>`).join('') || '<div class="empty">No scenes match.</div>'
+  let f = TREE; for (const id of state.drill) f = f.kids.find(k => k.id === id) || f
+  const path = [TREE]; { let g = TREE; for (const id of state.drill) { g = g.kids.find(k => k.id === id); if (g) path.push(g) } }
+  const crumbs = `<div class="crumbs">${path.map((p, i) => i === path.length - 1 ? `<b>${esc(p.name)}</b>` : `<a data-up="${i}">${esc(p.name)}</a> ›`).join(' ')}</div>`
+  return crumbs + (state.drill.length ? `<div class="row" data-up="${path.length - 2}"><span class="fi" style="--c:#888"><i class="fa-solid fa-arrow-left"></i></span><span class="t">Back</span></div>` : '') +
+    f.kids.map(k => `<div class="row" data-in="${k.id}" style="--c:${ink(k.c)}"><span class="fi"><i class="fa-solid fa-folder"></i></span><span class="t">${esc(k.name)}<small>${k.kids.length ? `${k.kids.length} folder${k.kids.length > 1 ? 's' : ''} · ` : ''}${((n) => `${n} scene${n === 1 ? '' : 's'}`)(count(k) - k.kids.reduce((n, x) => n + count(x), 0))}</small></span><i class="go fa-solid fa-chevron-right"></i></div>`).join('') +
+    f.scenes.map(s => `<div class="row"><img src="${s.img}"><span class="t">${esc(s.name)}${s.id === LIVE ? '<small>Active scene</small>' : ''}</span></div>`).join('')
+}
+function shelf(f, d = 0) {
+  if (state.q && !hasMatch(f)) return ''
+  const c = ink(f.c), sh = f.scenes.filter(match)
+  return `<div class="fh" data-f="${f.id}" style="--c:${c}"><i class="fa-solid fa-folder${isOpen(f) ? '-open' : ''}" style="color:${c}"></i>${esc(f.name)}<span class="n">${count(f)}</span></div>
+    ${isOpen(f) ? `<div class="sub">${sh.length ? `<div class="shelf">${sh.map(s => `<div class="tile${s.id === LIVE ? ' live' : ''}" title="${esc(s.name)}"><img src="${s.img}"><span>${hi(s.name)}</span></div>`).join('')}</div>` : ''}${f.kids.map(k => shelf(k, d + 1)).join('')}</div>` : ''}`
+}
+const TAGS = ['Overland', 'Town', 'Battle', 'Dungeon']
+function pinned() {
+  const face = (id) => { const s = all.find(x => x.id === id); return `<div class="tile${id === LIVE ? ' live' : ''}" title="${esc(s.name)}"><img src="${s.img}"><span>${esc(s.name)}</span></div>` }
+  const top = `<div class="strip"><h4>Live · pinned</h4><div class="faces">${[LIVE, ...state.pins].map(face).join('')}</div>
+    <h4>Recent</h4><div class="faces">${state.recent.map(face).join('')}</div>
+    <div class="tags">${TAGS.map(t => `<button class="tag${state.tag === t ? ' on' : ''}" data-tag="${t}">${t}</button>`).join('')}</div></div>`
+  const ok = (s) => match(s) && (!state.tag || s.tags.includes(state.tag))
+  const has = (f) => f.scenes.some(ok) || f.kids.some(has)
+  const tree = (f, d = 0) => {
+    if ((state.q || state.tag) && !has(f)) return ''
+    const open = (state.q || state.tag) ? true : state.open.has(f.id)
+    return `<div class="row f" data-f="${f.id}" style="--d:${d};--c:${ink(f.c)}"><i class="fi fa-solid fa-folder${open ? '-open' : ''}"></i>${esc(f.name)}<span class="n">${count(f)}</span></div>
+      ${open ? f.kids.map(k => tree(k, d + 1)).join('') + f.scenes.filter(ok).map(s => `<div class="row" style="--d:${d + 1}"><img src="${s.img}">${hi(s.name)}<i class="star fa-solid fa-star${state.pins.has(s.id) ? ' on' : ''}" data-pin="${s.id}"></i></div>`).join('') : ''}`
+  }
+  return top + tree(TREE)
+}
+function render() {
+  const R = { stock: () => stock(TREE), qa: () => quiet(TREE), dr: drill, ps: () => shelf(TREE), pr: pinned }
+  for (const el of document.querySelectorAll('[data-list]')) el.innerHTML = R[el.dataset.list]()
+}
+document.addEventListener('click', (e) => {
+  const pin = e.target.closest('[data-pin]'); if (pin) { const id = pin.dataset.pin; state.pins.has(id) ? state.pins.delete(id) : state.pins.add(id); return render() }
+  const f = e.target.closest('[data-f]'); if (f) { const id = f.dataset.f; state.open.has(id) ? state.open.delete(id) : state.open.add(id); return render() }
+  const inn = e.target.closest('[data-in]'); if (inn) { state.drill.push(inn.dataset.in); return render() }
+  const up = e.target.closest('[data-up]'); if (up) { state.drill = state.drill.slice(0, Number(up.dataset.up)); return render() }
+  const tag = e.target.closest('[data-tag]'); if (tag) { state.tag = state.tag === tag.dataset.tag ? null : tag.dataset.tag; return render() }
+  if (e.target.closest('[data-collapse]')) { state.open = new Set(['f0']); state.drill = []; return render() }
+})
+document.addEventListener('input', (e) => { if (e.target.matches('[data-q]')) { state.q = e.target.value.trim().toLowerCase(); for (const i of document.querySelectorAll('[data-q]')) if (i !== e.target) i.value = e.target.value; render() } })
+render()
+</script>
+</body>
+</html>
