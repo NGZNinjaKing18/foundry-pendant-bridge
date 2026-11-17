@@ -5,7 +5,7 @@
 // set under Foundry's own (Tokens, Drawings, …), drawn as a DM screen. Its
 // tools are RealmScreen's player tools: "Plan a trip" (the GM's switch — scripts/trips.js) + "Resync" (GM),
 // "Theorize a trip" (everyone — scripts/theorize.js),
-// "Campaigns" (scripts/campaigns.js) and "Views" (scripts/my-view.js, the eye). Not connected = the control isn't there at all.
+// "Campaigns" (scripts/campaigns.js), "Scene door" + "Show scene doors" (GM, scripts/scene-doors.js) and "Views" (scripts/my-view.js, the eye). Not connected = the control isn't there at all.
 //
 // Native-first: added through `getSceneControlButtons`, re-prepared with
 // `ui.controls.render({ reset: true })` when the link comes or goes.
@@ -17,6 +17,7 @@ import { openMapViews, openSentList } from "./mapviews-ui.js"
 import { openMyView } from "./my-view.js"
 import { planTripsOn, setPlanTrips, resync } from "./trips.js"
 import { theorizeOn, setTheorize } from "./theorize.js"
+import { setPlacing, doorsShown, setDoorsShown } from "./scene-doors.js"
 
 const NAME = "realmscreen"
 
@@ -86,6 +87,26 @@ export function realmControl() {
         button: true,
         visible: !!game.user?.isGM,
         onChange: () => { openMapViews() },
+      },
+      // The GM's scene doors (scripts/scene-doors.js): signs only the GM sees, each leading to another scene.
+      sceneDoor: {
+        name: "sceneDoor",
+        order: 3.5,
+        title: "Scene door — click the map, then pick the scene it leads to (only you see doors)",
+        icon: "fa-solid fa-signs-post",
+        button: true,
+        visible: !!game.user?.isGM,
+        onChange: () => { setPlacing(true) },
+      },
+      showDoors: {
+        name: "showDoors",
+        order: 3.6,
+        title: "Show scene doors (only you ever see them)",
+        icon: "fa-solid fa-eye-slash",
+        toggle: true,
+        active: doorsShown(),
+        visible: !!game.user?.isGM,
+        onChange: (_event, active) => { setDoorsShown(!!active) },
       },
       mapSent: {
         name: "mapSent",

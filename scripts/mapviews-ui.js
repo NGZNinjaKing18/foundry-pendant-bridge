@@ -13,6 +13,7 @@
 
 import { viewsOf, mapViewsState, mapViewsSet, mapReveal, mapRemove, showEverything, setShowEverything, realmRecords, setNationNameScale } from "./mapviews.js"
 import { nameScale, nameGap, nationScale } from "./realm-layer.js"
+import { doorSize, doorLock, previewDoorLook, endDoorPreview } from "./scene-doors.js"
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]))
 const KIND_ICON = { settlement: "fa-solid fa-house", road: "fa-solid fa-road", river: "fa-solid fa-water", nation: "fa-solid fa-flag" }
@@ -65,7 +66,11 @@ function viewsClass() {
         <div class="form-group pb-mv-range"><label>Name gap</label><input type="range" name="realmNameGap" min="0" max="20" step="1" value="${nameGap()}"><span class="pb-mv-n">${nameGap()} px</span></div>
         <div class="form-group pb-mv-range"><label>Nation names</label><input type="range" name="realmNationScale" min="0.3" max="2" step="0.05" value="${nationScale()}"><span class="pb-mv-n">${Math.round(nationScale() * 100)}%</span></div>
         <p class="hint">Players see the view you pick. Things not in it are hidden for them.</p>
-        ${nationSizes(scene)}`
+        ${nationSizes(scene)}
+        <hr><h4 class="pb-mv-head">Scene doors <span class="pb-mv-n">only you see them</span></h4>
+        <div class="form-group pb-mv-range"><label>Size</label><input type="range" name="doorSize" min="0.5" max="2" step="0.05" value="${doorSize()}"><span class="pb-mv-n">${Math.round(doorSize() * 100)}%</span></div>
+        <div class="form-group pb-mv-range"><label>Stop growing at</label><input type="range" name="doorLock" min="0.2" max="6" step="0.05" value="${doorLock()}"><span class="pb-mv-n">${Number(doorLock()).toFixed(2)}×</span></div>
+        <p class="hint">Zoomed in past this, doors keep the same size on screen. Zoomed out past it, they stop growing against the map and shrink with it, like the towns around them.</p>`
       return el
     }
     _replaceHTML(result, content) { content.replaceChildren(result) }
@@ -81,9 +86,13 @@ function viewsClass() {
       }
       for (const input of this.element.querySelectorAll(".pb-mv-range:not(.pb-mv-nation) input")) {
         const out = input.parentElement.querySelector(".pb-mv-n")
-        const say = () => { out.textContent = input.name !== "realmNameGap" ? `${Math.round(input.value * 100)}%` : `${input.value} px` }
-        input.addEventListener("input", say)
-        input.addEventListener("change", () => { say(); game.settings.set("pendant-bridge", input.name, Number(input.value)).catch(warn) })
+        const door = input.name === "doorSize" || input.name === "doorLock"
+        const say = () => { out.textContent = input.name === "realmNameGap" ? `${input.value} px` : input.name === "doorLock" ? `${Number(input.value).toFixed(2)}×` : `${Math.round(input.value * 100)}%` }
+        input.addEventListener("input", () => { say(); if (door) previewDoorLook(input.name, input.value) })   // doors follow the slider live
+        input.addEventListener("change", () => {
+          say()
+          game.settings.set("pendant-bridge", input.name, Number(input.value)).then(() => { if (door) endDoorPreview(input.name) }).catch(warn)
+        })
       }
     }
 
