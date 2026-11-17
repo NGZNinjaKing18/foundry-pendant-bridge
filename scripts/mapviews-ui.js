@@ -69,7 +69,7 @@ function viewsClass() {
         ${nationSizes(scene)}
         <hr><h4 class="pb-mv-head">Scene doors <span class="pb-mv-n">only you see them</span></h4>
         <div class="form-group pb-mv-range"><label>Size</label><input type="range" name="doorSize" min="0.5" max="2" step="0.05" value="${doorSize()}"><span class="pb-mv-n">${Math.round(doorSize() * 100)}%</span></div>
-        <div class="form-group pb-mv-range"><label>Stop growing at</label><input type="range" name="doorLock" min="0.2" max="6" step="0.05" value="${doorLock()}"><span class="pb-mv-n">${Number(doorLock()).toFixed(2)}×</span></div>
+        <div class="form-group pb-mv-range"><label>Stop growing at</label><input type="range" name="doorLock" min="0.2" max="18" step="0.1" value="${doorLock()}"><span class="pb-mv-n">${Number(doorLock()).toFixed(2)}×</span></div>
         <p class="hint">Zoomed in past this, doors keep the same size on screen. Zoomed out past it, they stop growing against the map and shrink with it, like the towns around them.</p>`
       return el
     }
