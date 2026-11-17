@@ -15,6 +15,7 @@
 // rows stay Foundry's. Theme-aware through Foundry's CSS variables (styles/pendant-bridge.css `.pb-dir`).
 // ──────────────────────────────────────────────────────────────
 
+import {} from "./scene-cover.js"   // scenes tagged "scene cover": Lock View fit + zoom lock, no token vision, gridless
 import { realmLive } from "./live.js"
 
 const MOD = "pendant-bridge"
