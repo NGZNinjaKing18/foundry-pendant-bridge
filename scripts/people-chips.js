@@ -55,12 +55,27 @@ function ensureRoot() {
 }
 
 // A token drawn or not on this canvas only (renderable: PIXI skips it; eventMode: no hover / click / drag).
+// Showing it again hands it back to Foundry: Token#_refreshVisibility sets mesh.visible = visible && renderable
+// and _refreshState sets eventMode, so without a refresh a token hidden once stayed invisible (its picture
+// lives in canvas.primary, apart from the token) — the "they vanish once the town opens" bug, 2026-11-17.
 function show(token, on) {
   if (!token || token.destroyed) return
-  token.renderable = on
-  if (token.mesh) token.mesh.renderable = on
-  token.eventMode = on ? "static" : "none"
-  if (on) S.hidden.delete(token.id); else S.hidden.add(token.id)
+  if (on) {
+    S.hidden.delete(token.id)
+    token.renderable = true
+    if (token.mesh) { token.mesh.renderable = true; token.mesh.visible = !!token.visible }
+    token.eventMode = "static"
+    token.renderFlags?.set?.({ refreshVisibility: true, refreshState: true })   // Foundry's own answer wins
+    return
+  }
+  S.hidden.add(token.id)
+  hideNow(token)
+}
+// Keep a hidden token hidden after Foundry refreshes it (its refresh turns the picture and clicks back on).
+function hideNow(token) {
+  token.renderable = false
+  if (token.mesh) { token.mesh.renderable = false; token.mesh.visible = false }
+  token.eventMode = "none"
 }
 
 function makeChip(n, u) {
@@ -234,8 +249,8 @@ Hooks.on("canvasReady", () => {
 Hooks.on("canvasTearDown", () => { stopTicker(); S.root = null; S.spots.clear(); S.hidden.clear() })
 Hooks.on("canvasPan", () => retarget())
 // A token refreshed by Foundry keeps our choice; new / moved / removed people re-count.
-Hooks.on("refreshToken", (t) => { if (S.hidden.has(t.id) && t.renderable) { t.renderable = false; if (t.mesh) t.mesh.renderable = false } })
+Hooks.on("refreshToken", (t) => { if (S.hidden.has(t.id)) hideNow(t) })
 for (const h of ["createToken", "updateToken", "deleteToken"]) Hooks.on(h, (doc) => { if (doc?.parent?.id === canvas?.scene?.id) schedule() })
 Hooks.on("updateScene", (scene) => { if (scene?.id === canvas?.scene?.id) schedule() })   // realm records (the map's fit width)
 
-export const _test = { S, rebuild, retarget, tick, paint, ease }
+export const _test = { S, rebuild, retarget, tick, paint, ease, show }

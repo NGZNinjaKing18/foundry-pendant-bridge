@@ -1566,3 +1566,6 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
   border: 1.2px dashed var(--color-light-3, #d8cfbf); border-radius: 4px; font-family: var(--font-body, Signika, sans-serif); font-size: var(--font-size-13, 13px); font-weight: 600; }
 .pb-door-back button:hover { border-color: var(--color-warm-1, #ff6400); }
 .pb-door-back img { width: 44px; height: 28px; object-fit: cover; border-radius: 2px; }
+
+/* sidebar-fold.js: RealmScreen's own tabs leave the strip while RealmScreen isn't connected. */
+#sidebar-tabs li.pb-realm-off { display: none !important; }

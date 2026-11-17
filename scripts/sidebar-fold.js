@@ -4,7 +4,8 @@
 // While RealmScreen is connected (the same `clockLive` rule the clock dial
 // uses), the sidebar tab strip shows the folded tabs only behind one "More"
 // button — for players and the GM. Clicking it opens the group in place;
-// clicking again closes it. Not connected = stock Foundry.
+// clicking again closes it. Not connected = stock Foundry, and RealmScreen's own
+// tabs (Calendar, Table log) leave the strip for everyone until it connects again.
 //
 // Which tabs fold is a world setting the GM picks in Module Settings ▸
 // "Folded sidebar tabs". Until the GM saves a pick, the built-in pick is used
@@ -105,9 +106,27 @@ function watch() {
   watcher.observe(root, { childList: true, subtree: true })
 }
 
+// RealmScreen's own tabs (Calendar, Table log) are only on the strip while RealmScreen is connected —
+// to anyone in the world. Not connected = they're gone for everyone; an open one hands over to Chat.
+export const REALM_TABS = ["realmcal", "realmtable"]
+export const realmTabsShown = (live) => !!live
+export function realmTabs(menu, live) {
+  for (const id of REALM_TABS) {
+    const li = menu.querySelector(`:scope > li [data-tab="${id}"]`)?.closest("li") ||
+      menu.querySelector(`[data-tab="${id}"]`)?.closest("li")
+    li?.classList.toggle("pb-realm-off", !realmTabsShown(live))
+    if (live) continue
+    const sb = ui?.sidebar
+    if ((sb?.tabGroups?.primary ?? sb?.activeTab) === id) { try { sb.changeTab?.("chat", "primary") } catch { /* older sidebar */ } }
+    try { ui?.[id]?.popout?.close?.() } catch { /* none */ }
+  }
+}
+
 function fold(menu) {
   unfold(menu)
-  if (!realmLive()) return
+  const live = realmLive()
+  realmTabs(menu, live)
+  if (!live) return
 
   const tabs = stripTabs(menu)
   const folded = new Set(pickFolded(tabs, readSaved()))
