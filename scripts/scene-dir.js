@@ -2,7 +2,8 @@
 // Scenes sidebar upgrade — the user's pick "D" (mockup tests/harness/folder-concepts.html, 2026-11-17).
 // Only while RealmScreen is connected (live.js); not connected = stock Foundry.
 //
-//   Top strip   Live + pinned scenes, then Recent (this account's last scenes), as small pictures; click = view.
+//   Top strip   Live + pinned scenes, then Recent (this account's last scenes), as small pictures; click = view,
+//               right-click = Foundry's own scene menu (as on the scene's row).
 //               Tags (the scenes' own flags[MOD].tags, set from RealmScreen's sorter) filter the tree below.
 //   Pin         a ★ on each scene row (shown on hover, stays lit when pinned). Pins are per account (user flag).
 //   Folders     quiet look: the folder colour is a thin left edge + the folder icon, not a full bar.
@@ -86,7 +87,9 @@ const sceneDir = () => ui?.scenes || null
 function rerender() { try { sceneDir()?.render?.() } catch { /* not ready */ } }
 
 function face(scene, live) {
-  return `<a class="pb-dir-face${live ? " live" : ""}" data-pb-view="${esc(scene.id)}" data-tooltip="${esc(scene.name)}">
+  // "directory-item" + data-entry-id: Foundry's own scene right-click menu (bound to ".directory-item[data-entry-id]"
+  // on this sidebar) opens on the picture exactly as on the scene's row (the user, 2026-11-17).
+  return `<a class="pb-dir-face directory-item${live ? " live" : ""}" data-entry-id="${esc(scene.id)}" data-pb-view="${esc(scene.id)}" data-tooltip="${esc(scene.name)}">
     ${scene.thumb ? `<img src="${esc(scene.thumb)}" alt="">` : `<span class="pb-dir-nothumb"><i class="fa-solid fa-map"></i></span>`}
     <span>${esc(scene.name)}</span></a>`
 }

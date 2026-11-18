@@ -1608,3 +1608,6 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
 .pb-dir-switches { margin: 6px 0; }
 .pb-dir-alltags { max-height: 72px; overflow-y: auto; padding-top: 0; }
 .pb-dir-tag.pb-dir-more { color: var(--color-text-subtle, #7d776c); }
+/* the strip's pictures carry .directory-item (for Foundry's scene right-click menu): keep Foundry's row look off them */
+.pb-dir .pb-dir-strip .pb-dir-face.directory-item { display: block; flex: none; width: 64px; height: auto; min-height: 0; margin: 0; padding: 0; border: 0; background: none; }
+.pb-dir .pb-dir-strip .pb-dir-face.context img { outline: 2px solid var(--color-warm-2, #ff9a5c); outline-offset: -2px; }
