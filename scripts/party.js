@@ -74,9 +74,9 @@ function topLeft(scene, t, wCells, hCells) {
   return { x: Math.round(cx - (wCells * d.size) / 2), y: Math.round(cy - (hCells * d.size) / 2) }
 }
 const sameFlag = (a, b) => !!a && a.key === b.key && (a.campaignId || "") === b.campaignId && !!a.adopted === !!b.adopted
-  && (a.people || 1) === (b.people || 1) && (a.spot?.key || "") === (b.spot?.key || "") && !!a.spot?.road === !!b.spot?.road
+  && (a.people || 1) === (b.people || 1) && (a.spot?.key || "") === (b.spot?.key || "") && !!a.spot?.road === !!b.spot?.road && !!a.spot?.grid === !!b.spot?.grid
 // What the flag keeps: who it is, and the spot it belongs to (people-chips.js reads it on every client).
-const flagOf = (t, key, extra = {}) => ({ key, campaignId: String(t.campaignId || ""), ...(t.spot ? { spot: { key: String(t.spot.key), road: !!t.spot.road, nx: Number(t.nx), ny: Number(t.ny) }, people: Math.max(1, Number(t.people) || 1) } : {}), ...extra })
+const flagOf = (t, key, extra = {}) => ({ key, campaignId: String(t.campaignId || ""), ...(t.spot ? { spot: { key: String(t.spot.key), road: !!t.spot.road, ...(t.spot.grid ? { grid: true } : {}), nx: Number(t.nx), ny: Number(t.ny) }, people: Math.max(1, Number(t.people) || 1) } : {}), ...extra })
 
 /** The token centre back as a 0..1 map fraction. */
 export function mapFraction(scene, tokenDoc) {

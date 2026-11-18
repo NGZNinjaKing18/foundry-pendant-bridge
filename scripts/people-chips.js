@@ -13,6 +13,7 @@
 //     copies of the faces glide out from the town to their places (and back in); the real tokens appear
 //     only once the copies have landed
 //   • one person out on the road who overlaps nobody is just their token, never a number (2026-11-13)
+//   • a group on open ground (`spot.grid`, laid out side by side by RealmScreen) is always their tokens (2026-11-18)
 //   • the number's disc is 3/4 see-through (the user, 2026-11-11); the digits stay solid
 //   • click a number: the view zooms in on that town just past that point, which spreads it
 // Tokens without a spot (an older RealmScreen) are left alone.
@@ -135,6 +136,10 @@ function rebuild() {
     s.solo = !!s.spot.road && s.tokens.length === 1 &&
       ![...S.spots].some(([k2, o]) => k2 !== k && Math.hypot(o.sx - s.sx, o.sy - s.sy) < near)
     if (s.solo && was === undefined) { s.t = 1; s.target = 1 }     // first seen alone: just there, no glide
+    // A grid of people on open ground (RealmScreen lays them out side by side): always open, no number.
+    const wasGrid = s.grid
+    s.grid = !!s.spot.grid
+    if (s.grid && !wasGrid) { s.t = 1; s.target = 1 }
   }
   retarget(true)
 }
@@ -148,14 +153,14 @@ function retarget(force = false) {
     const c = canvas.stage.pivot
     let best = Infinity
     for (const [k, s] of S.spots) {
-      if (s.spot.road || !s.n) continue
+      if (s.spot.road || s.spot.grid || !s.n) continue
       const dist = Math.hypot(s.sx - c.x, s.sy - c.y)
       if (dist < best) { best = dist; spread = k }
     }
   }
   let moving = false
   for (const [k, s] of S.spots) {
-    const target = s.solo || k === spread ? 1 : 0
+    const target = s.solo || s.grid || k === spread ? 1 : 0
     if (s.target !== target) { s.target = target; s.from = s.t; s.start = performance.now() }
     if (s.t !== s.target) moving = true
   }

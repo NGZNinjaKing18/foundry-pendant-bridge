@@ -40,3 +40,16 @@ test("a token a player can't see stays unseen when shown", () => {
   _test.show(t, false); _test.show(t, true)
   assert.equal(t.mesh.visible, false)
 })
+
+test("a grid of people on open ground is always their tokens, never a number", () => {
+  const { S, retarget } = _test
+  S.root = {}
+  globalThis.canvas = { scene: { dimensions: {}, getFlag: () => null }, stage: { scale: { x: 0.01 }, pivot: { x: 0, y: 0 } } }
+  S.spots.clear()
+  S.spots.set("g", { spot: { key: "g", grid: true }, grid: true, n: 3, t: 1, target: 1, tokens: [], sx: 0, sy: 0 })
+  S.spots.set("town", { spot: { key: "town" }, n: 3, t: 0, target: 0, tokens: [], sx: 0, sy: 0 })
+  try { retarget() } catch { /* paint needs a canvas */ }
+  assert.equal(S.spots.get("g").target, 1)
+  assert.equal(S.spots.get("town").target, 0, "a town still shows its number when zoomed out")
+  S.spots.clear(); S.root = null; delete globalThis.canvas
+})
