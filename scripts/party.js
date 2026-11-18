@@ -257,9 +257,32 @@ export async function syncParty(msg) {
   if (creates.length) await scene.createEmbeddedDocuments("Token", creates, { [SYNC]: true })
   // Placed, not walked: an instant move (no slide). An animated move across the map was refused —
   // the token said "updated" but stayed put (found in the GM's world 2026-10-05, likely walls in the
-  // way); the bridge's own token.update, which never animates, moved it fine.
-  if (updates.length) await scene.updateEmbeddedDocuments("Token", updates, { [SYNC]: true, animate: false, animation: { duration: 0 }, teleport: true, ...(msg.force ? { diff: false } : {}) })
+  // way); the bridge's own token.update, which never animates, moved it fine. V13+: a "displace" waypoint
+  // with walls ignored (placeOptions) instead of the deprecated `teleport` option.
+  if (updates.length) await scene.updateEmbeddedDocuments("Token", updates, { [SYNC]: true, animate: false, animation: { duration: 0 }, ...placeOptions(scene, updates), ...(msg.force ? { diff: false } : {}) })
   return { created: creates.length, updated: updates.length, removed: stale.length, released: release.length }
+}
+
+/**
+ * "Be there now" for token updates: V13+ = a displace waypoint per moved token (walls and terrain ignored —
+ * the old `teleport: true` option is deprecated since V13 and gone in V15); older Foundry = `teleport`.
+ * `updates` = [{ _id, x?, y?, … }]; tokens without a new x / y get no movement entry.
+ */
+export function placeOptions(scene, updates) {
+  if ((game.release?.generation ?? 12) < 13) return { teleport: true }
+  const movement = {}
+  for (const u of updates || []) {
+    if (!u || !u._id || (u.x == null && u.y == null)) continue
+    const src = scene?.tokens?.get?.(u._id)?._source
+    if (!src) continue
+    const wp = { x: u.x ?? src.x, y: u.y ?? src.y, elevation: u.elevation ?? src.elevation, width: u.width ?? src.width, height: u.height ?? src.height,
+      action: "displace", snapped: false, explicit: false, checkpoint: true }
+    if (src.depth !== undefined) wp.depth = u.depth ?? src.depth
+    if (src.shape !== undefined) wp.shape = u.shape ?? src.shape
+    if (src.level !== undefined) wp.level = u.level ?? src.level
+    movement[u._id] = { waypoints: [wp], method: "api", autoRotate: false, showRuler: false, constrainOptions: { ignoreWalls: true, ignoreCost: true } }
+  }
+  return Object.keys(movement).length ? { movement } : {}
 }
 
 // ── trails ────────────────────────────────────────────────────

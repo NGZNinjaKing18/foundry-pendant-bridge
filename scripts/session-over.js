@@ -693,6 +693,24 @@ function reportClosed(sessionId) {
     flags: { [MOD]: { hidden: true, soOp: { kind: "closed", data } } } }).catch(() => {})
 }
 
+// Foundry clamps a window's height to the browser's height when it opens. The GM's browser was once 39 px
+// tall (dev tools docked, 2026-11-18), so Session Over opened as a header-only strip and stayed that way.
+// Opening it again puts it back to its normal size (or as much as the screen has) and on screen.
+const MIN_H = 360
+function unsquash(app) {
+  if (app.minimized) { app.maximize?.(); return }
+  const pos = app.position || {}
+  const roomH = window.innerHeight - 20, roomW = window.innerWidth - 20
+  if (roomH < MIN_H) return                               // the browser itself is too small right now
+  const want = app.options?.position || {}
+  const h = Number(pos.height), w = Number(pos.width)
+  const tooSmall = !Number.isFinite(h) || h < MIN_H || !Number.isFinite(w) || w < 480
+  const offScreen = Number(pos.top) > roomH - 60 || Number(pos.left) > roomW - 80
+  if (!tooSmall && !offScreen) return
+  const height = Math.min(Number(want.height) || 740, roomH), width = Math.min(Number(want.width) || 920, roomW)
+  app.setPosition?.({ width, height, top: Math.max(10, (window.innerHeight - height) / 2), left: Math.max(10, (window.innerWidth - width) / 2) })
+}
+
 /** Show a view (GM view for a GM, the players' copy otherwise). */
 function show(view, role, { popped = false } = {}) {
   const C = winClass()
@@ -701,8 +719,11 @@ function show(view, role, { popped = false } = {}) {
   if (!app) app = new C()
   if (popped && role === "gm") app.poppedFor = view.sessionId || null   // the end of a game opened it
   app.setView(view, role)
-  app.render({ force: true, window: { title: app.title } })
-  app.bringToFront?.()
+  // render() is async: bring it forward once it has an element (calling it straight away threw
+  // "this[#element] is undefined" on a window that wasn't drawn yet — seen in the GM's world 2026-11-18)
+  Promise.resolve(app.render({ force: true, window: { title: app.title } }))
+    .then(() => { if (app.element) { unsquash(app); app.bringToFront?.() } })
+    .catch((e) => console.warn("[pendant-bridge] session over", e))
   return app
 }
 
@@ -761,6 +782,12 @@ Hooks.once("ready", () => {
   } catch { /* no socket */ }
 })
 Hooks.on("pendantOpenSessionOver", () => openSessionOver())
+// The browser grew back (dev tools closed): a Session Over window squashed by it opens up again.
+let growT = 0
+globalThis.window?.addEventListener?.("resize", () => {
+  clearTimeout(growT)
+  growT = setTimeout(() => { const app = openApp(); if (app?.rendered && app.element) unsquash(app) }, 250)
+})
 // Foundry's colour scheme changed → the open window follows.
 Hooks.on("clientSettingChanged", (key) => {
   if (key !== "core.uiConfig") return

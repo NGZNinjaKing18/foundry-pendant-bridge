@@ -18,7 +18,7 @@
 // Hover a caravan token: a small card — name, crew, cargo, what it is doing.
 // ──────────────────────────────────────────────────────────────
 
-import { unitPx } from "./party.js"
+import { unitPx, placeOptions } from "./party.js"
 
 const MOD = "pendant-bridge"
 const SYNC = "pendantCaravanSync"
@@ -146,7 +146,7 @@ export async function syncCaravans(msg) {
         animation: { duration: ms }, [SYNC]: true }).catch((e) => console.warn("[pendant-bridge] caravan move", e))
       moved++
     } else {
-      await doc.update({ ...pos, rotation: Number(c.rotation) || 0 }, { [SYNC]: true, animate: false, animation: { duration: 0 }, teleport: true })
+      await doc.update({ ...pos, rotation: Number(c.rotation) || 0 }, { [SYNC]: true, animate: false, animation: { duration: 0 }, ...placeOptions(scene, [{ _id: doc.id, ...pos }]) })
       placed++
     }
   }
