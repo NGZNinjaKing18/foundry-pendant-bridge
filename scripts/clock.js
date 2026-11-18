@@ -63,7 +63,7 @@ function dialSvg(c) {
   }
   const [sx, sy] = at(40, n(c.sun?.angle))
   s += `<circle cx="${f1(sx)}" cy="${f1(sy)}" r="7" class="pb-sun"/>`
-  s += `<text x="60" y="64.5" text-anchor="middle" class="pb-dial-time">${esc(c.time)}</text></svg>`
+  s += `<text x="60" y="64.5" text-anchor="middle" class="pb-dial-time"><tspan class="pb-tick">${esc(c.time)}</tspan></text></svg>`
   return s
 }
 
@@ -87,7 +87,7 @@ function clockHtml(c, gm) {
   const head = gm ? `<div class="pb-clock-camp">${esc(c.session ? c.campaignName : "World date")}</div>` : ""
   const day = c.dateDay || c.date, year = c.dateDay ? c.dateYear : ""
   return `${head}${dialSvg(c)}<div class="pb-clock-date" title="${esc(c.date)}" data-tooltip="Open the calendar">${esc(day)}</div>` +
-    `${year ? `<div class="pb-clock-year">${esc(year)}</div>` : ""}<div class="pb-clock-part">${esc(c.part)} · ${esc(c.time)}</div>${steps}`
+    `${year ? `<div class="pb-clock-year">${esc(year)}</div>` : ""}<div class="pb-clock-part">${esc(c.part)} · <span class="pb-tick">${esc(c.time)}</span></div>${steps}`
 }
 
 function chatBarHtml(c) {
@@ -194,7 +194,38 @@ function redraw() {
 export function applyClock(c) {
   clock = c && typeof c === "object" && c.date ? c : null
   redraw()
+  startTicking()
   Hooks.callAll("pendantClockChanged", clock)
+}
+
+// ── the running clock, ticking ────────────────────────────────
+// RealmScreen moves the date every 10 real seconds (25 in-world seconds). In between, every client counts
+// on by itself — 1 real second = `rate` in-world seconds — so the time on screen ticks every second
+// (hh:mm:ss while it runs). Display only: the next clock.set from RealmScreen is the truth again.
+const pad2 = (v) => String(v).padStart(2, "0")
+/** hh:mm:ss for an hour of the day (fractional). Exported for tests. */
+export function tickLabel(hour) {
+  const t = Math.max(0, Math.floor(n(hour) * 3600 + 1e-6))
+  return `${pad2(Math.floor(t / 3600))}:${pad2(Math.floor(t / 60) % 60)}:${pad2(t % 60)}`
+}
+/** The hour shown `ms` after a clock arrived (counting on at most 20 s — RealmScreen speaks every 10). */
+export function tickHour(c, ms) {
+  const hpd = Math.max(1, n(c?.hoursPerDay, 24))
+  const h = n(c?.hour) + (Math.max(0, Math.min(20000, n(ms))) / 1000) * n(c?.rate, 2.5) / 3600
+  return h >= hpd ? hpd - 1e-6 : h
+}
+let ticker = 0, tickFrom = 0
+function paintTick() {
+  if (!clock?.running || !Number.isFinite(Number(clock.hour))) return
+  const label = tickLabel(tickHour(clock, Date.now() - tickFrom))
+  for (const el of document.querySelectorAll(".pb-tick")) el.textContent = label
+}
+function startTicking() {
+  clearInterval(ticker); ticker = 0
+  if (!clock?.running || !Number.isFinite(Number(clock.hour))) return
+  tickFrom = Date.now()
+  paintTick()
+  ticker = setInterval(paintTick, 1000)
 }
 /** Is RealmScreen's clock running (the Realm menu's Play)? From the last clock.set. */
 export const clockRunning = () => !!clock?.running

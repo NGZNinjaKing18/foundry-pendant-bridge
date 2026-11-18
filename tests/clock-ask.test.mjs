@@ -43,3 +43,12 @@ test("Play / Pause from another GM window is passed on; a player's never", () =>
   assert.deepEqual(sent.at(-1), { type: "clock.play", on: true })
   assert.equal(clock.onClockAsk({ t: "clock.ask", user: "p1", msg: { type: "clock.play", on: true } }), false)
 })
+
+test("the running clock ticks every second on screen (hh:mm:ss), 2.5 in-world s a real s", () => {
+  assert.equal(clock.tickLabel(6.5), "06:30:00")
+  const c = { hour: 6, rate: 2.5, hoursPerDay: 24 }
+  assert.equal(clock.tickLabel(clock.tickHour(c, 0)), "06:00:00")
+  assert.equal(clock.tickLabel(clock.tickHour(c, 1000)), "06:00:02")
+  assert.equal(clock.tickLabel(clock.tickHour(c, 10000)), "06:00:25")
+  assert.equal(clock.tickLabel(clock.tickHour(c, 600000)), "06:00:50", "never counts on past 20 s without RealmScreen")
+})
