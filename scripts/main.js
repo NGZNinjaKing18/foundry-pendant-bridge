@@ -32,6 +32,7 @@ import {} from "./group-stack.js"    // dnd5e group tokens: stacked art, pile or
 import { syncParty, syncTrails, setPartySender, partySwitch, partyGroups } from "./party.js"
 import { syncCaravans } from "./caravans.js"   // RealmScreen's caravans: a vehicle actor + token each, driving the roads
 import { setTripSender, tripAnswer } from "./trips.js"
+import { setProfilesSender, profilesAnswer } from "./profiles.js"   // GM sidebar tab: RealmScreen's Character Profiles, live
 import { setMusicSender, setMusicState, musicNote } from "./music-panel.js"   // RealmScreen music in the Playlists tab
 import { timelineStatus, applyFromRealm, broadcastFromRealm, isTimelineWriter } from "./timeline.js"
 import { setMapBuilders, mapViewsState, mapViewsSet, mapSend, mapViewsEdit, mapRemove, mapReveal } from "./mapviews.js"
@@ -41,6 +42,12 @@ import {} from "./scene-dir.js"     // Scenes sidebar while RealmScreen is conne
 import {} from "./people-chips.js"  // RealmScreen's people as numbers on each viewer's canvas; one town spreads at max zoom
 import { seeing, views } from "./my-view.js"   // each account's own eye switches (the grid overlay obeys "grid")
 import {} from "./realm-menu.js"     // hotbar hooded button → empty slot-row menu in the hotbar's place
+import {} from "./item-panel.js"     // Item panel window: Compendium tab + sheet Inventory tab buttons
+import { setItemCaptureSender } from "./item-capture.js"   // items handed out during a live game → RealmScreen (item.handout)
+import {} from "./albuna.js"         // per-sheet Albuna coins (bronze / silver / gold)
+import {} from "./ration-guard.js"   // a D&D Beyond re-import never changes rations
+import { setBestMomentSender, bestMomentGrant, bestMomentClear } from "./best-moment.js"   // Best Moment winner: gold glow + advantage on the first d20
+import { setSessionOverSender, setSessionOver, sessionOverAnswer } from "./session-over.js"   // Session Over window (GM + read-only players)
 
 const MOD = "pendant-bridge"
 const FS_LEDGER = "fileSortLedger"
@@ -634,7 +641,11 @@ setClockSender((m) => bridge.send(m))
 setCampaignSender((m) => bridge.send(m))
 setPartySender((m) => bridge.send(m))
 setTripSender((m) => bridge.send(m))
+setProfilesSender((m) => bridge.send(m))
 setMusicSender((m) => bridge.send(m))
+setItemCaptureSender((m) => bridge.send(m))
+setBestMomentSender((m) => bridge.send(m))
+setSessionOverSender((m) => bridge.send(m))
 
 // ──────────────────────────────────────────────────────────────
 // Snapshot / serialization helpers
@@ -3806,6 +3817,29 @@ async function handleCommand(msg) {
     }
     // { sceneId, trails: [{ key, points, marks, hidden }] } — the road walked + a mark per day, as Drawings.
     // { on? } — the GM's "RealmScreen moves people" switch: read it, or set it from RealmScreen.
+    // RealmScreen's answer to the Character Profiles tab (scripts/profiles.js) → the window that asked.
+    case "profiles.answer":
+      return bridge.reply(msg.reqId, { type: "profiles.answer", ...profilesAnswer(msg) })
+    // Best Moment (scripts/best-moment.js): the vote's winner(s) at the next game; an unspent buff lapses.
+    case "bestmoment.grant":
+      return bridge.reply(msg.reqId, { type: "bestmoment.granted", ...(await bestMomentGrant(msg)) })
+    case "bestmoment.clear":
+      return bridge.reply(msg.reqId, { type: "bestmoment.cleared", ...(await bestMomentClear(msg)) })
+    // ── Session Over (scripts/session-over.js) ──
+    // { sessionId, open, gm: View, players: PlayerView } → GM copy + that campaign's players' copy (whispers).
+    // { qid, userId, view | error } — RealmScreen's answer to a sessionover.get / .update.
+    case "sessionover.set": {
+      const r = await setSessionOver(msg)
+      return bridge.reply(msg.reqId, { type: "sessionover.set", ...r })
+    }
+    case "sessionover.answer": {
+      const r = await sessionOverAnswer(msg)
+      return bridge.reply(msg.reqId, { type: "sessionover.answer", ...r })
+    }
+    // Capability: this module sends `sessionover.closed { sessionId }` when a GM closes the window a game's
+    // end popped up — RealmScreen then waits for it before opening its own panel + Recap. Nothing to do here.
+    case "sessionover.closed":
+      return bridge.reply(msg.reqId, { type: "sessionover.closed", ok: true })
     // RealmScreen's answer to a trip card (scripts/trips.js) → the window that asked.
     case "trip.answer": {
       const r = tripAnswer(msg)

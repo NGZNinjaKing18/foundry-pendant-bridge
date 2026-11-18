@@ -1529,6 +1529,7 @@ body.pb-look .ProseMirror.resize-cursor { cursor: var(--cursor-ew-resize, col-re
 #hotbar .pb-realm-icon[data-icon="grid"] { --pb-icon: url("../assets/icon-grid.svg"); }
 #hotbar .pb-realm-icon[data-icon="nations"] { --pb-icon: url("../assets/icon-nations.svg"); }
 #hotbar .pb-realm-icon[data-icon="next-day"] { --pb-icon: url("../assets/icon-next-day.svg"); }
+#hotbar .pb-realm-icon[data-icon="session-over"] { --pb-icon: url("../assets/icon-session-over.svg"); }
 #hotbar .pb-realm-toggle > .pb-realm-icon { opacity: .35; }
 #hotbar .pb-realm-toggle.active > .pb-realm-icon { opacity: 1; }
 #hotbar .pb-realm-act:hover { border-color: var(--color-warm-1); color: var(--color-warm-2); }

@@ -64,5 +64,6 @@ export function collectStats({ campaignId = null, since = 0 } = {}) {
       if (kind === "check" && (p.best === null || total > p.best)) p.best = total
     }
   }
-  return { since: from, players: [...per.values()].map(p => ({ ...p, characters: [...p.characters] })) }
+  // nat20 / nat1 = crits / fumbles under Session Over's names (kept d20s only; `rolls` = every roll)
+  return { since: from, players: [...per.values()].map(p => ({ ...p, characters: [...p.characters], nat20: p.crits, nat1: p.fumbles })) }
 }

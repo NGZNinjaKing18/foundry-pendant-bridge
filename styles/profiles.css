@@ -1,0 +1,16 @@
+/* Character Profiles — the GM sidebar tab (scripts/profiles.js). Scoped to .pb-prof; Foundry's own variables, so it follows the light/dark theme. */
+.pb-prof { padding: 0; }
+.pb-prof .pb-prof-wrap { height: 100%; min-height: 0; gap: 0; }
+.pb-prof .pb-prof-head { display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--color-border); flex: 0 0 auto; }
+.pb-prof .pb-prof-head search { flex: 1 1 auto; display: flex; min-width: 0; }
+.pb-prof .pb-prof-head input[type="search"] { flex: 1 1 auto; width: 100%; }
+.pb-prof .pb-prof-head button.icon { flex: 0 0 auto; }
+.pb-prof .pb-prof-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.pb-prof .pb-prof-list { list-style: none; margin: 0; padding: 2px 0; }
+.pb-prof .pb-prof-row { display: flex; align-items: center; gap: 8px; padding: 3px 8px; border-bottom: 1px solid var(--color-border-light-2, transparent); }
+.pb-prof .pb-prof-row:hover { background: color-mix(in srgb, var(--color-warm-2, #c9593f) 12%, transparent); }
+.pb-prof .pb-prof-thumb { flex: 0 0 auto; width: 40px; height: 40px; border-radius: 4px; border: 1px solid var(--color-border); object-fit: cover; background: var(--table-row-color-even, rgba(127, 127, 127, .08)); }
+.pb-prof .pb-prof-none { display: grid; place-items: center; color: var(--color-text-secondary); font-size: var(--font-size-14); }
+.pb-prof .pb-prof-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-primary); font-size: var(--font-size-13); }
+.pb-prof .pb-prof-send { flex: 0 0 auto; }
+.pb-prof .pb-prof-empty { margin: 0; padding: 12px 8px; text-align: center; }

@@ -11,6 +11,8 @@
 //   3  Next day  — the running campaign's date (no session = the world date) moves
 //                  to the next day, 6 am. RealmScreen moves it (clock.js askStep).
 //                  Players get it too, behind an "are you sure"; the GM doesn't.
+//   4  Session over — reopens the last finished session's panel (session-over.js):
+//                  the GM's full one, a player's read-only copy.
 // Grid / Nations = the same switches as the eye's column; lit = showing.
 // Icons: assets/icon-*.svg, drawn as masks in the button's text colour (pendant-bridge.css).
 //
@@ -27,6 +29,7 @@ export const SLOTS = [
   { see: "grid", label: "Grid", icon: "grid" },
   { see: "borders", label: "Nations", icon: "nations" },
   { act: "nextDay", label: "Next day (6 am)", icon: "next-day" },
+  { act: "sessionOver", label: "Session over", icon: "session-over", open: true },   // session-over.js (opens a window: no "are you sure")
 ]
 /** What an action box asks for. */
 export const ACTS = { nextDay: PLAYER_STEP }
@@ -44,7 +47,10 @@ export async function confirmAct(a, gm = !!globalThis.game?.user?.isGM) {
     rejectClose: false,
   }).catch(() => false))
 }
-const doAct = async (a) => { if (await confirmAct(a)) askStep(ACTS[a]) }
+const doAct = async (a) => {
+  if (SLOTS.find(x => x.act === a)?.open) return Hooks.callAll(`pendantOpen${a[0].toUpperCase()}${a.slice(1)}`)   // e.g. pendantOpenSessionOver
+  if (await confirmAct(a)) askStep(ACTS[a])
+}
 const OPEN = "pb-realm-open"
 let open = false
 

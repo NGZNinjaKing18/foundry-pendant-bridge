@@ -1,0 +1,112 @@
+/* Session Over window (scripts/session-over.js) — scoped to .pb-session-over; Foundry's own
+   fieldsets, form-groups, buttons and colour variables, so it follows the light / dark scheme. */
+.pb-session-over {
+  --pb-so-well: var(--table-row-color-even, transparent);
+  --pb-so-ink: var(--color-text-primary);
+  --pb-so-soft: var(--color-text-secondary, var(--color-text-dark-secondary));
+  --pb-so-faint: var(--color-text-subtle, var(--pb-so-soft));
+  --pb-so-accent: var(--pb-accent, var(--color-warm-2, var(--color-border-highlight)));
+}
+.pb-session-over .window-content { container-type: inline-size; padding: 0.5rem 0.75rem; }
+.pb-session-over .pb-so { display: flex; flex-direction: column; gap: 0.5rem; min-height: 100%; }
+.pb-session-over .pb-so.busy { cursor: progress; }
+.pb-session-over .pb-so.busy :is(input, select, button) { pointer-events: none; opacity: 0.75; }
+.pb-session-over fieldset { margin: 0; min-width: 0; padding: 0.35rem 0.6rem 0.5rem; }
+.pb-session-over legend small { font-weight: normal; color: var(--pb-so-faint); font-size: var(--font-size-11, 11px); margin-left: 0.35rem; }
+.pb-session-over .hint { margin: 0.15rem 0 0; font-size: var(--font-size-11, 11px); color: var(--pb-so-faint); }
+.pb-session-over .pb-so-row { display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; }
+.pb-session-over .pb-so-row > button { flex: 0 0 auto; width: auto; }
+.pb-session-over .pb-so-push { margin-left: auto; }
+.pb-session-over button.icon { flex: 0 0 auto; width: 1.6rem; min-height: 0; height: 1.6rem; padding: 0; font-size: var(--font-size-11, 11px); }
+.pb-session-over .pb-so-gap { width: 1.6rem; flex: none; }
+
+/* layout: top = party + boxes | map; bottom = recap | met */
+.pb-session-over .pb-so-top { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 0.6rem; align-items: start; }
+.pb-session-over .pb-so-bottom { display: grid; grid-template-columns: minmax(0, 1fr) minmax(10rem, 0.32fr); gap: 0.6rem; flex: 1; min-height: 12rem; }
+@container (max-width: 680px) {
+  .pb-session-over .pb-so-top, .pb-session-over .pb-so-bottom { grid-template-columns: 1fr; }
+}
+.pb-session-over .pb-so-left { display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
+.pb-session-over .pb-so-boxes { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr); gap: 0.5rem; }
+
+/* party circles: Discord picture + character token; away = smaller + grey */
+.pb-session-over .pb-so-party { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: flex-start; }
+.pb-session-over .pb-so-pc { display: flex; flex-direction: column; align-items: center; gap: 0.2rem; width: 4rem; padding: 0; margin: 0; border: 0; background: none; box-shadow: none; min-height: 0; line-height: 1.2; color: var(--pb-so-ink); transition: transform 120ms ease, opacity 120ms ease; }
+.pb-session-over button.pb-so-pc:hover .pb-so-face { border-color: var(--color-border-highlight, var(--pb-so-accent)); }
+.pb-session-over .pb-so-face { position: relative; width: 3rem; height: 3rem; border-radius: 50%; border: 2px solid var(--color-border); background: var(--pb-so-well); display: grid; place-items: center; }
+.pb-session-over .pb-so-face > img:first-child { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; border: 0; }
+.pb-session-over .pb-so-badge { position: absolute; right: -0.3rem; bottom: -0.3rem; width: 1.4rem; height: 1.4rem; border-radius: 50%; object-fit: cover; border: 1px solid var(--color-border); background: var(--pb-so-well); }
+.pb-session-over .pb-so-ini { font-weight: bold; font-size: var(--font-size-16, 16px); color: var(--pb-so-soft); }
+.pb-session-over .pb-so-pname { max-width: 4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-size-11, 11px); color: var(--pb-so-soft); }
+.pb-session-over .pb-so-pc.away { transform: scale(0.84); opacity: 0.7; }
+.pb-session-over .pb-so-pc.away .pb-so-face { filter: grayscale(1); }
+.pb-session-over .pb-so-pc.edited .pb-so-pname { text-decoration: underline dotted; }
+
+/* numbers */
+.pb-session-over .pb-so-num { margin: 0.15rem 0; }
+.pb-session-over .pb-so-num > label { flex: 1; }
+.pb-session-over .pb-so-num .form-fields { flex: 0 0 auto; gap: 0.25rem; justify-content: flex-end; }
+.pb-session-over .pb-so-num input[type=number] { width: 4.2rem; text-align: right; }
+.pb-session-over .pb-so-num input[type=text] { width: 8rem; }
+.pb-session-over .pb-so-num strong { color: var(--color-text-emphatic, var(--pb-so-ink)); }
+.pb-session-over .pb-so-misc { display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.2rem; }
+.pb-session-over .pb-so-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.2rem; }
+.pb-session-over .pb-so-item { display: flex; align-items: center; gap: 0.3rem; min-width: 0; }
+.pb-session-over .pb-so-item > img { width: 1.3rem; height: 1.3rem; border: 0; flex: none; }
+.pb-session-over .pb-so-item > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pb-session-over .pb-so-item > select { flex: 0 1 7rem; min-width: 0; }
+
+/* map strip (same marks as the app's) */
+.pb-session-over .pb-so-svg { display: block; width: 100%; height: auto; max-height: 12rem; border: 1px solid var(--color-border); border-radius: 3px; background: var(--pb-so-well); }
+.pb-session-over .pb-so-line { fill: none; stroke: var(--pb-so-faint); stroke-width: 1.4; stroke-dasharray: 4 3; }
+.pb-session-over .pb-so-dot { fill: var(--pb-so-soft); }
+.pb-session-over .pb-so-dot.stay { fill: var(--pb-so-ink); }
+.pb-session-over .pb-so-pl { fill: var(--pb-so-soft); font-size: 10px; }
+.pb-session-over .pb-so-leg { fill: var(--pb-so-faint); font-size: 9.5px; }
+.pb-session-over .pb-so-box { fill: #fff; stroke: var(--color-border); stroke-width: 0.6; }
+.pb-session-over .pb-so-boxt { fill: #1b1b1b; font-size: 9.5px; font-weight: 600; }
+.pb-session-over circle.pb-so-walker { fill: var(--pb-so-accent); stroke: var(--color-light-1, #fff); stroke-width: 1.2; }
+/* the map box: the World Map picture round the route, the group token walking it, white "N days" boxes */
+.pb-session-over .pb-so-mapview { position: relative; }
+.pb-session-over .pb-so-msvg { display: block; width: 100%; height: auto; border: 1px solid var(--color-border); border-radius: 3px; background: var(--pb-so-well); }
+.pb-session-over .pb-so-mline { fill: none; stroke: #fff; stroke-opacity: 0.85; stroke-width: 2; stroke-dasharray: 6 4; filter: drop-shadow(0 0 1.5px rgb(0 0 0 / 0.7)); }
+.pb-session-over .pb-so-mdot { fill: #fff; stroke: #1b1b1b; stroke-width: 1; }
+.pb-session-over .pb-so-mname { fill: #fff; font-size: 10.5px; font-weight: 600; paint-order: stroke; stroke: #1b1b1b; stroke-width: 2.5px; stroke-linejoin: round; }
+.pb-session-over .pb-so-mbox { fill: #fff; stroke: #1b1b1b; stroke-opacity: 0.35; }
+.pb-session-over .pb-so-mboxt { fill: #1b1b1b; font-size: 10px; font-weight: 600; }
+.pb-session-over .pb-so-tokring { fill: #fff; stroke: #1b1b1b; stroke-width: 1; filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.6)); }
+.pb-session-over .pb-so-tokdot { fill: var(--pb-so-accent); }
+.pb-session-over .pb-so-replay { position: absolute; right: 6px; bottom: 6px; width: auto; line-height: 1.4; padding: 1px 8px; font-size: var(--font-size-12, 12px); }
+.pb-session-over .pb-so-noroute { padding: 1rem 0; text-align: center; }
+.pb-session-over .pb-so-legs { list-style: none; margin: 0.4rem 0 0.3rem; padding: 0; display: flex; flex-direction: column; gap: 0.2rem; }
+.pb-session-over .pb-so-legrow { display: flex; align-items: center; gap: 0.25rem; }
+.pb-session-over .pb-so-legrow select { flex: 0 0 6.2rem; }
+.pb-session-over .pb-so-legrow input[type=text] { flex: 1 1 0; min-width: 0; }
+.pb-session-over .pb-so-legrow input[type=number] { flex: 0 0 3.6rem; text-align: right; }
+.pb-session-over .pb-so-legrow > i { color: var(--pb-so-faint); font-size: var(--font-size-11, 11px); }
+
+/* recap: a day's lines sit tight; a new day = a double gap + a small "date – day N" header */
+.pb-session-over .pb-so-recap { overflow-y: auto; display: flex; flex-direction: column; gap: 1.1rem; }
+.pb-session-over .pb-so-day { display: flex; flex-direction: column; }
+.pb-session-over .pb-so-dayhead { margin: 0 0 0.15rem; border: 0; padding: 0; font-size: var(--font-size-11, 11px); font-weight: normal; color: var(--pb-so-faint); }
+.pb-session-over .pb-so-lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.pb-session-over .pb-so-line { display: flex; align-items: baseline; gap: 0.5rem; padding: 0.1rem 0; }
+.pb-session-over .pb-so-text { flex: 1; min-width: 0; }
+.pb-session-over .pb-so-who { flex: none; font-size: var(--font-size-11, 11px); color: var(--pb-so-faint); white-space: nowrap; }
+.pb-session-over .pb-so-line.is-dm .pb-so-text { color: var(--pb-so-soft); font-style: italic; }
+.pb-session-over .pb-so-line.is-drop .pb-so-text { color: var(--pb-so-faint); text-decoration: line-through; }
+.pb-session-over .pb-so-vis { flex: none; display: inline-flex; }
+.pb-session-over .pb-so-vis > button { width: auto; min-height: 0; height: 1.35rem; line-height: 1; padding: 0 0.4rem; font-size: var(--font-size-10, 10px); border-radius: 0; margin: 0; }
+.pb-session-over .pb-so-vis > button:first-child { border-radius: 3px 0 0 3px; }
+.pb-session-over .pb-so-vis > button:last-child { border-radius: 0 3px 3px 0; }
+.pb-session-over .pb-so-vis > button + button { border-left-width: 0; }
+.pb-session-over .pb-so-vis > button.active { background: var(--pb-so-accent); color: var(--color-light-1, #fff); border-color: var(--pb-so-accent); }
+
+/* met */
+.pb-session-over .pb-so-metbox { display: flex; flex-direction: column; gap: 0.3rem; overflow-y: auto; }
+.pb-session-over .pb-so-met { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.15rem; }
+.pb-session-over .pb-so-met > li { display: flex; align-items: center; gap: 0.3rem; justify-content: space-between; }
+
+/* rations (GM) */
+.pb-session-over .pb-so-rations input[type=number] { width: 3.4rem; text-align: center; flex: none; }
+.pb-session-over .pb-so-rations .pb-rat-table { margin: 0.3rem 0 0; }

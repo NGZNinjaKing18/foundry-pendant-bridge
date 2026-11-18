@@ -1,0 +1,23 @@
+/* Item panel + Albuna coins (scripts/item-panel.js, scripts/albuna.js). Foundry's own variables, light + dark. */
+.pb-item-panel .window-content { padding: 6px 8px; overflow: hidden; }
+.pb-item-panel .pb-item-panel-body { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }
+.pb-item-panel .pb-ip-filters { display: flex; flex-direction: column; gap: 4px; flex: none; }
+.pb-item-panel .pb-ip-filters .form-fields { display: flex; gap: 4px; }
+.pb-item-panel .pb-ip-filters select { flex: 1 1 0; min-width: 0; }
+.pb-item-panel .hint { margin: 0; font-size: var(--font-size-11); color: var(--color-text-secondary); }
+.pb-item-panel .pb-ip-list { flex: 1; min-height: 0; overflow-y: auto; list-style: none; margin: 0; padding: 0; }
+.pb-item-panel .pb-ip-row { display: flex; align-items: center; gap: 6px; padding: 2px 4px; border-bottom: 1px solid var(--color-border); cursor: grab; }
+.pb-item-panel .pb-ip-row:nth-child(even) { background: var(--table-row-color-even, transparent); }
+.pb-item-panel .pb-ip-row:hover { background: var(--table-row-color-highlight, rgba(127,127,127,.15)); }
+.pb-item-panel .pb-ip-row img { width: 28px; height: 28px; flex: none; border: none; border-radius: 3px; object-fit: cover; }
+.pb-item-panel .pb-ip-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-primary); }
+.pb-item-panel .pb-ip-type { flex: none; font-size: var(--font-size-11); color: var(--color-text-secondary); }
+.pb-item-panel .pb-ip-row button { flex: 0 0 auto; width: 24px; height: 24px; min-height: 0; padding: 0; font-size: var(--font-size-12); }
+.pb-item-panel .pb-ip-more { flex: none; text-align: right; }
+.pb-item-panel-open { flex: 0 0 auto; width: auto; }
+.pb-ip-bar { display: flex; justify-content: flex-end; margin: 0 0 4px; }
+.pb-ip-bar .pb-item-panel-open { font-size: var(--font-size-12); min-height: 0; padding: 2px 8px; line-height: 1.6; }
+/* Albuna coins on a sheet */
+.pb-albuna-hide { display: none !important; }
+.pb-albuna-foreign { opacity: .6; }
+.pb-albuna-mark { flex: 0 0 auto; width: auto; min-height: 0; padding: 1px 6px; font-size: var(--font-size-11); line-height: 1.5; }
