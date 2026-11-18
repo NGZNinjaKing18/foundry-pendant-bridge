@@ -24,6 +24,11 @@ test("nobody else's Just me or waiting lines", () => {
   assert.deepEqual(logFor(log, "u2").lines.map(l => l.id), ["a", "b", "d"])
   assert.deepEqual(logFor(log, "u1").users, ["u1"])
 })
+test("the GM's own lines stay in the GM's copy and never reach a player", () => {
+  const withGm = { ...log, lines: [...log.lines, { id: "g", ts: 5, text: "Harlan lies", who: "GM", uid: "", gm: true }] }
+  assert.equal(cleanLog(withGm).lines.at(-1).gm, true)
+  for (const u of ["u1", "u2"]) assert.ok(!logFor(withGm, u).lines.some(l => l.id === "g"))
+})
 test("log hidden from the table → only your own lines", () => {
   assert.deepEqual(logFor({ ...log, showLog: false }, "u2").lines.map(l => l.id), ["b", "d"])
 })

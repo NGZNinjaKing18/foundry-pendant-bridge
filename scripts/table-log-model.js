@@ -7,7 +7,8 @@
 // player gets only their part in their private whisper (scripts/private.js):
 //   · nothing at all unless they are seated in the running game;
 //   · nobody else's "Just me" lines, nor anyone else's waiting ones;
-//   · with "show the log" off, only their own lines.
+//   · with "show the log" off, only their own lines;
+//   · never the GM's own lines (`gm`: shown in the GM's tab only, they wait for the sort).
 // ──────────────────────────────────────────────────────────────
 
 const str = (v) => (typeof v === "string" ? v.trim() : "")
@@ -29,6 +30,7 @@ export function cleanLog(log) {
       who: str(l.who).slice(0, 80) || "A player", uid: str(l.uid),
       just: str(l.just) || null,
       ...(l.waiting ? { waiting: true } : {}),
+      ...(l.gm ? { gm: true } : {}),
     })),
   }
 }
@@ -41,7 +43,7 @@ export function logFor(log, uid) {
   return {
     ...l,
     users: [uid],
-    lines: l.lines.filter(x => (x.just ? x.just === uid : true) && (!x.waiting || mine(x)) && (l.showLog || mine(x))),
+    lines: l.lines.filter(x => !x.gm && (x.just ? x.just === uid : true) && (!x.waiting || mine(x)) && (l.showLog || mine(x))),
   }
 }
 

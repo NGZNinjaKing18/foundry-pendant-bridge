@@ -79,38 +79,81 @@ export function tableLogAck(msg, { relay = true } = {}) {
 }
 
 // ── the sidebar tab ───────────────────────────────────────────
+// Made for someone opening it the first time (the user, 2026-11-18): a plain "how this works" box (open
+// until there are notes, then one line you can open), labelled buttons for the @ # $ ? marks instead of a
+// cryptic placeholder, an example note while it's empty, and every line saying who can see it.
 const KIND = { quote: "Quote", question: "Question" }
+const MARKS = [
+  ["@", "Person", "Link someone you know: @ then their name"],
+  ["#", "Place", "Link a place: # then its name"],
+  ["$", "Loot", "Treasure, a price, an item: $ then what it is"],
+  ["?", "Question", "Something to ask or find out later: start with ?"],
+]
+const HELP_KEY = `${MOD}.tablelogHelp`
+const helpPref = () => { try { return localStorage.getItem(HELP_KEY) } catch { return null } }   // "open" | "closed" | null
 function lineHtml(l) {
-  const me = l.uid && l.uid === game.user?.id
-  const undo = canUndo(l, game.user?.id, isGM())
-  const tags = [l.just ? "Just me" : "", l.waiting ? "Waiting for the GM" : "", KIND[l.kind] || ""].filter(Boolean)
-  return `<li class="pb-tablog-line${me ? " is-mine" : ""}${l.just ? " is-just" : ""}${l.waiting ? " is-waiting" : ""}">
-    <header><strong>${esc(l.who)}${me ? " (you)" : ""}</strong><span>${esc([l.when, ...tags].filter(Boolean).join(" · "))}</span></header>
+  const me = !l.gm && l.uid && l.uid === game.user?.id
+  const undo = !l.gm && canUndo(l, game.user?.id, isGM())
+  const who = l.gm ? "You (GM)" : `${l.who}${me ? " (you)" : ""}`
+  const seen = l.gm ? "Only you see this" : l.just ? "Only them + GM" : l.waiting ? "Waiting for the GM" : ""
+  const tags = [seen, KIND[l.kind] || ""].filter(Boolean)
+  return `<li class="pb-tablog-line${me || l.gm ? " is-mine" : ""}${l.just || l.gm ? " is-just" : ""}${l.waiting ? " is-waiting" : ""}">
+    <header><strong>${esc(who)}</strong><span>${esc([l.when, ...tags].filter(Boolean).join(" · "))}</span></header>
     <p>${esc(l.text)}</p>
     ${undo ? `<a data-action="undo" data-id="${esc(l.id)}" data-tooltip="Take this note back"><i class="fa-solid fa-rotate-left"></i> Take back</a>` : ""}
   </li>`
+}
+function helpHtml(log, hasLines) {
+  const pref = helpPref()
+  const open = pref ? pref === "open" : !hasLines
+  const steps = isGM()
+    ? [
+        "Your players write down what they notice: a name, a price, a clue, a great line. It shows up here as they write.",
+        "Your own notes show here too, but only you see them.",
+        "Everything stays here for the whole session. When it ends, you sort it into the recap in RealmScreen.",
+      ]
+    : [
+        "Write down anything worth remembering: a name, a price, a clue, a great line.",
+        log.showLog ? "Everyone at the table sees your notes." + (log.justMe ? " Tick <b>Only me + GM</b> to keep one private." : "") : "Only you and the GM see your notes.",
+        "Your notes stay here for the whole session. Afterwards they go into the session recap.",
+      ]
+  return `<details class="pb-tablog-help"${open ? " open" : ""}>
+    <summary><i class="fa-solid fa-circle-question"></i> How the table log works</summary>
+    <ol>${steps.map(t => `<li>${t}</li>`).join("")}</ol>
+    <p class="hint">Also: type <code>/note …</code> in chat, or right-click any chat message › <b>Add to table log</b>.</p>
+  </details>`
 }
 function tabHtml() {
   const log = myLog()
   // A player only ever gets their OWN campaign's log, so "nothing" may mean another campaign is playing.
   if (!log || !log.live) {
-    return `<p class="hint">${isGM() ? "No game is running. Notes open when the session starts." : "No game of yours is running. Notes open when your session starts."}</p>`
+    return `<section class="pb-tablog-off">
+      <i class="${ICON}"></i>
+      <h4>Table log</h4>
+      <p>${isGM() ? "Opens when you start a session in RealmScreen." : "Opens when your GM starts your session."}</p>
+      <p class="hint">During a session, everyone at the table can jot down names, prices, clues and great lines here. Everything written stays here until the session ends.</p>
+    </section>`
   }
-  if (!seated(log)) return `<p class="hint">You aren’t seated in the game that’s running.</p>`
+  if (!seated(log)) return `<section class="pb-tablog-off"><i class="${ICON}"></i><h4>Table log</h4><p>You aren’t seated in the game that’s running.</p><p class="hint">Ask your GM to add you to this campaign’s table.</p></section>`
   const saving = [...mine.values()].map(o => `<li class="pb-tablog-line is-mine is-saving"><header><strong>You</strong><span>Saving…</span></header><p>${esc(o.text)}</p></li>`).join("")
   const lines = arr(log.lines)
   const head = `${esc(log.live.name)}${log.live.number != null ? ` · Session ${log.live.number}` : ""}`
   const empty = !lines.length && !mine.size
+  const example = `<li class="pb-tablog-line is-example" aria-hidden="true"><header><strong>Example</strong><span>what a note looks like</span></header>
+      <p>@Harlan the smith wants 40 gold for the $silver sword. ?Why is he in a hurry</p></li>`
   return `
-    <header class="pb-tablog-head"><h4>${head}</h4><span class="hint">${isGM() ? "Your players’ notes" : log.showLog ? "Everyone’s notes" : "Your notes"}</span></header>
-    <ol class="pb-tablog-list">${empty ? `<li class="hint">Nothing yet. Notice a name, a price, a great line? Write it down.</li>` : lines.map(l => lineHtml(l)).join("") + saving}</ol>
+    <header class="pb-tablog-head"><h4>${head}</h4>
+      <span class="pb-tablog-live"><i class="fa-solid fa-circle"></i> Session running · notes stay until it ends</span></header>
+    ${helpHtml(log, !empty)}
+    <ol class="pb-tablog-list">${empty ? example : lines.map(l => lineHtml(l)).join("") + saving}</ol>
     <form class="pb-tablog-form" autocomplete="off">
-      <textarea name="note" rows="2" placeholder="Add a note… @person #place $loot ?question"></textarea>
+      <textarea name="note" rows="2" placeholder="Write a note…"></textarea>
+      <div class="pb-tablog-marks">${MARKS.map(([c, label, tip]) => `<button type="button" data-mark="${esc(c)}" data-tooltip="${esc(tip)}"><b>${esc(c)}</b> ${esc(label)}</button>`).join("")}</div>
       <footer>
-        ${log.justMe && !isGM() ? `<label class="pb-tablog-just" data-tooltip="Only you and the GM see this note"><input type="checkbox" name="just" ${justMe ? "checked" : ""}> Just me</label>` : "<span></span>"}
-        <button type="submit"><i class="fa-solid fa-feather-pointed"></i> Add note</button>
+        ${log.justMe && !isGM() ? `<label class="pb-tablog-just" data-tooltip="Only you and the GM see this note"><input type="checkbox" name="just" ${justMe ? "checked" : ""}> Only me + GM</label>` : isGM() ? `<span class="hint">Only you see your notes</span>` : "<span></span>"}
+        <button type="submit"><i class="${ICON}"></i> Add note</button>
       </footer>
-      <p class="hint">${log.wait && !isGM() ? "The GM approves each note. " : ""}Tip: type <code>/note …</code> in chat, or right-click a chat message.</p>
+      ${log.wait && !isGM() ? `<p class="hint">The GM approves each note before it joins the log.</p>` : ""}
     </form>`
 }
 
@@ -154,6 +197,19 @@ function wire(root, refocus = false, caret = null) {
   ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(root) } })
   root.querySelector("form")?.addEventListener("submit", (e) => { e.preventDefault(); submit(root) })
   root.querySelector("input[name=just]")?.addEventListener("change", (e) => { justMe = !!e.target.checked })
+  // the mark buttons put their symbol at the caret (with a space before it when needed)
+  for (const b of root.querySelectorAll("[data-mark]")) b.addEventListener("click", (e) => {
+    e.preventDefault()
+    const c = b.dataset.mark, at = ta.selectionStart ?? ta.value.length, end = ta.selectionEnd ?? at
+    const pre = at > 0 && !/\s$/.test(ta.value.slice(0, at)) ? " " : ""
+    ta.value = ta.value.slice(0, at) + pre + c + ta.value.slice(end)
+    draft = ta.value
+    const pos = at + pre.length + c.length
+    ta.focus(); ta.setSelectionRange(pos, pos)
+  })
+  // remember only what the user clicks ("toggle" also fires when a box is drawn open)
+  const help = root.querySelector(".pb-tablog-help")
+  help?.querySelector("summary")?.addEventListener("click", () => { try { localStorage.setItem(HELP_KEY, help.open ? "closed" : "open") } catch { /* private mode */ } })
   if (refocus) { ta.focus(); if (caret) ta.setSelectionRange(caret[0], caret[1]) }
 }
 
