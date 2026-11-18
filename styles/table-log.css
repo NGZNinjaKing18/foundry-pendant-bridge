@@ -129,3 +129,10 @@
 .pb-tablog.pb-session-over li.pb-tl-line .pb-so-whoname { display: inline; }
 .pb-tablog li.pb-tl-line > .pb-tl-x { grid-column: 2; grid-row: 2; justify-self: end; margin-right: 4px; }
 .pb-tablog li.pb-tl-line > .pb-tl-seg--sm { grid-column: 3; grid-row: 2; height: 20px; }
+/* the user, 2026-11-18: the box's words fainter; the writer + Players | GM | Drop on TOP of the line, words under */
+.pb-tablog textarea.pb-tl-input::placeholder { opacity: .5; }
+.pb-tablog li.pb-tl-line > .pb-so-whochip { grid-column: 2; grid-row: 1; justify-self: start; }
+.pb-tablog li.pb-tl-line > .pb-tl-x { grid-column: 2; grid-row: 1; justify-self: end; }
+.pb-tablog li.pb-tl-line > .pb-tl-seg--sm { grid-column: 3; grid-row: 1; }
+.pb-tablog li.pb-tl-line > .pb-so-text { grid-column: 2 / span 2; grid-row: 2; }
+.pb-tablog li.pb-tl-line > .pb-so-dot { grid-row: 1; align-self: center; margin-top: 0; }

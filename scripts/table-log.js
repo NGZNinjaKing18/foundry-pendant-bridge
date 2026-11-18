@@ -143,7 +143,7 @@ function lineHtml(l) {
   }
   const can = canEdit(l, game.user?.id, isGM()) && !l.waiting
   const undo = !l.gm && !l.auto && canUndo(l, game.user?.id, isGM())
-  const mark = priv ? `<i class="fa-solid fa-eye-slash pb-so-dmmark" data-tooltip="${esc(own || (isGM() && !l.uid) ? "Only you and the GM see this" : "Only the GM and the writer")}" inert></i>` : ""
+  const mark = priv ? `<i class="fa-solid fa-eye-slash pb-so-dmmark" data-tooltip="${esc(own || (isGM() && !l.uid) ? "Hidden from the players" : "Hidden from the players: only its writer and the GM")}" inert></i>` : ""
   const text = `<span class="pb-so-text${can ? " is-edit" : ""}"${can ? ` role="button" tabindex="0" data-action="edit" data-id="${esc(l.id)}" data-tooltip="Click to change the words"` : ""}>${mark}${esc(l.text)}${l.edited ? `<span class="pb-so-fixed">edited</span>` : ""}</span>`
   const x = undo ? `<a class="pb-tl-x" data-action="undo" data-id="${esc(l.id)}" data-tooltip="Take it back"><i class="fa-solid fa-xmark"></i></a>` : ""
   return `<li class="pb-so-line pb-tl-line is-${esc(vis)}${l.waiting ? " is-waiting" : ""}${l.kind === "quote" ? " is-quote" : ""}"><span class="pb-so-dot is-${esc(vis)}" aria-hidden="true"></span>${text}${whoHtml(l)}${x}${l.waiting ? "" : visHtml(l, vis)}</li>`
@@ -152,7 +152,7 @@ function lineHtml(l) {
 // anyone at the table can press it at any time. GM = hidden from everyone but the writer and the GM;
 // Drop = left out of the recap, shown greyed and crossed out, and can still be pressed back.
 const VIS_IDS = ["public", "dm", "drop"]
-const VIS_SEG = [["public", "Players", "Everyone sees it"], ["dm", "GM", "Only the GM and the writer see it"], ["drop", "Drop", "Left out of the recap"]]
+const VIS_SEG = [["public", "Players", "Everyone sees it"], ["dm", "GM", "Hidden from the players: only its writer and the GM"], ["drop", "Drop", "Left out of the recap"]]
 function visHtml(l, cur) {
   return `<span class="pb-tl-seg pb-tl-seg--sm" role="radiogroup" aria-label="Who sees this line">${VIS_SEG.map(([id, label, tip]) => {
     const off = id === "public" && l.locked
@@ -187,14 +187,14 @@ function tabHtml() {
     <div class="pb-tl-scroll pb-so-recap">${body || (saving ? `<div class="pb-so-day"><ol class="pb-so-lines">${saving}</ol></div>` : `<p class="pb-so-faint pb-tl-empty">Nothing yet. What happened first?</p>`)}</div>
     <form class="pb-tl-compose chat-form${boxVis === "dm" ? " is-private" : ""}" autocomplete="off">
       <div class="pb-tl-controls">
-        <div class="pb-tl-seg" role="radiogroup" aria-label="Who sees your line">${[["public", "Players", "Everyone at the table sees it"], ["dm", "GM", "Only you and the GM see it"]].map(([id, label, tip]) =>
+        <div class="pb-tl-seg" role="radiogroup" aria-label="Who sees your line">${[["public", "Players", "Everyone at the table sees it"], ["dm", "GM", "Hidden from the players"]].map(([id, label, tip]) =>
           `<button type="button" role="radio" class="${boxVis === id ? "active" : ""}" data-action="boxVis" data-vis="${id}" aria-checked="${boxVis === id}" data-tooltip="${tip}">${label}</button>`).join("")}</div>
         <div class="control-buttons">
           <button type="button" class="ui-control icon pb-tl-marksbtn" data-action="sheet" aria-pressed="${sheetOpen}" data-tooltip="${sheetOpen ? "Hide the marks" : "Show the marks"}" aria-label="Marks"><span>@#$</span></button>
         </div>
       </div>
       ${sheetOpen ? sheetHtml() : ""}
-      <textarea name="note" class="pb-tl-input" placeholder="${boxVis === "dm" ? "Only you and the GM" : "What just happened?"}"></textarea>
+      <textarea name="note" class="pb-tl-input" placeholder="${boxVis === "dm" ? "Just for the GM…" : "What just happened?"}"></textarea>
     </form>`
 }
 
@@ -211,7 +211,6 @@ const MARKS = [
 ]
 const GM_MARKS = [
   ["~", "GM only", "Start the line with ~: never reaches the players"],
-  [">", "next prep", "Start the line with >: a to-do for your next prep"],
   ["+2h", "time", "Time passing: +2h, +1d, +1w"],
 ]
 const SHEET_KEY = `${MOD}.tablelogMarks`
