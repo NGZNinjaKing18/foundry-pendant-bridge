@@ -21,7 +21,7 @@
 
 import { mySlice, onSlice, setFull, fullTableLog, sendOp } from "./private.js"
 import { realmLive } from "./live.js"
-import { cleanLog, noteCommand, canUndo, chatText } from "./table-log-model.js"
+import { cleanLog, noteCommand, canUndo, canEdit, chatText } from "./table-log-model.js"
 
 const MOD = "pendant-bridge"
 const CHANNEL = `module.${MOD}`
@@ -46,12 +46,15 @@ export async function setTableLog(log) {
 
 // ── sending ───────────────────────────────────────────────────
 const mine = new Map()            // clientId → { text, just, ts } still saving
-let draft = "", justMe = false
+let draft = ""
+const VIS_KEY = `${MOD}.tablelogVis`
+let boxVis = (() => { try { return localStorage.getItem(VIS_KEY) === "dm" ? "dm" : "public" } catch { return "public" } })()
 function send(data) {
   const clientId = `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
-  if (data.text != null || data.quote) mine.set(clientId, { text: data.quote ? `“${data.quote.text}”` : data.text, just: !!data.just, ts: Date.now() })
+  if (!data.edit && !data.visOp && (data.text != null || data.quote)) mine.set(clientId, { text: data.quote ? `“${data.quote.text}”` : data.text, just: !!data.just, after: data.after || null, ts: Date.now() })
   if (!realmLive()) ui.notifications?.info("RealmScreen isn’t connected. Your note is sent when it is.")
-  Promise.resolve(sendOp(data.lineId ? "tablelog.undo" : "tablelog.note", { ...data, clientId })).then((r) => {
+  const op = data.visOp ? "tablelog.vis" : data.edit ? "tablelog.edit" : data.lineId ? "tablelog.undo" : "tablelog.note"
+  Promise.resolve(sendOp(op, { ...data, clientId })).then((r) => {
     if (r !== false) return
     mine.delete(clientId)
     ui.notifications?.warn("Couldn’t reach RealmScreen. Try again.")
@@ -61,10 +64,24 @@ function send(data) {
   setTimeout(() => { if (mine.delete(clientId)) redraw() }, 60000)
   redraw()
 }
-export function addNote(text, { just = false } = {}) {
+export function addNote(text, { vis = "public", after = null, dayKey = null } = {}) {
   const t = str(text)
   if (!t) return false
-  send({ text: t, just: !!just })
+  send({ text: t, vis: VIS_OK.includes(vis) ? vis : "public", ...(after ? { after } : {}), ...(Number.isFinite(dayKey) ? { dayKey } : {}) })
+  return true
+}
+const VIS_OK = ["public", "dm", "drop"]
+/** Keep / GM / Drop for a line (your own; the GM any) — the sort's choice, which the GM can still change. */
+export function setLineVis(lineId, vis) {
+  if (!lineId || !VIS_OK.includes(vis)) return false
+  send({ visOp: true, lineId, vis })
+  return true
+}
+/** Change the words of a line (your own; the GM any). */
+export function editNote(lineId, text) {
+  const t = str(text)
+  if (!t || !lineId) return false
+  send({ edit: true, lineId, text: t })
   return true
 }
 
@@ -79,82 +96,129 @@ export function tableLogAck(msg, { relay = true } = {}) {
 }
 
 // ── the sidebar tab ───────────────────────────────────────────
-// Made for someone opening it the first time (the user, 2026-11-18): a plain "how this works" box (open
-// until there are notes, then one line you can open), labelled buttons for the @ # $ ? marks instead of a
-// cryptic placeholder, an example note while it's empty, and every line saying who can see it.
-const KIND = { quote: "Quote", question: "Question" }
-const MARKS = [
-  ["@", "Person", "Link someone you know: @ then their name"],
-  ["#", "Place", "Link a place: # then its name"],
-  ["$", "Loot", "Treasure, a price, an item: $ then what it is"],
-  ["?", "Question", "Something to ask or find out later: start with ?"],
-]
-const HELP_KEY = `${MOD}.tablelogHelp`
-const helpPref = () => { try { return localStorage.getItem(HELP_KEY) } catch { return null } }   // "open" | "closed" | null
-function lineHtml(l) {
-  const me = !l.gm && l.uid && l.uid === game.user?.id
-  const undo = !l.gm && canUndo(l, game.user?.id, isGM())
-  const who = l.gm ? "You (GM)" : `${l.who}${me ? " (you)" : ""}`
-  const seen = l.gm ? "Only you see this" : l.just ? "Only them + GM" : l.waiting ? "Waiting for the GM" : ""
-  const tags = [seen, KIND[l.kind] || ""].filter(Boolean)
-  return `<li class="pb-tablog-line${me || l.gm ? " is-mine" : ""}${l.just || l.gm ? " is-just" : ""}${l.waiting ? " is-waiting" : ""}">
-    <header><strong>${esc(who)}</strong><span>${esc([l.when, ...tags].filter(Boolean).join(" · "))}</span></header>
-    <p>${esc(l.text)}</p>
-    ${undo ? `<a data-action="undo" data-id="${esc(l.id)}" data-tooltip="Take this note back"><i class="fa-solid fa-rotate-left"></i> Take back</a>` : ""}
-  </li>`
+// ONE list (the user, 2026-11-18): everything the DM and the players capture during the game, with
+// RealmScreen's own Stage / Clock / Foundry lines — the same list Session Over's Recap shows when the game
+// ends, drawn the same way (its .pb-so-* look: a "Day N" badge + the date per in-world day, a spine with a
+// dot per line, who wrote it). While the game runs:
+//   • click your own words to change them (the GM: any line)
+//   • "+" between two lines, or "Add a line" at the end of a day, puts one in there
+//   • the box at the bottom adds what just happened; "Only me + GM" keeps a line private
+// Keep / GM / Drop is not here: that's the GM's job when the game ends (Session Over, the sort).
+const AUTO_ICON = { Stage: "fa-masks-theater", Shown: "fa-eye", Clock: "fa-clock", Foundry: "fa-dice-d20", Auto: "fa-wand-magic-sparkles" }
+let keepScroll = null                     // where the list was scrolled, while a line is being changed
+let editing = null                        // the line whose words are being changed
+let inserting = null                      // { after, dayKey } — where a new line is being put in
+const initialOf = (s) => esc(String(s || "?").trim().charAt(0).toUpperCase() || "?")
+function whoHtml(l) {
+  let pic
+  if (l.auto) pic = `<span class="pb-so-whopic is-auto"><i class="fa-solid ${AUTO_ICON[l.who] || AUTO_ICON.Auto}" inert></i></span>`
+  else if (l.gm) pic = `<span class="pb-so-whopic is-gm"><i class="fa-solid fa-crown" inert></i></span>`
+  else {
+    const u = l.uid ? game.users?.get?.(l.uid) : null
+    const src = u?.character?.img || u?.avatar || ""
+    pic = `<span class="pb-so-whopic">${src ? `<img src="${esc(src)}" alt="">` : initialOf(l.who)}</span>`
+  }
+  const name = l.gm ? "GM" : l.uid && l.uid === game.user?.id ? "You" : l.who
+  return `<span class="pb-so-whochip" data-tooltip="${esc(name)}">${pic}<span class="pb-so-whoname">${esc(name)}</span></span>`
 }
-function helpHtml(log, hasLines) {
-  const pref = helpPref()
-  const open = pref ? pref === "open" : !hasLines
-  const steps = isGM()
-    ? [
-        "Your players write down what they notice: a name, a price, a clue, a great line. It shows up here as they write.",
-        "Your own notes show here too, but only you see them.",
-        "Everything stays here for the whole session. When it ends, you sort it into the recap in RealmScreen.",
-      ]
-    : [
-        "Write down anything worth remembering: a name, a price, a clue, a great line.",
-        log.showLog ? "Everyone at the table sees your notes." + (log.justMe ? " Tick <b>Only me + GM</b> to keep one private." : "") : "Only you and the GM see your notes.",
-        "Your notes stay here for the whole session. Afterwards they go into the session recap.",
-      ]
-  return `<details class="pb-tablog-help"${open ? " open" : ""}>
-    <summary><i class="fa-solid fa-circle-question"></i> How the table log works</summary>
-    <ol>${steps.map(t => `<li>${t}</li>`).join("")}</ol>
-    <p class="hint">Also: type <code>/note …</code> in chat, or right-click any chat message › <b>Add to table log</b>.</p>
-  </details>`
+// "MistMorn 7, 98 – day 1" → "Day 1" badge + the date, on a thin rule (Session Over's day head)
+function dayHeadHtml(h) {
+  const i = h.lastIndexOf(" – ")
+  const date = i > 0 ? h.slice(0, i) : h, n = i > 0 ? h.slice(i + 3) : ""
+  return `<div class="pb-so-dayhead">${n ? `<span class="pb-so-dayn">${esc(n.replace(/^day/, "Day"))}</span>` : ""}<span class="pb-so-daydate">${esc(date)}</span></div>`
+}
+const fieldHtml = (name, placeholder, value = "") =>
+  `<input type="text" class="pb-so-edit" name="${name}" value="${esc(value)}" placeholder="${esc(placeholder)}" aria-label="${esc(placeholder)}">`
+function insHtml(after, dayKey, end = false) {
+  const open = inserting && inserting.after === (after || null) && inserting.dayKey === dayKey && !!inserting.end === end
+  if (open) return `<li class="pb-so-line pb-tl-adding"><span class="pb-so-dot" aria-hidden="true"></span>${fieldHtml("insert", "Add a line here…")}</li>`
+  return `<li class="pb-so-ins${end ? " is-end" : ""}"><button type="button" data-action="insert" data-after="${esc(after || "")}" data-day="${dayKey ?? ""}" data-end="${end ? 1 : ""}" data-tooltip="Add a line here" aria-label="Add a line here"><i class="fa-solid fa-plus" inert></i>${end ? "<span>Add a line</span>" : ""}</button></li>`
+}
+function lineHtml(l) {
+  const vis = VIS_IDS.includes(l.vis) ? l.vis : "public"
+  const own = !l.gm && l.uid && l.uid === game.user?.id
+  const priv = l.just || vis === "dm"
+  if (editing === l.id) {
+    return `<li class="pb-so-line is-${esc(vis)}"><span class="pb-so-dot is-${esc(vis)}" aria-hidden="true"></span>${fieldHtml("edit", "The line’s words", l.text)}${whoHtml(l)}</li>`
+  }
+  const can = canEdit(l, game.user?.id, isGM()) && !l.waiting
+  const undo = !l.gm && !l.auto && canUndo(l, game.user?.id, isGM())
+  const mark = priv ? `<i class="fa-solid fa-eye-slash pb-so-dmmark" data-tooltip="${esc(own || (isGM() && !l.uid) ? "Only you and the GM see this" : "Only the GM and the writer")}" inert></i>` : ""
+  const text = `<span class="pb-so-text${can ? " is-edit" : ""}"${can ? ` role="button" tabindex="0" data-action="edit" data-id="${esc(l.id)}" data-tooltip="Click to change the words"` : ""}>${mark}${esc(l.text)}${l.edited ? `<span class="pb-so-fixed">edited</span>` : ""}</span>`
+  const x = undo ? `<a class="pb-tl-x" data-action="undo" data-id="${esc(l.id)}" data-tooltip="Take it back"><i class="fa-solid fa-xmark"></i></a>` : ""
+  return `<li class="pb-so-line pb-tl-line is-${esc(vis)}${l.waiting ? " is-waiting" : ""}${l.kind === "quote" ? " is-quote" : ""}"><span class="pb-so-dot is-${esc(vis)}" aria-hidden="true"></span>${text}${whoHtml(l)}${x}${l.waiting ? "" : visHtml(l, vis)}</li>`
+}
+// Players / GM / Drop on the far right of every line, the same switch as the box (the user, 2026-11-18):
+// anyone at the table can press it at any time. GM = hidden from everyone but the writer and the GM;
+// Drop = left out of the recap, shown greyed and crossed out, and can still be pressed back.
+const VIS_IDS = ["public", "dm", "drop"]
+const VIS_SEG = [["public", "Players", "Everyone sees it"], ["dm", "GM", "Only the GM and the writer see it"], ["drop", "Drop", "Left out of the recap"]]
+function visHtml(l, cur) {
+  return `<span class="pb-tl-seg pb-tl-seg--sm" role="radiogroup" aria-label="Who sees this line">${VIS_SEG.map(([id, label, tip]) => {
+    const off = id === "public" && l.locked
+    return `<button type="button" role="radio" class="${cur === id ? "active" : ""}" data-action="vis" data-id="${esc(l.id)}" data-vis="${id}" aria-checked="${cur === id}" data-tooltip="${esc(off ? "A GM-only line can’t go to the players" : tip)}"${off || cur === id ? " disabled" : ""}>${label}</button>`
+  }).join("")}</span>`
 }
 function tabHtml() {
   const log = myLog()
   // A player only ever gets their OWN campaign's log, so "nothing" may mean another campaign is playing.
   if (!log || !log.live) {
-    return `<section class="pb-tablog-off">
-      <i class="${ICON}"></i>
-      <h4>Table log</h4>
-      <p>${isGM() ? "Opens when you start a session in RealmScreen." : "Opens when your GM starts your session."}</p>
-      <p class="hint">During a session, everyone at the table can jot down names, prices, clues and great lines here. Everything written stays here until the session ends.</p>
-    </section>`
+    return `<p class="pb-so-faint pb-tl-off">${isGM() ? "No game running. Everything captured during your next session shows here." : "No game running. Everything captured during your session shows here."}</p>`
   }
-  if (!seated(log)) return `<section class="pb-tablog-off"><i class="${ICON}"></i><h4>Table log</h4><p>You aren’t seated in the game that’s running.</p><p class="hint">Ask your GM to add you to this campaign’s table.</p></section>`
-  const saving = [...mine.values()].map(o => `<li class="pb-tablog-line is-mine is-saving"><header><strong>You</strong><span>Saving…</span></header><p>${esc(o.text)}</p></li>`).join("")
+  if (!seated(log)) return `<p class="pb-so-faint pb-tl-off">You aren’t seated in the game that’s running.</p>`
   const lines = arr(log.lines)
-  const head = `${esc(log.live.name)}${log.live.number != null ? ` · Session ${log.live.number}` : ""}`
-  const empty = !lines.length && !mine.size
-  const example = `<li class="pb-tablog-line is-example" aria-hidden="true"><header><strong>Example</strong><span>what a note looks like</span></header>
-      <p>@Harlan the smith wants 40 gold for the $silver sword. ?Why is he in a hurry</p></li>`
+  // one block per in-world day, as Session Over groups them (a line without a day joins the day before)
+  const days = []
+  for (const l of lines) {
+    const k = l.dayKey != null ? String(l.dayKey) : days.length ? days[days.length - 1].key : "u"
+    let d = days[days.length - 1]
+    if (!d || d.key !== k) { d = { key: k, dayKey: l.dayKey, header: l.day || "", rows: [] }; days.push(d) }
+    if (!d.header && l.day) d.header = l.day
+    d.rows.push(l)
+  }
+  const saving = [...mine.values()].map(o => `<li class="pb-so-line is-saving"><span class="pb-so-dot" aria-hidden="true"></span><span class="pb-so-text">${esc(o.text)}</span>${whoHtml({ uid: game.user?.id, who: "You" })}</li>`).join("")
+  const body = days.map((d, di) => `<div class="pb-so-day">${d.header ? dayHeadHtml(d.header) : ""}<ol class="pb-so-lines">`
+    + d.rows.map((l, i) => (i > 0 ? insHtml(d.rows[i - 1].id, d.dayKey) : "") + lineHtml(l)).join("")
+    + (di === days.length - 1 ? saving : "")
+    + insHtml(d.rows[d.rows.length - 1].id, d.dayKey, true)
+    + `</ol></div>`).join("")
   return `
-    <header class="pb-tablog-head"><h4>${head}</h4>
-      <span class="pb-tablog-live"><i class="fa-solid fa-circle"></i> Session running · notes stay until it ends</span></header>
-    ${helpHtml(log, !empty)}
-    <ol class="pb-tablog-list">${empty ? example : lines.map(l => lineHtml(l)).join("") + saving}</ol>
-    <form class="pb-tablog-form" autocomplete="off">
-      <textarea name="note" rows="2" placeholder="Write a note…"></textarea>
-      <div class="pb-tablog-marks">${MARKS.map(([c, label, tip]) => `<button type="button" data-mark="${esc(c)}" data-tooltip="${esc(tip)}"><b>${esc(c)}</b> ${esc(label)}</button>`).join("")}</div>
-      <footer>
-        ${log.justMe && !isGM() ? `<label class="pb-tablog-just" data-tooltip="Only you and the GM see this note"><input type="checkbox" name="just" ${justMe ? "checked" : ""}> Only me + GM</label>` : isGM() ? `<span class="hint">Only you see your notes</span>` : "<span></span>"}
-        <button type="submit"><i class="${ICON}"></i> Add note</button>
-      </footer>
-      ${log.wait && !isGM() ? `<p class="hint">The GM approves each note before it joins the log.</p>` : ""}
+    <header class="pb-tl-head"><h4>${esc(log.live.name)}${log.live.number != null ? ` <span>Session ${log.live.number}</span>` : ""}</h4><i class="fa-solid fa-circle pb-tl-live" data-tooltip="Game running"></i></header>
+    <div class="pb-tl-scroll pb-so-recap">${body || (saving ? `<div class="pb-so-day"><ol class="pb-so-lines">${saving}</ol></div>` : `<p class="pb-so-faint pb-tl-empty">Nothing yet. What happened first?</p>`)}</div>
+    <form class="pb-tl-compose chat-form${boxVis === "dm" ? " is-private" : ""}" autocomplete="off">
+      <div class="pb-tl-controls">
+        <div class="pb-tl-seg" role="radiogroup" aria-label="Who sees your line">${[["public", "Players", "Everyone at the table sees it"], ["dm", "GM", "Only you and the GM see it"]].map(([id, label, tip]) =>
+          `<button type="button" role="radio" class="${boxVis === id ? "active" : ""}" data-action="boxVis" data-vis="${id}" aria-checked="${boxVis === id}" data-tooltip="${tip}">${label}</button>`).join("")}</div>
+        <div class="control-buttons">
+          <button type="button" class="ui-control icon pb-tl-marksbtn" data-action="sheet" aria-pressed="${sheetOpen}" data-tooltip="${sheetOpen ? "Hide the marks" : "Show the marks"}" aria-label="Marks"><span>@#$</span></button>
+        </div>
+      </div>
+      ${sheetOpen ? sheetHtml() : ""}
+      <textarea name="note" class="pb-tl-input" placeholder="${boxVis === "dm" ? "Only you and the GM" : "What just happened?"}"></textarea>
     </form>`
+}
+
+// The marks, as ONE faint line of hints — RealmScreen's own capture box pattern (SessionCapture.jsx CaptureHints:
+// "@ person  # place  $ loot …", hover brightens, click puts the mark in). The user, 2026-11-18: the boxed cheat
+// sheet was "bulky and ugly". A player's line can't be GM / prep / a clock step, so they get the first six.
+const MARKS = [
+  ["@", "person", "Someone you met: @Varek"],
+  ["#", "place", "Somewhere: #Saltreach"],
+  ["$", "loot", "Treasure, money, an item: $40 gold"],
+  ["?", "question", "Something to find out: ?who sent the letter"],
+  ["!", "thread", "A hook to follow up later"],
+  ["\u201C", "quote", "Word for word: \u201C\u2026\u201D @Who said it"],
+]
+const GM_MARKS = [
+  ["~", "GM only", "Start the line with ~: never reaches the players"],
+  [">", "next prep", "Start the line with >: a to-do for your next prep"],
+  ["+2h", "time", "Time passing: +2h, +1d, +1w"],
+]
+const SHEET_KEY = `${MOD}.tablelogMarks`
+let sheetOpen = (() => { try { return localStorage.getItem(SHEET_KEY) !== "0" } catch { return true } })()   // shown until hidden
+function sheetHtml() {
+  const hint = ([m, label, tip]) => `<button type="button" class="pb-tl-hint" data-action="mark" data-mark="${esc(m)}" data-tooltip="${esc(tip)}"><b>${esc(m)}</b>${esc(label)}</button>`
+  return `<div class="pb-tl-hints">${[...MARKS, ...(isGM() ? GM_MARKS : [])].map(hint).join("")}</div>`
 }
 
 let TabClass = null
@@ -164,10 +228,38 @@ function makeTab() {
   TabClass = class RealmTableLogTab extends Abs {
     static tabName = TAB
     static DEFAULT_OPTIONS = {
-      classes: ["pb-tablog", "flexcol"],
+      classes: ["pb-tablog", "pb-session-over", "flexcol"],
       window: { title: "Table log", icon: ICON },
       actions: {
         undo: function (ev, t) { send({ lineId: t.dataset.id }) },
+        edit: function (ev, t) { editing = t.dataset.id; inserting = null; this.render() },
+        vis: function (ev, t) { ev.stopPropagation(); setLineVis(t.dataset.id, t.dataset.vis) },
+        sheet: function () {
+          sheetOpen = !sheetOpen
+          try { localStorage.setItem(SHEET_KEY, sheetOpen ? "1" : "0") } catch { /* private mode */ }
+          this.render()
+        },
+        mark: function (ev, t) {
+          const ta = this.element?.querySelector?.("textarea[name=note]")
+          if (!ta) return
+          const m = t.dataset.mark || ""
+          const at = ta.selectionStart ?? ta.value.length, end = ta.selectionEnd ?? at
+          const pre = at > 0 && !/\s$/.test(ta.value.slice(0, at)) ? " " : ""
+          ta.value = ta.value.slice(0, at) + pre + m + ta.value.slice(end)
+          draft = ta.value
+          const pos = at + pre.length + m.length
+          ta.focus(); ta.setSelectionRange(pos, pos)
+        },
+        boxVis: function (ev, t) {
+          boxVis = t.dataset.vis === "dm" ? "dm" : "public"
+          try { localStorage.setItem(VIS_KEY, boxVis) } catch { /* private mode */ }
+          this.render()
+        },
+        insert: function (ev, t) {
+          const dk = t.dataset.day === "" ? null : Number(t.dataset.day)
+          inserting = { after: t.dataset.after || null, dayKey: Number.isFinite(dk) ? dk : null, end: !!t.dataset.end }
+          editing = null; this.render()
+        },
       },
     }
     async _renderHTML() { const el = document.createElement("div"); el.className = "pb-tablog-body"; el.innerHTML = tabHtml(); return el }
@@ -175,6 +267,8 @@ function makeTab() {
       const had = content.querySelector?.("textarea[name=note]")
       const focused = had && document.activeElement === had
       const caret = focused ? [had.selectionStart, had.selectionEnd] : null
+      const old = content.querySelector?.(".pb-tl-scroll")
+      keepScroll = old && old.scrollHeight - old.scrollTop - old.clientHeight > 24 ? old.scrollTop : null   // not at the bottom: stay put
       content.replaceChildren(result)
       wire(content, focused, caret)
     }
@@ -185,31 +279,40 @@ function submit(root) {
   const ta = root?.querySelector?.("textarea[name=note]")
   const text = str(ta?.value ?? draft)
   if (!text) return
-  if (addNote(text, { just: justMe })) { draft = ""; if (ta) ta.value = "" }
+  if (addNote(text, { vis: boxVis })) { draft = ""; if (ta) ta.value = "" }
 }
 function wire(root, refocus = false, caret = null) {
   const ta = root.querySelector("textarea[name=note]")
-  const list = root.querySelector(".pb-tablog-list")
-  if (list) list.scrollTop = list.scrollHeight
+  const list = root.querySelector(".pb-tl-scroll")
+  if (list) list.scrollTop = keepScroll != null && (editing || inserting) ? keepScroll : list.scrollHeight
   if (!ta) return
   ta.value = draft
   ta.addEventListener("input", () => { draft = ta.value })
   ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(root) } })
-  root.querySelector("form")?.addEventListener("submit", (e) => { e.preventDefault(); submit(root) })
-  root.querySelector("input[name=just]")?.addEventListener("change", (e) => { justMe = !!e.target.checked })
-  // the mark buttons put their symbol at the caret (with a space before it when needed)
-  for (const b of root.querySelectorAll("[data-mark]")) b.addEventListener("click", (e) => {
-    e.preventDefault()
-    const c = b.dataset.mark, at = ta.selectionStart ?? ta.value.length, end = ta.selectionEnd ?? at
-    const pre = at > 0 && !/\s$/.test(ta.value.slice(0, at)) ? " " : ""
-    ta.value = ta.value.slice(0, at) + pre + c + ta.value.slice(end)
-    draft = ta.value
-    const pos = at + pre.length + c.length
-    ta.focus(); ta.setSelectionRange(pos, pos)
-  })
-  // remember only what the user clicks ("toggle" also fires when a box is drawn open)
-  const help = root.querySelector(".pb-tablog-help")
-  help?.querySelector("summary")?.addEventListener("click", () => { try { localStorage.setItem(HELP_KEY, help.open ? "closed" : "open") } catch { /* private mode */ } })
+  root.querySelector("form.pb-tl-compose")?.addEventListener("submit", (e) => { e.preventDefault(); submit(root) })
+  // the in-place fields: change a line's words / put a line in between (Enter or leaving saves, Esc cancels)
+  const field = root.querySelector("input.pb-so-edit")
+  if (field) {
+    let over = false
+    const finish = (save) => {
+      if (over) return
+      over = true
+      const t = field.value.replace(/\s+/g, " ").trim()
+      if (save && t) {
+        if (field.name === "edit") { const l = arr(myLog()?.lines).find(x => x.id === editing); if (l && t !== l.text) editNote(l.id, t) }
+        else if (inserting) addNote(t, { vis: boxVis, after: inserting.after, dayKey: inserting.dayKey })
+      }
+      editing = null; inserting = null
+      redraw()
+    }
+    field.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); finish(true) }
+      else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); finish(false) }
+    })
+    field.addEventListener("blur", () => finish(true))
+    field.focus(); field.setSelectionRange(field.value.length, field.value.length)
+    return
+  }
   if (refocus) { ta.focus(); if (caret) ta.setSelectionRange(caret[0], caret[1]) }
 }
 
@@ -235,7 +338,7 @@ Hooks.on("chatMessage", (_log, message) => {
   if (!log || !log.live) { ui.notifications?.warn(isGM() ? "No game is running. Notes open when the session starts." : "No game of yours is running. Notes open when your session starts."); return false }
   if (!seated(log)) { ui.notifications?.warn("You aren’t seated in the game that’s running."); return false }
   if (!c.text) { openTab(); return false }
-  addNote(c.text, { just: justMe })
+  addNote(c.text, { vis: boxVis })
   return false
 })
 

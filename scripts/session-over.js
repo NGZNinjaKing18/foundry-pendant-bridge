@@ -21,10 +21,14 @@
 // link asks through a whisper to the GMs (Foundry stamps the real author; a player's ask is
 // thrown away); the answer comes back as the GM message itself, never over the socket.
 //
-// The window: a native ApplicationV2 (Foundry's own header, fieldsets, form-groups, theme).
-// Laid out like the app's panel: party circles · Stats | Awarded · Map (route strip with a
-// small time-lapse of the party dot) · Recap by day · Met · (GM) Rations. Players get the same
+// The window: a native ApplicationV2 (Foundry's own header, buttons, inputs and theme colours).
+// Laid out to the user's sketch, the same grid as the app's panel: party circles · Stats | Awarded ·
+// a tall Map on the right · Recap by day · Met · (GM) a one-line Rations footer. Players get the same
 // window read-only. Reopen: the realm menu's "Session over" box (realm-menu.js).
+//
+// The map box is READ-ONLY (one truth, 2026-11-18): the route IS the party's People plans in RealmScreen. The
+// GM's "Travel" button opens a bigger window (scripts/session-over-travel.js) that changes those plans for this
+// session's dates; Done comes back here, refreshed.
 // ──────────────────────────────────────────────────────────────
 
 import { linkedHere, realmLive } from "./live.js"
@@ -32,9 +36,10 @@ import { mySlice } from "./private.js"
 import { applyTheme } from "./campaign-page.js"
 import { rationStacks, planTake, planRows } from "./rations.js"
 import {
-  esc, fmt, plural, moneyLabel, parseMoney, forPlayer, dayBlocks, stripOf, lapseOf, mapOf, lapsePlan, lapseAt,
-  findActorFor, rationMembers, rationN, recipientsOf, opAllowed,
+  esc, fmt, plural, moneyLabel, parseMoney, forPlayer, dayBlocks, stripOf, lapseOf, mapOf, lapsePlan, lapseAt, routePoints,
+  findActorFor, rationMembers, rationN, recipientsOf, opAllowed, lineOp,
 } from "./session-over-model.js"
+import { openTravel } from "./session-over-travel.js"
 
 const MOD = "pendant-bridge"
 const CHANNEL = `module.${MOD}`
@@ -51,7 +56,6 @@ const arr = (v) => (Array.isArray(v) ? v : [])
 const flagsOf = (m) => m?.flags?.[MOD] || {}
 const gmIds = () => (game.users?.filter(u => u.isGM) ?? []).map(u => u.id)
 const isGM = () => !!game.user?.isGM
-const newId = (p) => `${p}${Date.now().toString(36).slice(-5)}${Math.random().toString(36).slice(2, 6)}`
 
 // ── the stored copies (hidden whispers) ───────────────────────
 //   flags[MOD] = { hidden: true, so: { key: "gm" | "p:<campaignId>", sessionId, json, at, openAt?, taken? } }
@@ -114,7 +118,7 @@ function settle(qid, body) {
   pending.delete(qid); clearTimeout(p.timer)
   if (body?.error) p.reject(new Error(body.error)); else p.resolve(body || {})
 }
-/** GM only: `get` / `update`. → { view } (the GM view) */
+/** GM only: `get` / `update`. → { view, travel?, note? } (the GM view; `travel` / `note` reach the linked window only) */
 function ask(kind, payload) {
   return new Promise((resolve, reject) => {
     if (!isGM()) { reject(new Error("Only the GM can change this.")); return }
@@ -127,6 +131,9 @@ function ask(kind, payload) {
       flags: { [MOD]: { hidden: true, soOp: { kind, qid, data: payload } } } }).catch(e => settle(qid, { error: e.message || String(e) }))
   })
 }
+
+/** The Travel window asks the same way. */
+export const askSessionOver = (kind, payload) => ask(kind, payload)
 
 // The linked window: a GM's ask from another window → RealmScreen. Foundry stamps the author.
 async function passOp(m) {
@@ -147,7 +154,8 @@ export async function sessionOverAnswer(msg = {}) {
   if (!qid) return { ok: false }
   const asker = userId ? game.users?.get(userId) : game.user
   if (view && asker?.isGM && view.sessionId) { try { await write("gm", gmIds(), view.sessionId, view) } catch (e) { console.warn(`${MOD} | session over`, e) } }
-  if (!userId || userId === game.user?.id) settle(qid, error ? { error } : { view })
+  // (the Travel window's offer and "who moved" go to the linked window only — never over the socket)
+  if (!userId || userId === game.user?.id) settle(qid, error ? { error } : { view, ...(msg.travel ? { travel: msg.travel } : {}), ...(msg.note ? { note: String(msg.note) } : {}) })
   else { try { game.socket?.emit(CHANNEL, { t: "so.ans", to: userId, qid, ...(error ? { error: String(error) } : { ok: true }) }) } catch { /* */ } }
   return { ok: true }
 }
@@ -203,36 +211,43 @@ function partyHtml(v, gm) {
   if (!arr(v.party).length) return `<p class="hint">No players on this campaign.</p>`
   return v.party.map(p => {
     // big = the character token, small badge = the player's Discord picture (the user, 2026-11-18)
+    // (the sketch: circles only — the name is in the tooltip; the badge overlaps the token's top-left)
     const tok = tokenOf(p), face = tok || p.discordAvatar
     const tip = `${p.name} — ${p.attended ? "came" : "away"}${gm && p.edited ? " (set by you · right-click: back to auto)" : ""}${gm ? ". Click to change." : ""}`
-    const inner = `<span class="pb-so-face">${face ? `<img src="${esc(face)}" alt="">` : `<span class="pb-so-ini">${initial(p.name)}</span>`}`
-      + `${p.discordAvatar && tok ? `<img class="pb-so-badge" src="${esc(p.discordAvatar)}" alt="">` : ""}</span><span class="pb-so-pname">${esc(p.name)}</span>`
+    const inner = `<span class="pb-so-face">${face ? `<img src="${esc(face)}" alt="">` : `<span class="pb-so-ini">${initial(p.name)}</span>`}</span>`
+      + `${p.discordAvatar && tok ? `<img class="pb-so-badge" src="${esc(p.discordAvatar)}" alt="" onerror="this.remove()">` : ""}`
     const cls = `pb-so-pc${p.attended ? "" : " away"}${p.edited ? " edited" : ""}`
+    const lab = `aria-label="${esc(`${p.name}: ${p.attended ? "came" : "away"}`)}"`
     return gm
-      ? `<button type="button" class="${cls}" data-action="attend" data-key="${esc(p.key)}" aria-pressed="${p.attended}" data-tooltip="${esc(tip)}">${inner}</button>`
-      : `<div class="${cls}" data-tooltip="${esc(tip)}">${inner}</div>`
+      ? `<button type="button" class="${cls}" data-action="attend" data-key="${esc(p.key)}" aria-pressed="${p.attended}" ${lab} data-tooltip="${esc(tip)}">${inner}</button>`
+      : `<div class="${cls}" ${lab} data-tooltip="${esc(tip)}">${inner}</div>`
   }).join("")
 }
 
-function numRow(label, item, gm, { op, field = "", step = 1, autoText } = {}) {
+// One "label  value" row (the sketch's "days passed 00"). The GM's value reads as plain text and is
+// typed over in place (focus shows the field); a changed one gets a small undo before it.
+const resetBtn = (item, op, field, autoText) => item?.edited
+  ? `<button type="button" class="pb-so-reset" data-action="reset" data-op="${op}" data-field="${field}" data-tooltip="${esc(`Back to worked out (${autoText})`)}" aria-label="Back to worked out"><i class="fa-solid fa-rotate-left" inert></i></button>`
+  : `<span></span>`
+function numRow(label, item, gm, { op, field = "", step = 1, autoText, tip, tone } = {}) {
   const val = item?.value ?? 0
-  if (!gm) return `<div class="form-group pb-so-num"><label>${label}</label><div class="form-fields"><strong>${esc(fmt(val))}</strong></div></div>`
-  return `<div class="form-group pb-so-num"><label>${label}</label><div class="form-fields">`
-    + `<input type="number" min="0" step="${step}" value="${esc(fmt(val))}" data-op="${op}" data-field="${field}">`
-    + (item?.edited ? `<button type="button" class="icon fa-solid fa-rotate-left" data-action="reset" data-op="${op}" data-field="${field}" data-tooltip="${esc(`Back to worked out (${autoText ?? fmt(item.auto)})`)}" aria-label="Back to worked out"></button>` : `<span class="pb-so-gap"></span>`)
-    + `</div></div>`
+  const lab = `<span class="pb-so-k"${tip ? ` data-tooltip="${esc(tip)}"` : ""}>${label}</span>`
+  const kv = `<div class="pb-so-kv${tone ? ` pb-so-${tone}` : ""}">`
+  if (!gm) return `${kv}${lab}<span></span><span class="pb-so-v">${esc(fmt(val))}</span></div>`
+  return `${kv}${lab}${resetBtn(item, op, field, autoText ?? fmt(item?.auto))}`
+    + `<input class="pb-so-v" type="number" min="0" step="${step}" value="${esc(fmt(val))}" data-op="${op}" data-field="${field}" aria-label="${esc(label)}"></div>`
 }
 
 function awardedHtml(v, gm) {
   const a = v.awarded || {}, t = a.training || {}, rate = t.rate || {}
   const came = arr(v.party).filter(p => p.attended).length
-  let h = numRow("Training rolls", t, gm, { op: "training" })
-  if (gm) h += `<p class="hint">${rate.days ? `${esc(plural(rate.days, "day"))} = ${esc(fmt(rate.rolls))} · each of ${came} who came` : "No rate set — RealmScreen › Campaigns › Time."}</p>`
+  const rateTip = rate.days ? `${plural(rate.days, "day")} = ${fmt(rate.rolls)} · each of ${came} who came` : "No rate set — RealmScreen › Campaigns › Time."
+  let h = numRow("Training", t, gm, { op: "training", tip: gm ? rateTip : "" })
   const money = moneyLabel(a.money?.value)
   h += gm
-    ? `<div class="form-group pb-so-num"><label>Money</label><div class="form-fields"><input type="text" value="${esc(money)}" placeholder="none" data-op="money">`
-      + (a.money?.edited ? `<button type="button" class="icon fa-solid fa-rotate-left" data-action="reset" data-op="money" data-tooltip="${esc(`Back to worked out (${moneyLabel(a.money.auto) || "none"})`)}" aria-label="Back to worked out"></button>` : `<span class="pb-so-gap"></span>`) + `</div></div>`
-    : `<div class="form-group pb-so-num"><label>Money</label><div class="form-fields"><strong>${esc(money || "none")}</strong></div></div>`
+    ? `<div class="pb-so-kv pb-so-gold"><span class="pb-so-k">Money</span>${resetBtn(a.money, "money", "", moneyLabel(a.money?.auto) || "none")}`
+      + `<input class="pb-so-v wide" type="text" value="${esc(money)}" placeholder="none" data-op="money" aria-label="Money"></div>`
+    : `<div class="pb-so-kv pb-so-gold"><span class="pb-so-k">Money</span><span></span><span class="pb-so-v">${esc(money || "none")}</span></div>`
   const who = arr(v.party).map(p => p.name)
   const items = arr(a.misc).map(it => {
     const tip = it.to ? `To ${it.to}` : "Not given to anyone yet"
@@ -240,20 +255,20 @@ function awardedHtml(v, gm) {
     if (!gm) return `<li class="pb-so-item" data-tooltip="${esc(tip)}">${it.img ? `<img src="${esc(it.img)}" alt="">` : ""}<span>${name}</span></li>`
     return `<li class="pb-so-item" data-tooltip="${esc(tip)}">${it.img ? `<img src="${esc(it.img)}" alt="">` : ""}<span>${name}</span>`
       + `<select data-op="item.to" data-id="${esc(it.id)}" aria-label="Who got ${esc(it.name)}"><option value="">Nobody</option>${who.map(n => `<option value="${esc(n)}" ${n === it.to ? "selected" : ""}>${esc(n)}</option>`).join("")}${it.to && !who.includes(it.to) ? `<option selected>${esc(it.to)}</option>` : ""}</select>`
-      + `<button type="button" class="icon fa-solid fa-xmark" data-action="itemHide" data-id="${esc(it.id)}" data-tooltip="${it.from === "dm" ? "Remove" : "Leave off"}" aria-label="Leave off"></button></li>`
+      + `<button type="button" class="pb-so-x" data-action="itemHide" data-id="${esc(it.id)}" data-tooltip="${it.from === "dm" ? "Remove" : "Leave off"}" aria-label="Leave off"><i class="fa-solid fa-xmark" inert></i></button></li>`
   }).join("")
-  h += `<div class="pb-so-misc"><label>Misc</label><ul class="pb-so-items">${items || (gm ? "" : `<li class="hint">Nothing.</li>`)}</ul>`
+  h += `<div class="pb-so-kv"><span class="pb-so-k">Misc</span></div><ul class="pb-so-items">${items || (gm ? "" : `<li class="pb-so-faint">Nothing.</li>`)}</ul>`
   if (gm) {
-    h += `<input type="text" placeholder="+ item" data-op="item.add" aria-label="Add an item">`
+    h += `<input class="pb-so-add" type="text" placeholder="+ item" data-op="item.add" aria-label="Add an item">`
     const hidden = arr(a.hiddenItems)
-    if (hidden.length) h += `<p class="hint">Left off: ${hidden.map(it => `<a data-action="itemShow" data-id="${esc(it.id)}" data-tooltip="Put back">${esc(it.name)}</a>`).join(", ")}</p>`
+    if (hidden.length) h += `<p class="pb-so-faint">Left off: ${hidden.map(it => `<a data-action="itemShow" data-id="${esc(it.id)}" data-tooltip="Put back">${esc(it.name)}</a>`).join(", ")}</p>`
   }
-  return h + `</div>`
+  return h
 }
 
 function stripHtml(legs) {
   const { W, H, pts } = stripOf(legs)
-  if (!pts.length) return `<p class="hint pb-so-noroute">No travel or stays this session.</p>`
+  if (!pts.length) return `<p class="pb-so-noroute">No travel or stays this session.</p>`
   const line = pts.map(p => `${p.x},${p.y}`).join(" ")
   const lapse = reduced() ? null : lapseOf(pts)
   let g = ""
@@ -291,9 +306,11 @@ const boxesSvg = (S, boxes) => boxes.map(b => {
   const p = S[b.at], t = plural(b.days, "day")
   return `<g transform="translate(${p.x + 14},${p.y - 20})"><rect class="pb-so-mbox" width="${t.length * 6 + 10}" height="15" rx="2"/><text class="pb-so-mboxt" x="5" y="11">${esc(t)}</text></g>`
 }).join("")
-function mapHtml(map, v) {
-  const W = MAP_W, H = Math.round(W / map.aspect), R = 11
-  const S = map.stops.map(s => ({ ...s, x: s.x * W, y: s.y * H }))
+/** The stops (and their road lines) in the box's frame. */
+export const scaledStops = (map, W, H) => map.stops.map(s => ({ ...s, x: s.x * W, y: s.y * H, ...(s.path ? { path: s.path.map(p => [p[0] * W, p[1] * H]) } : {}) }))
+export function mapHtml(map, v, { W = MAP_W } = {}) {
+  const H = Math.round(W / map.aspect), R = 11
+  const S = scaledStops(map, W, H)
   const end = lapseAt(lapsePlan(map.stops), S, Infinity)
   const tok = mapTokenSrc(map, v)
   const clip = `pb-so-clip-${Math.random().toString(36).slice(2, 8)}`
@@ -302,23 +319,24 @@ function mapHtml(map, v) {
     g += `<circle class="pb-so-mdot${p.stay ? " stay" : ""}" cx="${p.x}" cy="${p.y}" r="${p.stay ? 3.5 : 2.5}"/>`
     if (p.label) g += `<text class="pb-so-mname" x="${p.x}" y="${p.y + 15}" text-anchor="middle">${esc(p.label)}</text>`
   }
-  return `<div class="pb-so-mapview"><svg class="pb-so-msvg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Where the party travelled">`
+  // fills the tall map region (slice: the picture covers it; the crop round the route has room at its edges)
+  return `<div class="pb-so-mapview"><svg class="pb-so-msvg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Where the party travelled">`
     + `<defs><clipPath id="${clip}"><circle r="${R}"/></clipPath></defs>`
     + `<image href="${esc(map.src)}" x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="none"/>`
-    + `<polyline class="pb-so-mline" points="${S.map(p => `${p.x},${p.y}`).join(" ")}"/>${g}`
+    + `<polyline class="pb-so-mline" points="${routePoints(S).map(p => `${Math.round(p[0] * 10) / 10},${Math.round(p[1] * 10) / 10}`).join(" ")}"/>${g}`
     + `<g class="pb-so-mboxes">${boxesSvg(S, end.boxes)}</g>`
     + `<g class="pb-so-tok" transform="translate(${end.x},${end.y})"><circle class="pb-so-tokring" r="${R + 1.5}"/>`
     + (tok ? `<image href="${esc(tok)}" x="${-R}" y="${-R}" width="${R * 2}" height="${R * 2}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${clip})"/>` : `<circle class="pb-so-tokdot" r="${R - 3}"/>`)
     + `</g></svg>`
-    + (reduced() ? "" : `<button type="button" class="pb-so-replay" data-tooltip="Play it again"><i class="fa-solid fa-play" inert></i> Replay</button>`)
     + `</div>`
 }
-/** Run the time-lapse once in `root`'s map box (stops by itself when the window re-renders or closes). */
-function playMap(root, map) {
+/** Run the time-lapse once in `root`'s map box (stops by itself when the window re-renders or closes) and wire its
+ *  Replay button. Call it after EVERY render (each render draws a new Replay button); `autoplay: false` = only wire. */
+export function playMap(root, map, { W = MAP_W, autoplay = true } = {}) {
   const svg = root?.querySelector(".pb-so-msvg")
   if (!svg || !map || reduced()) return
-  const W = MAP_W, H = Math.round(W / map.aspect)
-  const S = map.stops.map(s => ({ ...s, x: s.x * W, y: s.y * H }))
+  const H = Math.round(W / map.aspect)
+  const S = scaledStops(map, W, H)
   const plan = lapsePlan(map.stops)
   if (!plan.steps.length) return
   const tok = svg.querySelector(".pb-so-tok"), bx = svg.querySelector(".pb-so-mboxes")
@@ -336,54 +354,141 @@ function playMap(root, map) {
   }
   const start = () => { t0 = 0; last = "?"; if (btn) btn.disabled = true; requestAnimationFrame(frame) }
   btn?.addEventListener("click", start)
-  start()
+  if (autoplay) start()
 }
 
+// The stops, read-only: when · where · how long (the route is the party's People plans — Travel changes it).
 function legsHtml(route) {
-  const rows = arr(route.legs).map((l, i) => `<li class="pb-so-legrow">`
-    + `<select data-op="leg.kind" data-i="${i}" aria-label="Stay or travel"><option value="stay" ${l.kind === "stay" ? "selected" : ""}>Stayed at</option><option value="travel" ${l.kind === "travel" ? "selected" : ""}>Travelled</option></select>`
-    + (l.kind === "stay"
-      ? `<input type="text" class="wide" value="${esc(l.place || "")}" placeholder="Where" data-op="leg.place" data-i="${i}">`
-      : `<input type="text" value="${esc(l.from || "")}" placeholder="From" data-op="leg.from" data-i="${i}"><i class="fa-solid fa-arrow-right" inert></i><input type="text" value="${esc(l.to || "")}" placeholder="To" data-op="leg.to" data-i="${i}">`)
-    + `<input type="number" min="0" step="0.5" value="${esc(fmt(l.days))}" data-op="leg.days" data-i="${i}" aria-label="Days" data-tooltip="Days">`
-    + `<button type="button" class="icon fa-solid fa-xmark" data-action="legDrop" data-i="${i}" data-tooltip="Remove" aria-label="Remove"></button></li>`).join("")
-  return `<ol class="pb-so-legs">${rows}</ol><div class="pb-so-row">`
-    + `<button type="button" data-action="legAdd" data-kind="travel"><i class="fa-solid fa-plus" inert></i> Travel</button>`
-    + `<button type="button" data-action="legAdd" data-kind="stay"><i class="fa-solid fa-plus" inert></i> Stay</button>`
-    + (route.edited ? `<button type="button" data-action="legReset"><i class="fa-solid fa-rotate-left" inert></i> Back to the trail</button>` : "") + `</div>`
+  const rows = arr(route.legs).map(l => `<li class="pb-so-legrow${l.jump ? " jump" : ""}">`
+    + `<span class="pb-so-legwhen">${esc(l.when || "")}</span>`
+    + `<span class="pb-so-legwhere">${esc(l.kind === "stay" ? (l.place || "somewhere") : `${l.from || "…"} → ${l.to || "…"}`)}</span>`
+    + `<span class="pb-so-legdays"${l.jump ? ` data-tooltip="Moved with no trip on record"` : ""}>${l.jump ? "no trip" : esc(plural(l.days, "day"))}</span></li>`).join("")
+  const others = arr(route.otherMaps).map(m => `<li class="pb-so-legrow note"><span class="pb-so-legwhere">Also on ${esc(m.name)}</span><span class="pb-so-legdays">${esc(plural(m.stops, "stop"))}</span></li>`).join("")
+  return `<ol class="pb-so-legs">${rows}${others}</ol>`
+}
+/** The map's corner: Travel (GM — the bigger window), the stop list toggle, Replay. */
+function mapToolsHtml(route, gm, open, replay) {
+  const n = arr(route.legs).length
+  return `<div class="pb-so-mtools">`
+    + (gm ? `<button type="button" data-action="travel" data-tooltip="Change where the party went — their real moves in RealmScreen"><i class="fa-solid fa-route" inert></i> Travel</button>` : "")
+    + (n ? `<button type="button" data-action="legList" class="${open ? "active" : ""}" aria-pressed="${open}" data-tooltip="${open ? "Hide the stops" : "The stops"}"><i class="fa-solid fa-list" inert></i> ${n}</button>` : "")
+    + `</div>`
+    + (replay ? `<button type="button" class="pb-so-replay" data-tooltip="Play it again"><i class="fa-solid fa-play" inert></i> Replay</button>` : "")
 }
 
-const VIS = [["public", "Public"], ["dm", "DM"], ["drop", "Drop"]]
+// Players / GM / Drop (the user's words, 2026-11-18) — the stored decisions stay public / dm / drop.
+const VIS = [["public", "Players"], ["dm", "GM"], ["drop", "Drop"]]
+// The contributor's little picture (the sketch's square after the name): a player's character token /
+// Discord picture, the GM's crown, or an icon for RealmScreen's own lines (Stage, Clock, Foundry…).
+const AUTO_ICON = { Stage: "fa-masks-theater", Shown: "fa-eye", Clock: "fa-clock", Foundry: "fa-dice-d20", Auto: "fa-wand-magic-sparkles" }
+const lc = (s) => String(s || "").trim().toLowerCase()
+function whoHtml(who, party) {
+  if (!who) return `<span class="pb-so-whochip"></span>`
+  const w = lc(who)
+  let pic
+  if (w === "dm" || w === "gm") pic = `<span class="pb-so-whopic is-gm"><i class="fa-solid fa-crown" inert></i></span>`
+  else if (AUTO_ICON[who]) pic = `<span class="pb-so-whopic is-auto"><i class="fa-solid ${AUTO_ICON[who]}" inert></i></span>`
+  else {
+    const p = arr(party).find(x => { const n = lc(x.name); return n && (w === n || w.endsWith(" as " + n) || w.startsWith(n + " as ")) })
+    const src = p ? (tokenOf(p) || p.discordAvatar || "") : ""
+    pic = `<span class="pb-so-whopic">${src ? `<img src="${esc(src)}" alt="">` : initial(who)}</span>`
+  }
+  return `<span class="pb-so-whochip" data-tooltip="${esc(who)}">${pic}<span class="pb-so-whoname">${esc(who)}</span></span>`
+}
+// [[links]] and the names of people on this window (the party, who they met) read as names.
+function markedHtml(text, names) {
+  const list = [...new Set(names.filter(n => n && n.length > 2))].sort((a, b) => b.length - a.length)
+  const rx = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const re = new RegExp(`\\[\\[([^\\]]+)\\]\\]${list.length ? `|\\b(${list.map(rx).join("|")})\\b` : ""}`, "gi")
+  let out = "", last = 0, m
+  while ((m = re.exec(text))) {
+    out += esc(text.slice(last, m.index)) + `<span class="pb-so-name">${esc((m[1] || m[2]).split("|").pop())}</span>`
+    last = m.index + m[0].length
+  }
+  return out + esc(text.slice(last))
+}
+// "MistMorn 7, 98 – day 1" → a date badge: "Day 1" big, the date beside it, on a thin rule
+function dayHeadHtml(h) {
+  const i = h.lastIndexOf(" – ")
+  const date = i > 0 ? h.slice(0, i) : h, n = i > 0 ? h.slice(i + 3) : ""
+  return `<div class="pb-so-dayhead">${n ? `<span class="pb-so-dayn">${esc(n.replace(/^day/, "Day"))}</span>` : ""}<span class="pb-so-daydate">${esc(date)}</span></div>`
+}
+// GM: "+" between two lines (shows on hover) and "Add a line" at a day's end → a new GM line there.
+const insHtml = (dayKey, after, end = false) => `<li class="pb-so-ins${end ? " is-end" : ""}"><button type="button" data-action="lineAdd" data-day="${esc(dayKey)}" data-after="${esc(after || "")}" data-tooltip="Add a line here" aria-label="Add a line here"><i class="fa-solid fa-plus" inert></i>${end ? "<span>Add a line</span>" : ""}</button></li>`
+// Swap an element's content for a one-line field; done(text) on Enter / blur, Esc cancels (cancel()).
+function wordsField(host, value, placeholder, done, cancel = null) {
+  const keep = host.innerHTML
+  const input = document.createElement("input")
+  input.type = "text"; input.className = "pb-so-edit"; input.value = value; input.placeholder = placeholder; input.setAttribute("aria-label", placeholder)
+  host.replaceChildren(input)
+  input.focus(); input.select?.()
+  let over = false
+  const finish = (save) => {
+    if (over) return
+    over = true
+    const t = input.value.replace(/\s+/g, " ").trim()
+    if (save && t) done(t)
+    else if (cancel) cancel()
+    else host.innerHTML = keep
+    if (save && t && !cancel) host.innerHTML = keep      // the saved view re-renders it
+  }
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); finish(true) }
+    else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); finish(false) }
+  })
+  input.addEventListener("blur", () => finish(true))
+  input.addEventListener("click", (e) => e.stopPropagation())
+}
 function recapHtml(v, gm) {
   const blocks = dayBlocks(v.recap, { gm })
-  if (!blocks.length) return `<p class="hint">${gm ? "No lines this session. Lines written in Quick Capture, at the table or by Foundry show here." : "Nothing in the recap yet."}</p>`
-  return blocks.map(b => `<section class="pb-so-day">${b.header ? `<h4 class="pb-so-dayhead">${esc(b.header)}</h4>` : ""}<ol class="pb-so-lines">`
-    + b.rows.map(r => `<li class="pb-so-line${gm ? ` is-${esc(r.vis)}` : ""}"><span class="pb-so-text">${esc(r.text)}</span><span class="pb-so-who">${esc(r.who || "")}</span>`
-      + (gm ? `<span class="pb-so-vis" role="group" aria-label="Who sees it">${VIS.map(([id, label]) => `<button type="button" class="${r.vis === id ? "active" : ""}" data-action="vis" data-line="${esc(r.id)}" data-vis="${id}" ${id === "public" && r.locked ? `disabled data-tooltip="GM-only line — can’t go Public"` : ""} aria-pressed="${r.vis === id}">${label}</button>`).join("")}</span>` : "")
-      + `</li>`).join("") + `</ol></section>`).join("")
+  if (!blocks.length) return `<p class="pb-so-faint">${gm ? "No lines this session. Lines written in Quick Capture, at the table or by Foundry show here." : "Nothing in the recap yet."}</p>`
+  const names = [...arr(v.party).map(p => p.name), ...arr(v.met).map(m => m.name)]
+  // A timeline per day: a spine with a dot per line (filled = Players, ring = GM, faint = Drop).
+  // "line text  [who]  [Players|GM|Drop]": the full switch is always shown; GM lines are tinted with an
+  // eye-off mark, dropped ones fade. GM: click the
+  // words to change them (any line); "+" between lines adds one. Players: read-only.
+  return blocks.map(b => `<div class="pb-so-day">${b.header ? dayHeadHtml(b.header) : ""}<ol class="pb-so-lines">`
+    + b.rows.map((r, i) => (gm && i > 0 ? insHtml(b.key, b.rows[i - 1].id) : "") + `<li class="pb-so-line${gm ? ` is-${esc(r.vis)}` : ""}">`
+      + `<span class="pb-so-dot${gm ? ` is-${esc(r.vis)}` : ""}" aria-hidden="true"></span>`
+      + (gm
+        ? `<span class="pb-so-text is-edit" role="button" tabindex="0" data-action="lineEdit" data-line="${esc(r.id)}" data-tooltip="Click to change the words">${r.vis === "dm" ? `<i class="fa-solid fa-eye-slash pb-so-dmmark" inert></i>` : ""}${markedHtml(r.text, names)}${r.edited ? `<span class="pb-so-fixed">edited</span>` : ""}</span>`
+        : `<span class="pb-so-text">${markedHtml(r.text, names)}</span>`)
+      + whoHtml(r.who, v.party)
+      + (gm ? `<span class="pb-so-vis" role="group" aria-label="Who sees it">${VIS.map(([id, label]) => `<button type="button" class="is-${id}${r.vis === id ? " active" : ""}" data-action="vis" data-line="${esc(r.id)}" data-vis="${id}" ${id === "public" && r.locked ? `disabled data-tooltip="GM-only line — can’t be kept for the players"` : ""} aria-pressed="${r.vis === id}">${label}</button>`).join("")}</span>` : "")
+      + `</li>`).join("") + (gm ? insHtml(b.key, b.rows[b.rows.length - 1]?.id, true) : "") + `</ol></div>`).join("")
 }
 
+// Met: a wrapping grid of small cards — their picture (RealmScreen's thumbnail), the name under it, ✕ on
+// hover (GM); "+ someone" is a matching tile at the end.
 function metHtml(v, gm) {
-  const rows = arr(v.met).map(m => `<li>${esc(m.name)}${gm ? `<button type="button" class="icon fa-solid fa-xmark" data-action="metHide" data-id="${esc(m.id)}" data-tooltip="Take off" aria-label="Take ${esc(m.name)} off"></button>` : ""}</li>`).join("")
-  return `<ul class="pb-so-met">${rows || `<li class="hint">Nobody new.</li>`}</ul>${gm ? `<input type="text" placeholder="+ someone" data-op="met.add" aria-label="Add who they met">` : ""}`
+  const cards = arr(v.met).map(m => `<li class="pb-so-mcard" data-tooltip="${esc(m.name)}">`
+    + `<span class="pb-so-mpic">${m.img ? `<img src="${esc(m.img)}" alt="">` : initial(m.name)}</span><span class="pb-so-mname">${esc(m.name)}</span>`
+    + (gm ? `<button type="button" class="pb-so-mx" data-action="metHide" data-id="${esc(m.id)}" aria-label="Take ${esc(m.name)} off"><i class="fa-solid fa-xmark" inert></i></button>` : "")
+    + `</li>`).join("")
+  const add = gm ? `<li class="pb-so-mcard is-new"><label class="pb-so-mlabel"><span class="pb-so-mpic"><i class="fa-solid fa-plus" inert></i></span><input class="pb-so-madd" type="text" placeholder="someone" data-op="met.add" aria-label="Add who they met"></label></li>` : ""
+  if (!cards && !gm) return `<p class="pb-so-faint">Nobody new.</p>`
+  return `<ul class="pb-so-met">${cards}${add}</ul>`
 }
 
+// Rations aren't in the sketch: one quiet GM-only footer line; who loses what folds behind a toggle.
 function rationsHtml(app) {
   const v = app.view
   const n = rationN(app.ratN)
   const { plan, missing } = rationPreview(v, n)
   const taken = takenOf(v, soMsg("gm"))
-  return `<fieldset class="pb-so-rations"><legend>Rations <small><i class="fa-solid fa-eye-slash" inert></i> GM only</small></legend>`
-    + `<div class="pb-so-row"><span>Remove rations</span>`
-    + `<button type="button" class="icon fa-solid fa-minus" data-action="ratStep" data-d="-1" aria-label="One fewer"></button>`
-    + `<input type="number" min="0" step="1" value="${n}" data-op="ratN" aria-label="Rations from each">`
-    + `<button type="button" class="icon fa-solid fa-plus" data-action="ratStep" data-d="1" aria-label="One more"></button>`
-    + `<span class="hint">each, from ${plan.length} who came${v.rations?.suggested != null ? ` · ${esc(plural(v.rations.suggested, "day"))} travelled` : ""}</span>`
-    + `<button type="button" class="pb-so-push" data-action="ratApply" ${n && plan.length ? "" : "disabled"}><i class="fa-solid fa-wheat-awn" inert></i> ${taken ? "Remove again…" : "Remove"}</button></div>`
-    + (taken ? `<p class="hint">Removed for this session on ${esc(new Date(taken).toLocaleString())}${v.rations?.n != null ? ` (${esc(v.rations.n)} each)` : ""}.</p>` : "")
-    + (plan.length ? `<table class="pb-rat-table"><tbody>${planRows(plan)}</tbody></table>` : "")
-    + (missing.length ? `<p class="hint">No Foundry character for: ${missing.map(esc).join(", ")} — link them in Codex Of Faces.</p>` : "")
-    + `</fieldset>`
+  const open = !!app.ratOpen
+  return `<footer class="pb-so-rations"><div class="pb-so-ratline">`
+    + `<i class="fa-solid fa-eye-slash pb-so-faint" inert data-tooltip="GM only"></i><span>Remove rations</span>`
+    + `<button type="button" class="pb-so-step" data-action="ratStep" data-d="-1" aria-label="One fewer"><i class="fa-solid fa-minus" inert></i></button>`
+    + `<input class="pb-so-v" type="number" min="0" step="1" value="${n}" data-op="ratN" aria-label="Rations from each">`
+    + `<button type="button" class="pb-so-step" data-action="ratStep" data-d="1" aria-label="One more"><i class="fa-solid fa-plus" inert></i></button>`
+    + `<span class="pb-so-faint">· from ${plan.length} who came${v.rations?.suggested != null ? ` · ${esc(plural(v.rations.suggested, "day"))} travelled` : ""}`
+    + `${taken ? ` · removed ${esc(new Date(taken).toLocaleDateString())}${v.rations?.n != null ? ` (${esc(v.rations.n)} each)` : ""}` : ""}</span>`
+    + `<button type="button" class="pb-so-ratmore${open ? " active" : ""}" data-action="ratMore" aria-expanded="${open}" data-tooltip="${open ? "Hide who loses what" : "Who loses what"}"><i class="fa-solid fa-chevron-${open ? "up" : "down"}" inert></i></button>`
+    + `<button type="button" class="pb-so-push" data-action="ratApply" ${n && plan.length ? "" : "disabled"}>${taken ? "Remove again…" : "Remove"}</button></div>`
+    + (open ? (plan.length ? `<table class="pb-rat-table"><tbody>${planRows(plan)}</tbody></table>` : "")
+      + (missing.length ? `<p class="pb-so-faint">No Foundry character for: ${missing.map(esc).join(", ")} — link them in Codex Of Faces.</p>` : "") : "")
+    + `</footer>`
 }
 
 // ── the window ────────────────────────────────────────────────
@@ -400,14 +505,17 @@ function winClass() {
       position: { width: 920, height: 740 },
       actions: {
         attend: SessionOverWindow.#attend, reset: SessionOverWindow.#reset, itemHide: SessionOverWindow.#itemHide, itemShow: SessionOverWindow.#itemShow,
-        legAdd: SessionOverWindow.#legAdd, legDrop: SessionOverWindow.#legDrop, legReset: SessionOverWindow.#legReset,
-        vis: SessionOverWindow.#vis, metHide: SessionOverWindow.#metHide, ratStep: SessionOverWindow.#ratStep, ratApply: SessionOverWindow.#ratApply,
+        travel: SessionOverWindow.#travel,
+        vis: SessionOverWindow.#vis, lineEdit: SessionOverWindow.#lineEdit, lineAdd: SessionOverWindow.#lineAdd, metHide: SessionOverWindow.#metHide, ratStep: SessionOverWindow.#ratStep, ratApply: SessionOverWindow.#ratApply,
+        legList: SessionOverWindow.#legList, ratMore: SessionOverWindow.#ratMore,
       },
     }
     view = null
     role = "player"
     busy = false
     ratN = null
+    legsOpen = false       // the map's stop list (folded)
+    ratOpen = false        // the rations' "who loses what" list (folded)
     poppedFor = null       // the session whose END popped this window (GM) — closing it tells RealmScreen
     async _onClose(options) {
       await super._onClose?.(options)
@@ -426,7 +534,7 @@ function winClass() {
       const changed = !this.view || this.view.sessionId !== view?.sessionId
       this.view = role === "gm" ? view : forPlayer(view)
       this.role = role
-      if (changed || this.ratN == null) this.ratN = this.view?.rations?.n ?? 0
+      if (changed || this.ratN == null) this.ratN = rationN(this.view?.rations?.n ?? Math.ceil(Number(this.view?.rations?.suggested) || 0))   // (RealmScreen sends n = ceil(days travelled))
       if (this.rendered) this.render({ window: { title: this.title } })
     }
     async _renderHTML() {
@@ -435,30 +543,34 @@ function winClass() {
       if (!v) { el.innerHTML = `<p class="hint"><i class="fa-solid fa-spinner fa-spin" inert></i> Asking RealmScreen…</p>`; return el }
       const st = v.stats || {}
       el.className = `pb-so${gm ? " is-gm" : ""}${this.busy ? " busy" : ""}`
+      // The user's sketch, one grid (the app's panel uses the same areas — SessionOver.css):
+      //   party  party  map  map
+      //   stats  award  map  map
+      //   recap  recap  recap met
+      //   (GM) rations footer
+      const map = mapOf(v.route?.map)
+      const legsOpen = this.legsOpen && arr(v.route?.legs).length > 0
+      const noCount = gm && st.counted === false ? ` data-tooltip="Rolls weren’t counted (Foundry wasn’t connected when it ended)."` : ""
       el.innerHTML = `
-        <div class="pb-so-top">
-          <div class="pb-so-left">
-            <div class="pb-so-party" aria-label="Who came">${partyHtml(v, gm)}</div>
-            <div class="pb-so-boxes">
-              <fieldset class="pb-so-box"><legend>Stats</legend>
-                ${numRow("Days passed", st.days, gm, { op: "stat", field: "days", step: 0.5 })}
-                ${numRow("Rolls", st.rolls, gm, { op: "stat", field: "rolls" })}
-                ${numRow("20s", st.nat20, gm, { op: "stat", field: "nat20" })}
-                ${numRow("1s", st.nat1, gm, { op: "stat", field: "nat1" })}
-                ${gm && st.counted === false ? `<p class="hint">Rolls weren’t counted (Foundry wasn’t connected when it ended).</p>` : ""}
-              </fieldset>
-              <fieldset class="pb-so-box"><legend>Awarded</legend>${awardedHtml(v, gm)}</fieldset>
-            </div>
+        <div class="pb-so-party" aria-label="Who came">${partyHtml(v, gm)}</div>
+        <section class="pb-so-stats"><h4 class="pb-so-h"${noCount}>Stats:${noCount ? ` <i class="fa-solid fa-circle-info" inert></i>` : ""}</h4>
+          ${numRow("Days passed", st.days, gm, { op: "stat", field: "days", step: 0.5 })}
+          ${gm && st.days?.differs ? `<p class="pb-so-faint pb-so-info">route covers ${esc(plural(st.days.route, "day"))}</p>` : ""}
+          ${numRow("Rolls", st.rolls, gm, { op: "stat", field: "rolls" })}
+          ${numRow("20s", st.nat20, gm, { op: "stat", field: "nat20", tone: "crit" })}
+          ${numRow("1s", st.nat1, gm, { op: "stat", field: "nat1", tone: "fumble" })}
+        </section>
+        <section class="pb-so-award"><h4 class="pb-so-h">Awarded:</h4>${awardedHtml(v, gm)}</section>
+        <section class="pb-so-map${legsOpen ? " legs-open" : ""}">
+          <div class="pb-so-mapbox">
+            ${map ? mapHtml(map, v) : stripHtml(v.route?.legs)}
+            ${mapToolsHtml(v.route || {}, gm, legsOpen, !!map && !reduced())}
+            <span class="pb-so-mcap">${esc(plural(v.route?.days || 0, "day"))} · ${esc(plural(v.route?.travelled || 0, "day"))} travelling</span>
           </div>
-          <fieldset class="pb-so-map"><legend>Map <small>${esc(plural(v.route?.days || 0, "day"))} · ${esc(plural(v.route?.travelled || 0, "day"))} travelling</small></legend>
-            ${mapOf(v.route?.map) ? mapHtml(mapOf(v.route.map), v) : stripHtml(v.route?.legs)}
-            ${gm ? legsHtml(v.route || {}) : ""}
-          </fieldset>
-        </div>
-        <div class="pb-so-bottom">
-          <fieldset class="pb-so-recap"><legend>Recap</legend>${recapHtml(v, gm)}</fieldset>
-          <fieldset class="pb-so-metbox"><legend>Met</legend>${metHtml(v, gm)}</fieldset>
-        </div>
+          ${legsOpen ? legsHtml(v.route || {}) : ""}
+        </section>
+        <section class="pb-so-recap pb-so-wake"><h4 class="pb-so-h pb-so-h-big">Recap</h4>${recapHtml(v, gm)}</section>
+        <section class="pb-so-metbox pb-so-wake"><h4 class="pb-so-h pb-so-h-big">Met</h4>${metHtml(v, gm)}</section>
         ${gm ? rationsHtml(this) : ""}`
       return el
     }
@@ -474,12 +586,28 @@ function winClass() {
       // the map time-lapse: plays when the window opens and when the route (its picture or stops) changes
       const map = mapOf(this.view?.route?.map)
       const mk = map ? map.src + JSON.stringify(map.stops) : ""
-      if (map && mk !== this._mapKey) playMap(this.element, map)
+      if (map) playMap(this.element, map, { autoplay: mk !== this._mapKey })   // (Replay is wired on every render)
       this._mapKey = mk
       if (this._wired) return
       this._wired = true
+      // Recap + Met rest slightly greyed; hovering or scrolling wakes them, and they stay awake 15 s after
+      const root = this.element
+      let sleepT = 0, inside = false
+      const wake = () => { root.classList.add("pb-so-awake"); clearTimeout(sleepT) }
+      const sleepLater = () => { clearTimeout(sleepT); sleepT = setTimeout(() => { if (!inside) root.classList.remove("pb-so-awake") }, 15000) }
+      const inWake = (t) => !!t?.closest?.(".pb-so-wake")
+      root.addEventListener("pointerover", (ev) => { if (inWake(ev.target)) { inside = true; wake() } })
+      root.addEventListener("pointerout", (ev) => { if (inWake(ev.target) && !inWake(ev.relatedTarget)) { inside = false; sleepLater() } })
+      root.addEventListener("scroll", (ev) => { if (inWake(ev.target)) { wake(); if (!inside) sleepLater() } }, true)
+      root.addEventListener("wheel", (ev) => { if (inWake(ev.target)) { wake(); if (!inside) sleepLater() } }, { passive: true })
+      root.addEventListener("focusin", (ev) => { if (inWake(ev.target)) wake() })
       // inputs commit on change (blur / Enter), like Foundry's own sheets
       this.element.addEventListener("change", (ev) => this.#changed(ev.target))
+      // a line's words open for editing from the keyboard too (Enter / F2 on the focused text)
+      this.element.addEventListener("keydown", (ev) => {
+        const t = ev.target.closest?.("[data-action=lineEdit]")
+        if (t && ev.target === t && (ev.key === "Enter" || ev.key === "F2")) { ev.preventDefault(); t.click() }
+      })
       this.element.addEventListener("keydown", (ev) => { if (ev.key === "Enter" && ev.target.matches?.("input[type=text][data-op]")) ev.target.blur() })
       this.element.addEventListener("contextmenu", (ev) => {
         const b = ev.target.closest?.("[data-action=attend]")
@@ -496,13 +624,13 @@ function winClass() {
         const r = await ask("update", { sessionId: this.view.sessionId, change })
         this.busy = false
         if (r.view) this.setView(r.view, "gm"); else this.render()
+        return r
       } catch (e) {
         this.busy = false
         ui.notifications?.warn(`Not saved: ${e.message || e}`)
         this.render()
       }
     }
-    legsWith(fn) { return fn(arr(this.view?.route?.legs).map(({ auto: _a, ...l }) => ({ ...l }))) }
     #changed(t) {
       const op = t?.dataset?.op
       if (!op) return
@@ -514,16 +642,7 @@ function winClass() {
       if (op === "money") return this.send({ op, value: String(v).trim() ? parseMoney(v) : {} })
       if (op === "item.to") return this.send({ op, id: t.dataset.id, to: v })
       if (op === "item.add") { const name = String(v).trim(); t.value = ""; return name ? this.send({ op, item: { name } }) : null }
-      if (op === "met.add") { const name = String(v).trim(); t.value = ""; return name ? this.send({ op, id: "character:" + name.toLowerCase().replace(/\s+/g, " "), name }) : null }
-      if (op.startsWith("leg.")) {
-        const i = Number(t.dataset.i), k = op.slice(4)
-        return this.send({ op: "route", route: this.legsWith(legs => legs.map((l, j) => {
-          if (j !== i) return l
-          if (k === "kind") return v === "stay" ? { id: l.id, kind: "stay", place: l.place || l.to || "", days: l.days } : { id: l.id, kind: "travel", from: l.from || l.place || "", to: l.to || "", days: l.days }
-          if (k === "days") return { ...l, days: Math.max(0, Number(v) || 0) }
-          return { ...l, [k]: String(v) }
-        })) })
-      }
+      if (op === "met.add") { const name = String(v).replace(/\s+/g, " ").trim(); t.value = ""; return name ? this.send({ op, id: "character:" + name.toLowerCase().replace(/\s+/g, " "), name }) : null }
     }
     static #attend(_e, b) { const p = arr(this.view?.party).find(x => x.key === b.dataset.key); if (p) this.send({ op: "attend", key: p.key, on: !p.attended }) }
     static #reset(_e, b) {
@@ -533,17 +652,26 @@ function winClass() {
     }
     static #itemHide(_e, b) { this.send({ op: "item.hide", id: b.dataset.id }) }
     static #itemShow(_e, b) { this.send({ op: "item.hide", id: b.dataset.id, on: false }) }
-    static #legAdd(_e, b) {
-      const kind = b.dataset.kind
-      this.send({ op: "route", route: this.legsWith(legs => {
-        const last = legs[legs.length - 1]
-        const here = last ? (last.kind === "stay" ? last.place : last.to) : ""
-        return [...legs, kind === "stay" ? { id: newId("g"), kind, place: here || "", days: 1 } : { id: newId("g"), kind, from: here || "", to: "", days: 1 }]
-      }) })
-    }
-    static #legDrop(_e, b) { const i = Number(b.dataset.i); this.send({ op: "route", route: this.legsWith(legs => legs.filter((_, j) => j !== i)) }) }
-    static #legReset() { this.send({ op: "route", route: null }) }
+    static #legList() { this.legsOpen = !this.legsOpen; this.render() }
+    static #ratMore() { this.ratOpen = !this.ratOpen; this.render() }
+    // The bigger Travel window for this session; Done brings this one back, refreshed.
+    static #travel() { if (this.gm && this.view) openTravel(this.view, { back: (view) => { if (view) this.setView(view, "gm"); this.bringToFront?.() } }) }
     static #vis(_e, b) { this.send({ op: "line", lineId: b.dataset.line, vis: b.dataset.vis }) }
+    // The words of a line: the text turns into a field in place — Enter / leaving saves, Esc puts them back.
+    static #lineEdit(_e, b) {
+      if (!this.gm || b.querySelector("input")) return
+      const row = (this.view?.recap || []).flatMap(g => arr(g.rows)).find(r => r.id === b.dataset.line)
+      if (!row) return
+      wordsField(b, row.text, "The line’s words", (text) => { const c = lineOp("edit", { lineId: row.id, text }); if (c && text !== row.text) this.send(c) })
+    }
+    // A new GM line: the "+" turns into a field in its place.
+    static #lineAdd(_e, b) {
+      if (!this.gm) return
+      const li = b.closest("li.pb-so-ins")
+      if (!li || li.classList.contains("is-open")) return
+      li.classList.add("is-open")
+      wordsField(li, "", "A new line — it starts GM only", (text) => { const c = lineOp("insert", { dayKey: b.dataset.day, after: b.dataset.after || null, text }); if (c) this.send(c) }, () => this.render())
+    }
     static #metHide(_e, b) { this.send({ op: "met.hide", id: b.dataset.id }) }
     static #ratStep(_e, b) { this.ratN = Math.max(0, rationN(this.ratN) + Number(b.dataset.d || 0)); this.render() }
     static #ratApply() { applyRations(this) }

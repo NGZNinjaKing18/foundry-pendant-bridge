@@ -1,7 +1,7 @@
 // Table log (scripts/table-log-model.js) — each player sees only their part.
 import { test } from "node:test"
 import assert from "node:assert/strict"
-const { cleanLog, logFor, noteCommand, canUndo, chatText } = await import("../scripts/table-log-model.js")
+const { cleanLog, logFor, noteCommand, canUndo, chatText, canSetVis } = await import("../scripts/table-log-model.js")
 globalThis.Hooks ??= { on() {}, once() {}, callAll() {} }
 const { slicesOf } = await import("../scripts/private.js")
 
@@ -25,7 +25,7 @@ test("nobody else's Just me or waiting lines", () => {
   assert.deepEqual(logFor(log, "u1").users, ["u1"])
 })
 test("the GM's own lines stay in the GM's copy and never reach a player", () => {
-  const withGm = { ...log, lines: [...log.lines, { id: "g", ts: 5, text: "Harlan lies", who: "GM", uid: "", gm: true }] }
+  const withGm = { ...log, lines: [...log.lines, { id: "g", ts: 5, text: "Harlan lies", who: "GM", uid: "", gm: true, vis: "dm" }] }
   assert.equal(cleanLog(withGm).lines.at(-1).gm, true)
   for (const u of ["u1", "u2"]) assert.ok(!logFor(withGm, u).lines.some(l => l.id === "g"))
 })
@@ -60,4 +60,27 @@ test("take back: your own, ten minutes; a GM any", () => {
 })
 test("chat HTML to text", () => {
   assert.equal(chatText("<p>I <em>relocated</em> my&nbsp;knife</p>"), "I relocated my knife")
+})
+
+test("the one list: a player sees Players and Drop lines and their own, never someone else's GM or private line", () => {
+  const one = { ...log, lines: [
+    { id: "s", ts: 1, text: "Orian walks in", who: "Stage", auto: true, vis: "public" },
+    { id: "p", ts: 2, text: "toll", who: "Nira", uid: "u1", vis: "public" },
+    { id: "g", ts: 3, text: "Bo pockets it", who: "DM", gm: true, vis: "dm" },
+    { id: "x", ts: 4, text: "dropped", who: "Brannoc", uid: "u2", vis: "drop" },
+    { id: "j", ts: 5, text: "my secret", who: "Brannoc", uid: "u2", just: "u2", vis: "dm" },
+  ] }
+  assert.deepEqual(logFor(one, "u1").lines.map(l => l.id), ["s", "p", "x"])   // a dropped line stays, greyed
+  const gmKeep = { ...one, lines: [...one.lines, { id: "k", ts: 6, text: "The bridge is out", who: "DM", gm: true, vis: "public" }] }
+  assert.ok(logFor(gmKeep, "u1").lines.some(l => l.id === "k"), "a GM line not marked GM shows to everyone")
+  assert.deepEqual(logFor(one, "u2").lines.map(l => l.id), ["s", "p", "x", "j"])
+  assert.deepEqual(cleanLog(one).lines.map(l => l.id), ["s", "p", "g", "x", "j"])
+})
+
+test("anyone seated may press Players / GM / Drop on a line they can see; a GM line only its writer and the GM", () => {
+  assert.equal(canSetVis({ id: "a", uid: "u2", vis: "public" }, "u1", false), true)
+  assert.equal(canSetVis({ id: "a", uid: "u2", vis: "drop" }, "u1", false), true)
+  assert.equal(canSetVis({ id: "a", uid: "u2", vis: "dm" }, "u1", false), false)
+  assert.equal(canSetVis({ id: "a", uid: "u2", vis: "dm" }, "u2", false), true)
+  assert.equal(canSetVis({ id: "a", uid: "u2", vis: "dm" }, "gm", true), true)
 })

@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Session Over Harness</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<link rel="stylesheet" href="../../styles/session-over.css">
+<style>
+/* Dev harness (not loaded by Foundry): the REAL scripts/session-over.js window drawn in a tiny stand-in for
+   Foundry's ApplicationV2 + a rough copy of core's dark / light window look. Serve the Downloads folder
+   (launch config "campaign-page-harness") and open /foundry-pendant-bridge/tests/harness/session-over.html.
+   ?player = the players' copy · ?empty = no route / recap · ?w=920&h=700 = window size. Made-up people.
+   GM: the map box's Travel button opens the Travel window, answered by a stand-in RealmScreen (?nolink = the
+   offer doesn't come, as in a GM window without the RealmScreen link). */
+:root { --font-size-10: 10px; --font-size-11: 11px; --font-size-12: 12px; --font-size-14: 14px; --font-size-16: 16px; --color-border-highlight: #ff6400; --color-warm-2: #c9593f; --color-light-1: #fff; --input-height: 28px; --color-level-success: #26b231; --color-level-error: #ce0707; --color-level-warning: #ee9b3a; --color-warm-1: #ee9b3a; }
+.theme-dark { --color-text-primary: #e7e1d4; --color-text-secondary: #b5aea0; --color-text-subtle: #8d877b; --color-text-emphatic: #fff; --color-border: #4a4842; --background: #1c1b22; --table-row-color-even: rgb(255 255 255 / 0.04); color: var(--color-text-primary); }
+.theme-light { --color-text-primary: #2b2a24; --color-text-secondary: #4b4a44; --color-text-subtle: #77746a; --color-text-emphatic: #000; --color-border: #b3ad9f; --background: #ece6d8; --table-row-color-even: rgb(0 0 0 / 0.05); color: var(--color-text-primary); }
+body { margin: 0; background: #0d100c url() ; font: 14px/1.4 Signika, "Segoe UI", sans-serif; color: #ddd; }
+#bar { display: flex; gap: 10px; padding: 6px 12px; background: #151515; border-bottom: 1px solid #333; align-items: center; }
+#bar button { background: #2a2a2a; color: #ddd; border: 1px solid #444; border-radius: 3px; padding: 3px 9px; cursor: pointer; }
+#notes { font: 12px monospace; color: #9c9; }
+.application { position: absolute; left: 20px; top: 50px; display: flex; flex-direction: column; background: var(--background); border: 1px solid #000; border-radius: 6px; box-shadow: 0 0 20px #000; overflow: hidden; resize: both; font-size: 14px; }
+.window-header { flex: none; display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px; background: #0e0d13; color: #ddd; font-size: 14px; }
+.window-header .title { flex: 1; }
+.window-content { flex: 1; min-height: 0; }
+.application button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-height: var(--input-height); font: inherit; background: rgb(127 127 127 / 0.12); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 4px; padding: 0 8px; cursor: pointer; }
+.application input, .application select { height: var(--input-height); background: rgb(0 0 0 / 0.15); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 4px; padding: 0 6px; font: inherit; box-sizing: border-box; }
+.application * { box-sizing: border-box; }
+.pb-rat-table { width: 100%; border-collapse: collapse; font-size: 12px; } .pb-rat-table td { padding: 1px 4px; }
+#tip { position: fixed; pointer-events: none; background: #000; color: #fff; font-size: 12px; padding: 2px 6px; border-radius: 3px; display: none; z-index: 9; }
+</style>
+</head>
+<body class="theme-dark">
+<div id="bar"><button id="theme">Light / dark</button><button id="role">Player / GM</button><button id="narrow">Narrow / wide</button><span id="notes"></span></div>
+<div id="tip"></div>
+<script>
+const q = new URLSearchParams(location.search)
+const hooks = {}
+window.Hooks = { on(n, f) { (hooks[n] ||= []).push(f) }, once(n, f) { (hooks[n] ||= []).push(f) }, callAll(n, ...a) { for (const f of hooks[n] || []) f(...a) } }
+const face = (c, t = "") => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'><rect width='40' height='40' fill='${c}'/><circle cx='20' cy='16' r='8' fill='rgba(255,255,255,.55)'/><rect x='8' y='27' width='24' height='14' rx='7' fill='rgba(255,255,255,.55)'/><text x='3' y='12' font-size='9' fill='#000'>${t}</text></svg>`)}`
+// a made-up map picture: sea, two islands, a river
+const MAP = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 480 300'><rect width='480' height='300' fill='#3d6f8e'/><path d='M40 60 C140 10 300 30 380 90 S 440 250 330 270 S 90 280 60 200 Z' fill='#7d9a5a'/><path d='M120 120 C180 100 260 130 250 190 S 150 230 120 180 Z' fill='#3f6b35'/><path d='M200 40 C230 120 260 160 330 260' stroke='#7fb6d3' stroke-width='5' fill='none'/><circle cx='420' cy='60' r='18' fill='#8aa565'/></svg>`)}`
+const actors = [["Ari Thorne", "#c84"], ["Bo", "#48c"], ["Cyrene", "#8c4"], ["Dee", "#c48"], ["Edda", "#888"]]
+  .map(([name, c], i) => ({ id: "a" + i, name, type: "character", img: face(c), prototypeToken: { texture: { src: face(c) } }, items: [{ id: "r" + i, name: "Rations (1 day)", type: "consumable", system: { quantity: 3 + i } }] }))
+const disc = (c) => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><rect width='10' height='10' fill='${c}'/><circle cx='5' cy='5' r='3' fill='#fff'/></svg>`)}`
+const empty = q.has("empty")
+const VIEW = {
+  sessionId: "s1", campaignId: "c1", campaignName: "The Long Road", number: 17, title: "",
+  party: actors.map((a, i) => ({ key: a.name.toLowerCase(), name: a.name, attended: i !== 3, edited: i === 4, actorId: a.id, discordAvatar: i === 1 ? "" : disc(["#5865f2", "#000", "#e91e63", "#1abc9c", "#f1c40f"][i]) })),
+  stats: { days: { value: 7, auto: 7, edited: false, route: 7 }, rolls: { value: 142, auto: 142 }, nat20: { value: 6, auto: 5, edited: true }, nat1: { value: 4, auto: 4 }, counted: true },
+  awarded: { training: { value: 7, auto: 7, rate: { days: 1, rolls: 1 } }, money: { value: { gp: 120, sp: 5 }, auto: {} , edited: false },
+    misc: [{ id: "i1", name: "Potion of Healing", qty: 2, to: "Bo", from: "foundry" }, { id: "i2", name: "Silver dagger", qty: 1, to: "", from: "dm" }], hiddenItems: [] },
+  route: empty ? { legs: [], days: 0, travelled: 0 } : {
+    legs: [{ id: "l1", kind: "travel", from: "WoodHurst", to: "Mistford", days: 2, t0: 100, t1: 102, when: "MistMorn 7, 98" }, { id: "l2", kind: "stay", place: "Mistford", days: 3, t0: 102, t1: 105, when: "MistMorn 9, 98" }, { id: "l3", kind: "travel", from: "Mistford", to: "Ashby", days: 2, t0: 105, t1: 107, when: "MistMorn 12, 98" }],
+    days: 7, travelled: 4,
+    // the road the first trip took bends round the hills
+    map: { src: MAP, aspect: 1.6, stops: [{ x: 0.22, y: 0.35, label: "WoodHurst", stay: false }, { x: 0.48, y: 0.55, label: "Mistford", stay: true, days: 3, leg: 2, path: [[0.22, 0.35], [0.3, 0.6], [0.48, 0.55]] }, { x: 0.7, y: 0.78, label: "Ashby", stay: false, leg: 2 }] } },
+  recap: empty ? [] : [
+    { dayKey: 1, n: 1, header: "MistMorn 7, 98 – day 1", rows: [
+      { id: "r1", text: "Orian James walks in", who: "Stage", vis: "public" },
+      { id: "r2", text: "The party argues over the ferry toll with [[Televee Sharez]]", who: "Sam as Ari Thorne", vis: "public" },
+      { id: "r3", text: "Bo pockets the toll-keeper's ledger", who: "DM", vis: "dm", locked: true }] },
+    { dayKey: 8, n: 8, header: "MistMorn 14, 98 – day 8", rows: [
+      { id: "r4", text: "A week passes", who: "Clock", vis: "public" },
+      { id: "r5", text: "Scene: Divinity Island", who: "Foundry", vis: "drop" }] }],
+  met: empty ? [] : [{ id: "character:televee sharez", name: "Televee Sharez", img: face("#7a5", "T") }, { id: "character:orian james", name: "Orian James", img: face("#a57", "O") }, { id: "character:the ferryman", name: "The Ferryman" }],
+  rations: { suggested: 4, n: 0 },
+}
+// What players may see of the route (RealmScreen builds it from the stops everyone may see): here the last
+// leg is a GM-only stop, so players' map stops at Mistford.
+if (!empty) VIEW.playerRoute = { legs: VIEW.route.legs.slice(0, 2), days: 5, travelled: 2, map: { ...VIEW.route.map, stops: VIEW.route.map.stops.slice(0, 2) } }
+let gmRole = !q.has("player")
+window.ui = { notifications: { info: (m) => note(m), warn: (m) => note("⚠ " + m) } }
+const note = (m) => { document.getElementById("notes").textContent = m }
+window.game = { user: { id: "gm", get isGM() { return gmRole } }, users: Object.assign([{ id: "gm", isGM: true }], { contents: [{ id: "gm", isGM: true }], get: (id) => (id === "gm" ? { id: "gm", isGM: true } : null) }),
+  actors: Object.assign([...actors], { contents: actors, get: (id) => actors.find(a => a.id === id) }), messages: Object.assign([], { contents: [] }), settings: { get: () => ({ colorScheme: { applications: "dark" } }) }, socket: { on() {}, emit() {} } }
+window.ChatMessage = { create: async () => ({}) }
+window.CONFIG = {}
+class ApplicationV2 {
+  static DEFAULT_OPTIONS = {}
+  constructor() { this.options = this.constructor.DEFAULT_OPTIONS; this.rendered = false }
+  async render() {
+    if (!this.element) {
+      const o = this.options
+      const el = document.createElement("div")
+      el.className = `application ${o.classes.join(" ")} theme-${document.body.classList.contains("theme-light") ? "light" : "dark"}`
+      el.style.width = (q.get("w") || o.position.width) + "px"; el.style.height = (q.get("h") || o.position.height) + "px"
+      el.innerHTML = `<header class="window-header"><i class="${o.window.icon}"></i><span class="title"></span><i class="fa-solid fa-ellipsis-vertical"></i><i class="fa-regular fa-square"></i><i class="fa-solid fa-arrow-up-right-from-square"></i><i class="fa-solid fa-xmark"></i></header><section class="window-content"></section>`
+      document.body.append(el); this.element = el; foundry.applications.instances.set(o.id, this)
+      el.addEventListener("click", (ev) => { const b = ev.target.closest("[data-action]"); const fn = b && o.actions[b.dataset.action]; if (fn) { ev.preventDefault(); fn.call(this, ev, b) } })
+    }
+    this.element.querySelector(".title").textContent = this.title
+    const html = await this._renderHTML()
+    this._replaceHTML(html, this.element.querySelector(".window-content"))
+    this.rendered = true
+    this._onRender()
+    return this
+  }
+  close() { foundry.applications.instances.delete(this.options.id); this._onClose?.({}); this.element?.remove(); this.element = null; this.rendered = false; this._wired = false }
+  bringToFront() { if (this.element) document.body.append(this.element) }
+}
+window.foundry = { utils: { hasProperty: () => false }, applications: { instances: new Map(), api: { ApplicationV2, DialogV2: { confirm: async () => true } } } }
+let app = null
+// A stand-in RealmScreen for the Travel window: the linked GM window's send → an answer (made-up towns;
+// a days change edits the leg and the next stay takes it up, like lib/sessionTravel.mjs).
+const TRAVEL = { leadName: "Ari Thorne", towns: [{ mapId: "m", itemKind: "settlement", itemId: "t1", name: "Ashby" }, { mapId: "m", itemKind: "settlement", itemId: "t2", name: "Coldwater" }, { mapId: "m", itemKind: "settlement", itemId: "t3", name: "Mistford" }], paces: [{ key: "foot", label: "On foot" }, { key: "horse", label: "Horse" }], hpd: [8, 9, 10, 12], priced: true }
+let lastBefore = null
+async function fakeRealm(msg) {
+  const SO = await import("../../scripts/session-over.js")
+  const reply = (body) => setTimeout(() => SO.sessionOverAnswer({ qid: msg.qid, userId: msg.userId, ...body }), 150)
+  if (msg.type === "sessionover.get") return reply({ view: VIEW, ...(msg.travel ? { travel: q.has("nolink") ? undefined : TRAVEL } : {}) })
+  if (msg.type !== "sessionover.update") return
+  const c = msg.change || {}, legs = VIEW.route.legs
+  if (c.op === "travel.undo") { if (lastBefore) VIEW.route.legs = lastBefore; lastBefore = null; return reply({ view: VIEW, note: "Put back." }) }
+  lastBefore = legs.map(l => ({ ...l }))
+  const i = legs.findIndex(l => Math.abs(l.t0 - (c.t0 ?? c.at)) < 0.02 || (c.at != null && l.t0 <= c.at && c.at < l.t1))
+  if (i < 0) return reply({ error: "That isn’t in their plan any more — look again." })
+  if (c.op === "travel.days" || c.op === "stay.days") {
+    const d = c.days - legs[i].days
+    legs[i] = { ...legs[i], days: c.days, t1: legs[i].t1 + d }
+    const n = legs.slice(i + 1).find(l => l.kind === "stay")
+    if (n) { n.days = Math.max(0, n.days - d); n.t0 += d }
+  } else if (c.op === "travel.remove") legs[i] = { ...legs[i], kind: "stay", place: legs[i].from, from: undefined, to: undefined }
+  else if (c.op === "travel.add") {
+    const at = c.at, town = TRAVEL.towns.find(t => t.itemId === c.to.itemId)
+    const days = c.days || 1.5
+    legs.splice(i + 1, 0, { id: "n" + Date.now(), kind: "travel", from: legs[i].place, to: town.name, days, t0: at, t1: at + days, when: "later" })
+    legs[i] = { ...legs[i], days: Math.round((at - legs[i].t0) * 10) / 10, t1: at }
+  }
+  VIEW.route.days = Math.round(VIEW.route.legs.reduce((n, l) => n + l.days, 0) * 10) / 10
+  reply({ view: VIEW, note: "Ari Thorne, Bo, Cyrene, Dee, Edda" })
+}
+async function boot() {
+  const live = await import("../../scripts/live.js")
+  const SO = await import("../../scripts/session-over.js")
+  if (gmRole) { live.setLinked(true); SO.setSessionOverSender((m) => { fakeRealm(m) }) }
+  // show() isn't exported: open through the realm menu hook with a stored GM copy
+  const json = JSON.stringify(VIEW)
+  const msg = { id: "m1", whisper: ["gm"], timestamp: Date.now(), flags: { "pendant-bridge": { hidden: true, so: { key: gmRole ? "gm" : "p:c1", sessionId: "s1", json, at: 1 } } }, update: async () => {}, delete: async () => {} }
+  game.messages.push(msg); game.messages.contents.push(msg)
+  game.messages.find = Array.prototype.find.bind(game.messages); game.messages.filter = Array.prototype.filter.bind(game.messages)
+  Hooks.callAll("pendantOpenSessionOver")
+}
+// fake Foundry tooltips
+document.addEventListener("mouseover", (e) => { const t = e.target.closest?.("[data-tooltip]"); const tip = document.getElementById("tip"); if (!t) { tip.style.display = "none"; return } tip.textContent = t.dataset.tooltip; const r = t.getBoundingClientRect(); tip.style.left = r.left + "px"; tip.style.top = (r.bottom + 4) + "px"; tip.style.display = "block" })
+document.getElementById("theme").onclick = () => { const l = document.body.classList.toggle("theme-light"); document.body.classList.toggle("theme-dark", !l); const a = document.querySelector(".application"); a.classList.toggle("theme-light", l); a.classList.toggle("theme-dark", !l) }
+document.getElementById("role").onclick = () => { const u = new URL(location.href); if (u.searchParams.has("player")) u.searchParams.delete("player"); else u.searchParams.set("player", ""); location.href = u }
+document.getElementById("narrow").onclick = () => { const a = document.querySelector(".application"); a.style.width = a.style.width === "560px" ? "920px" : "560px" }
+boot().catch(e => note("boot failed: " + e.message))
+</script>
+</body>
+</html>

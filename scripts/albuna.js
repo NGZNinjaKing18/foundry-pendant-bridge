@@ -75,6 +75,7 @@ function relabel(root, actor) {
     if (!c) continue
     box.dataset.tooltip = `${c.label} — ${RATE_TEXT}`
     input.setAttribute("aria-label", c.label)
+    if (box.getAttribute("aria-label")) box.setAttribute("aria-label", c.label)   // dnd5e 6: <label aria-label="Copper">…</label>
     input.placeholder = c.abbr
     // dnd5e writes the abbreviation / name as a label or an icon's tooltip; rename what is text.
     for (const el of box.querySelectorAll(".denomination, .label, span")) {
@@ -125,7 +126,11 @@ function wrapConverters() {
     w._pbAlbuna = true
     obj[name] = w
   }
-  try { wrapStatic(globalThis.dnd5e?.applications?.CurrencyManager, "convertCurrency") } catch { /* other dnd5e */ }
+  // dnd5e 4/5: dnd5e.applications.CurrencyManager · dnd5e 6 (the user's world runs 6.0.5): dnd5e.applications.shared.
+  // Its Convert button calls `this.constructor.convertCurrency(doc)`, so wrapping the static covers it.
+  for (const ns of [globalThis.dnd5e?.applications, globalThis.dnd5e?.applications?.shared]) {
+    try { wrapStatic(ns?.CurrencyManager, "convertCurrency") } catch { /* other dnd5e */ }
+  }
   try {
     const proto = CONFIG.Actor?.documentClass?.prototype
     const orig = proto?.convertCurrency

@@ -52,6 +52,12 @@ test("players get only what the allow-list says: Public lines, plain numbers, no
   assert.equal(M.forPlayer(null), null)
 })
 
+test("a met person's picture reaches the players' copy; a script URL never does", () => {
+  const v = gmView()
+  v.met = [{ id: "character:miller", name: "Miller", img: "data:image/jpeg;base64,AAAA" }, { id: "character:x", name: "X", img: "javascript:alert(1)" }]
+  assert.deepEqual(M.forPlayer(v).met, [{ id: "character:miller", name: "Miller", img: "data:image/jpeg;base64,AAAA" }, { id: "character:x", name: "X" }])
+})
+
 test("the cut is stable: RealmScreen's own players' copy (no vis) comes out the same", () => {
   const once = M.forPlayer(gmView())
   assert.deepEqual(M.forPlayer(once), once)
@@ -170,4 +176,53 @@ test("lapse: legs take their days, stays count up, ends at the last stop", () =>
   const e = M.lapseAt(p, stops, Infinity)
   assert.equal(e.x, 10); assert.deepEqual(e.boxes.map(b => b.days), [2, 3])
   assert.equal(M.lapsePlan([], {}).steps.length, 0)
+})
+
+test("the recap's words: edit any line, put a new GM line in between", () => {
+  assert.deepEqual(M.lineOp("edit", { lineId: "l1", text: "  They met   the miller  " }), { op: "line.edit", lineId: "l1", text: "They met the miller" })
+  assert.equal(M.lineOp("edit", { lineId: "l1", text: "   " }), null, "no words = nothing to send")
+  assert.equal(M.lineOp("edit", { text: "x" }), null)
+  assert.deepEqual(M.lineOp("insert", { dayKey: "10", after: "l1", text: "The gate creaks" }), { op: "line.insert", dayKey: 10, after: "l1", text: "The gate creaks" })
+  assert.deepEqual(M.lineOp("insert", { dayKey: "u0", after: "", text: "Undated" }), { op: "line.insert", dayKey: null, after: null, text: "Undated" })
+  assert.equal(M.lineOp("delete", { lineId: "l1", text: "x" }), null)
+})
+
+test("route privacy (one truth, 2026-11-18): players get the players' own route, never the GM's", () => {
+  const v = gmView()
+  v.route = { legs: [{ id: "g", kind: "travel", from: "Mill", to: "Secret Lair", days: 2 }], days: 2, travelled: 2, map: { src: "gm.webp", stops: [{ x: 0.1, y: 0.1 }] } }
+  assert.deepEqual(M.forPlayer(v).route.legs, [], "a GM view without a players' route → no route")
+  assert.equal(JSON.stringify(M.forPlayer(v)).includes("Secret Lair"), false)
+  v.playerRoute = { legs: [{ id: "p", kind: "stay", place: "Mill", days: 2, when: "3 Frost", path: [[0, 0]] }], days: 2, travelled: 0, map: { src: "pub.webp", stops: [{ x: 0.2, y: 0.2 }] } }
+  const p = M.forPlayer(v)
+  assert.deepEqual(p.route.legs, [{ id: "p", kind: "stay", days: 2, place: "Mill", when: "3 Frost" }])
+  assert.equal(p.route.map.src, "pub.webp")
+  assert.equal(JSON.stringify(p).includes("gm.webp"), false)
+  assert.deepEqual(M.forPlayer(p), p, "the players' copy cut again comes out the same")
+})
+
+test("the map follows the road a trip took: stops keep their line, the token walks it", () => {
+  const m = M.mapOf({ src: "a.webp", aspect: 2, stops: [{ x: 0, y: 0 }, { x: 1, y: 0, leg: 2, path: [[0, 0], [0.5, 0.5], [1, 0], ["x", 1]] }] })
+  assert.deepEqual(m.stops[1].path, [[0, 0], [0.5, 0.5], [1, 0]])
+  assert.deepEqual(M.routePoints(m.stops), [[0, 0], [0.5, 0.5], [1, 0]])
+  const plan = M.lapsePlan(m.stops, { secPerDay: 1, min: 0, max: 99, rest: 0, floor: 0 })
+  const mid = M.lapseAt(plan, m.stops, 1)
+  assert.ok(Math.abs(mid.x - 0.5) < 1e-9 && Math.abs(mid.y - 0.5) < 1e-9)
+})
+
+test("the Travel window's changes name the leg by its times and what it showed", () => {
+  const trip = { kind: "travel", t0: 100.5, t1: 102.5, days: 2 }
+  const stay = { kind: "stay", t0: 102.5, t1: 105, days: 2.5 }
+  assert.deepEqual(M.legOp("days", trip, 3), { op: "travel.days", t0: 100.5, t1: 102.5, was: 2, days: 3 })
+  assert.deepEqual(M.legOp("days", stay, 1), { op: "stay.days", t0: 102.5, t1: 105, was: 2.5, days: 1 })
+  assert.equal(M.legOp("days", trip, 2), null, "no change")
+  assert.equal(M.legOp("days", trip, 0), null, "a trip takes some time")
+  assert.deepEqual(M.legOp("remove", trip), { op: "travel.remove", t0: 100.5, t1: 102.5, was: 2 })
+  assert.equal(M.legOp("remove", stay), null)
+  assert.equal(M.legOp("days", { ...trip, jump: true }, 1), null, "a move with no trip can't be stretched")
+  const to = { mapId: "m1", itemKind: "settlement", itemId: "t9", name: "Ashby" }
+  assert.deepEqual(M.addOp(stay, { to, by: "horse", hpd: 10, after: 1 }), { op: "travel.add", at: 103.5, to: { mapId: "m1", itemKind: "settlement", itemId: "t9" }, by: "horse", hpd: 10 })
+  assert.equal(M.addOp(stay, { to, after: 99 }).at < 105, true, "kept inside the stay")
+  assert.equal(M.addOp(stay, { to, days: 2 }).days, 2)
+  assert.equal(M.addOp(trip, { to }), null)
+  assert.equal(M.addOp(stay, {}), null)
 })

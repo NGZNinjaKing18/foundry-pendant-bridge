@@ -8,7 +8,7 @@
 //   · nothing at all unless they are seated in the running game;
 //   · nobody else's "Just me" lines, nor anyone else's waiting ones;
 //   · with "show the log" off, only their own lines;
-//   · never the GM's own lines (`gm`: shown in the GM's tab only, they wait for the sort).
+//   · never the GM's own lines (`gm`), nor any line the sort has GM-only or dropped (`vis`).
 // ──────────────────────────────────────────────────────────────
 
 const str = (v) => (typeof v === "string" ? v.trim() : "")
@@ -31,6 +31,11 @@ export function cleanLog(log) {
       just: str(l.just) || null,
       ...(l.waiting ? { waiting: true } : {}),
       ...(l.gm ? { gm: true } : {}),
+      // the one list (2026-11-18): where the sort has it, auto (Stage / Clock / Foundry), its in-world day
+      vis: ["public", "dm", "drop"].includes(l.vis) ? l.vis : "public",
+      ...(l.auto ? { auto: true } : {}), ...(l.edited ? { edited: true } : {}), ...(l.locked ? { locked: true } : {}),
+      dayKey: Number.isFinite(l.dayKey) ? l.dayKey : null, day: str(l.day).slice(0, 120),
+      marks: arr(l.marks).filter(m => m && ["person", "place", "loot", "question"].includes(m.t) && str(m.v)).slice(0, 8).map(m => ({ t: m.t, v: str(m.v).slice(0, 80) })),
     })),
   }
 }
@@ -43,7 +48,10 @@ export function logFor(log, uid) {
   return {
     ...l,
     users: [uid],
-    lines: l.lines.filter(x => !x.gm && (x.just ? x.just === uid : true) && (!x.waiting || mine(x)) && (l.showLog || mine(x))),
+    // their own lines (any), else what is Keep (Public) — the GM's too (the user: "my lines if not designated GM
+    // should be shown to everyone"); never a GM / Drop line of someone else, never someone's "Only me + GM"
+    // Dropped lines stay for everyone (greyed, crossed out — anyone can bring one back); GM lines only for the writer.
+    lines: l.lines.filter(x => mine(x) || (!x.just && !x.waiting && (x.vis === "public" || x.vis === "drop") && l.showLog)),
   }
 }
 
@@ -56,6 +64,11 @@ export function noteCommand(message) {
 
 /** May this user take the line back from here? (RealmScreen checks again.) */
 export const canUndo = (line, uid, isGM, now = Date.now()) => !!line && (isGM || (line.uid === uid && now - (line.ts || 0) < 10 * 60 * 1000))
+
+/** May this user change the words of the line? Your own (while the session runs); the GM any. (RealmScreen checks again.) */
+/** May this user press Players / GM / Drop on the line? Anyone seated, on any line they can see (the user, 2026-11-18). */
+export const canSetVis = (line, uid, isGM) => !!line && !line.waiting && (isGM || line.vis !== "dm" || (!!line.uid && line.uid === uid))
+export const canEdit = (line, uid, isGM) => !!line && !line.waiting && (isGM || (!line.gm && !line.auto && !!line.uid && line.uid === uid))
 
 /** Plain text of a chat message's HTML (for "Add to / Quote in table log"). */
 export function chatText(html) {

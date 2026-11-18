@@ -11,8 +11,11 @@
 //                   its first line (players: Public lines only, empty days dropped).
 //   · stripOf / lapseOf — the route strip (same drawing rules as the app's) and the little
 //                   time-lapse: a party dot walks the strip, waiting at each stay for its days.
-//   · mapOf / lapsePlan / lapseAt — the map box: RealmScreen's cropped World Map picture round the
-//                   route (allow-listed), and the group token's walk over it with the "N days" boxes.
+//   · mapOf / lapsePlan / lapseAt / routePoints — the map box: RealmScreen's cropped World Map picture round
+//                   the route (allow-listed), and the group token's walk over it (along the roads it took)
+//                   with the "N days" boxes.
+//   · legOp / addOp — the Travel window's changes (scripts/session-over-travel.js): RealmScreen writes them
+//                   into the party's REAL People plans (pendant-home lib/sessionTravel.mjs).
 //   · rationMembers / findActorFor — who the rations come from (attendees with a Foundry actor).
 //   · recipientsOf — which Foundry users get the players' copy (that campaign's players only).
 //   · money helpers — the app's own parse / label (lib/sessionOver.mjs), copied.
@@ -52,11 +55,17 @@ const coins = (m) => { const o = {}; for (const c of COINS) { const n = num(m &&
  */
 export function forPlayer(view) {
   if (!view || typeof view !== "object") return null
-  const st = view.stats || {}, aw = view.awarded || {}, rt = view.route || {}
+  const st = view.stats || {}, aw = view.awarded || {}
+  // The route: the GM view carries the players' own (`playerRoute`: only stops everyone may see). A GM view
+  // without one (an older RealmScreen) gives players NO route — never the GM's; the players' copy has its own.
+  const rt = view.playerRoute && typeof view.playerRoute === "object" ? view.playerRoute : ("rations" in view || view.route?.notes ? {} : view.route || {})
   const leg = (l) => {
     const o = { id: str(l.id), kind: l.kind === "travel" ? "travel" : "stay", days: num(l.days) }
-    for (const k of ["place", "from", "to", "mapId"]) if (l[k] != null) o[k] = str(l[k])
+    for (const k of ["place", "from", "to", "mapId", "when"]) if (l[k] != null) o[k] = str(l[k])
     for (const k of ["x", "y", "x2", "y2"]) if (Number.isFinite(l[k])) o[k] = l[k]
+    if (l.jump) o.jump = true
+    const path = pathOf(l.path)
+    if (path) o.path = path
     return o
   }
   return {
@@ -80,7 +89,8 @@ export function forPlayer(view) {
       // (RealmScreen's players' copy has no `vis` — it only holds Public lines; the GM view does)
       rows: arr(g.rows).filter(r => r && (r.vis == null || r.vis === "public")).map(r => ({ id: str(r.id), text: str(r.text), who: str(r.who) })),
     })).filter(g => g.rows.length),
-    met: arr(view.met).filter(Boolean).map(m => ({ id: str(m.id), name: str(m.name) })),
+    // a met person's picture (RealmScreen's thumbnail): the party met them, so it's player-safe; never a script URL
+    met: arr(view.met).filter(Boolean).map(m => ({ id: str(m.id), name: str(m.name), ...(typeof m.img === "string" && m.img && !/^\s*javascript:/i.test(m.img) ? { img: m.img } : {}) })),
   }
 }
 
@@ -89,12 +99,18 @@ export function forPlayer(view) {
  * as the legs, in the picture's frame (x, y 0..1). Allow-listed field by field; anything odd → no map
  * (the window falls back to the strip). The party lived this route, so players get it too.
  */
+const clampF = (n) => Math.min(1.5, Math.max(-0.5, n))
+/** A road line: [[x, y], …] (2+ finite points, kept to 400) | null. */
+export function pathOf(p) {
+  const pts = arr(p).filter(q => Array.isArray(q) && Number.isFinite(q[0]) && Number.isFinite(q[1])).slice(0, 400).map(q => [clampF(q[0]), clampF(q[1])])
+  return pts.length > 1 ? pts : null
+}
 export function mapOf(m) {
   if (!m || typeof m !== "object" || typeof m.src !== "string" || !m.src) return null
   if (/^\s*javascript:/i.test(m.src)) return null
   const stops = arr(m.stops).filter(s => s && Number.isFinite(s.x) && Number.isFinite(s.y)).map(s => ({
-    x: Math.min(1.5, Math.max(-0.5, s.x)), y: Math.min(1.5, Math.max(-0.5, s.y)), label: str(s.label), stay: !!s.stay, days: num(s.days),
-    ...(s.leg != null ? { leg: num(s.leg) } : {}),
+    x: clampF(s.x), y: clampF(s.y), label: str(s.label), stay: !!s.stay, days: num(s.days),
+    ...(s.leg != null ? { leg: num(s.leg) } : {}), ...(pathOf(s.path) ? { path: pathOf(s.path) } : {}),
   }))
   if (!stops.length) return null
   const aspect = num(m.aspect) > 0.2 && num(m.aspect) < 5 ? num(m.aspect) : 1.6
@@ -127,6 +143,27 @@ export function stayCount(days, f) {
   if (f >= 1 || d <= 1) return d
   return Math.min(d, Math.max(1, Math.ceil(Math.max(0, f) * d * 2) / 2))
 }
+// A point `f` (0..1) of the way along a line.
+function along(pts, f) {
+  let total = 0
+  for (let i = 1; i < pts.length; i++) total += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])
+  let want = Math.max(0, Math.min(1, f)) * total
+  for (let i = 1; i < pts.length; i++) {
+    const L = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])
+    if (want <= L || i === pts.length - 1) { const q = L ? want / L : 0; return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * q, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * q] }
+    want -= L
+  }
+  return pts[pts.length - 1]
+}
+/** Every point of the drawn route, in order: each stop, reached along its road line when it has one. */
+export function routePoints(stops) {
+  const out = []
+  arr(stops).forEach((s, i) => {
+    if (i > 0 && arr(s.path).length > 1) for (const p of s.path.slice(1, -1)) out.push([p[0], p[1]])
+    out.push([s.x, s.y])
+  })
+  return out
+}
 /** Where the token is at t seconds + the stay boxes to show. → { x, y, boxes: [{ at, days, live }] } */
 export function lapseAt(plan, stops, t) {
   const S = arr(stops)
@@ -138,7 +175,12 @@ export function lapseAt(plan, stops, t) {
   for (const s of steps) {
     if (t < s.t0) break
     const f = s.t1 > s.t0 ? Math.min(1, (t - s.t0) / (s.t1 - s.t0)) : 1
-    if (s.kind === "move") { const a = S[s.from], b = S[s.to]; x = a.x + (b.x - a.x) * f; y = a.y + (b.y - a.y) * f }
+    if (s.kind === "move") {
+      const a = S[s.from], b = S[s.to]
+      // along the road it took (its line ends at a and b), else straight
+      if (arr(b.path).length > 1) [x, y] = along([[a.x, a.y], ...b.path.slice(1, -1), [b.x, b.y]], f)
+      else { x = a.x + (b.x - a.x) * f; y = a.y + (b.y - a.y) * f }
+    }
     else { x = S[s.at].x; y = S[s.at].y; if (s.days > 0) boxes.push({ at: s.at, days: stayCount(s.days, f), live: f < 1 }) }
   }
   if (end) { const last = S[S.length - 1]; x = last.x; y = last.y }
@@ -269,3 +311,52 @@ export function recipientsOf(roster, campaignId, users) {
 /** What a GM's whisper may ask the linked window to pass on to RealmScreen (session-over.js passOp). */
 export const SO_OPS = ["get", "update", "closed"]
 export const opAllowed = (kind) => SO_OPS.includes(kind)
+
+/**
+ * The recap's words, as an update to RealmScreen (it stores them as amend events in that game's log):
+ *   lineOp("edit",   { lineId, text })          new words for any line
+ *   lineOp("insert", { dayKey, after, text })   a new GM line after `after` (null = first) on that day
+ * → the change, or null when there is nothing to send (no words / no line). dayKey: a day block's key
+ * ("u0" = an undated block → null).
+ */
+export function lineOp(kind, { lineId = null, dayKey = null, after = null, text = "" } = {}) {
+  const t = String(text ?? "").replace(/\s+/g, " ").trim().slice(0, 2000)
+  if (!t) return null
+  if (kind === "edit") return lineId ? { op: "line.edit", lineId: String(lineId), text: t } : null
+  if (kind === "insert") {
+    const k = /^-?\d+$/.test(String(dayKey ?? "")) ? Number(dayKey) : null
+    return { op: "line.insert", dayKey: k, after: after ? String(after) : null, text: t }
+  }
+  return null
+}
+
+// ── the Travel window (scripts/session-over-travel.js) ─────────
+// The route's legs carry their own times (`t0` / `t1`, RealmScreen day keys) and days; a change names the leg
+// by them, so RealmScreen can tell when it moved somewhere else in the meantime (then nothing is written).
+const fin = (v) => Number.isFinite(Number(v)) && v !== null && v !== ""
+/** A leg made `days` long, or a trip taken off. → the change, or null (a leg with no times / not a trip). */
+export function legOp(kind, leg, days = null) {
+  if (!leg || !fin(leg.t0) || !fin(leg.t1) || leg.jump) return null
+  const base = { t0: Number(leg.t0), t1: Number(leg.t1), was: num(leg.days) }
+  if (kind === "remove") return leg.kind === "travel" ? { op: "travel.remove", ...base } : null
+  if (kind !== "days" || !fin(days)) return null
+  const d = Math.max(0, Math.round(Number(days) * 100) / 100)
+  if (leg.kind === "travel" && !(d > 0)) return null
+  if (Math.abs(d - num(leg.days)) < 0.05) return null
+  return { op: leg.kind === "travel" ? "travel.days" : "stay.days", ...base, days: d }
+}
+/**
+ * A trip from a stay: `after` days into it (kept inside the stay), to a town from the window's list, by a pace,
+ * so many hours a day; `days` = by hand (empty = RealmScreen prices it like the trip card).
+ */
+export function addOp(leg, { to = null, by = "foot", hpd = 8, after = 0, days = null } = {}) {
+  if (!leg || leg.kind !== "stay" || !fin(leg.t0) || !fin(leg.t1) || !to || !to.itemId) return null
+  const span = Math.max(0, Number(leg.t1) - Number(leg.t0))
+  const a = Math.min(Math.max(0, num(after)), Math.max(0, span - 1 / 48))
+  return {
+    op: "travel.add", at: Math.round((Number(leg.t0) + a) * 10000) / 10000,
+    to: { mapId: to.mapId ? str(to.mapId) : null, itemKind: str(to.itemKind) || "settlement", itemId: str(to.itemId) },
+    by: str(by) || "foot", hpd: Math.max(1, Math.min(16, Math.round(num(hpd)) || 8)),
+    ...(fin(days) && Number(days) > 0 ? { days: Number(days) } : {}),
+  }
+}

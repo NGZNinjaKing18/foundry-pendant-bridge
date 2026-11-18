@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Signika:wght@400;600&family=Roboto+Slab:wght@500;700&display=swap">
 <link rel="stylesheet" href="../../styles/pendant-bridge.css">
+<link rel="stylesheet" href="../../styles/session-over.css">
 <link rel="stylesheet" href="../../styles/table-log.css">
 <style>
 /* Dev harness (not loaded by Foundry): the REAL scripts/table-log.js + private.js slices in a tiny
@@ -70,10 +71,10 @@ const hooks = {}
 globalThis.Hooks = { on: (n, f) => { (hooks[n] ??= []).push(f) }, once: (n, f) => { (hooks[n] ??= []).push(f) }, callAll: (n, ...a) => { for (const f of hooks[n] || []) f(...a) } }
 class Coll extends Array { get(id) { return this.find(x => x.id === id) } }
 const users = Coll.from([
-  { id: "gm", name: "Gamemaster", isGM: true, active: true },
-  { id: "u1", name: "Sam", isGM: false, active: true },
-  { id: "u2", name: "Ana", isGM: false, active: true },
-  { id: "u3", name: "Jo", isGM: false, active: true },
+  { id: "gm", name: "Gamemaster", isGM: true, active: true, color: "#ee9b3a" },
+  { id: "u1", name: "Sam", isGM: false, active: true, color: "#4fa3e0" },
+  { id: "u2", name: "Ana", isGM: false, active: true, color: "#d0608a" },
+  { id: "u3", name: "Jo", isGM: false, active: true, color: "#6cc070" },
 ])
 const store = new Map([["uiConfig", { colorScheme: { applications: "dark", interface: "dark" } }]])
 let me = users[0]
@@ -172,7 +173,16 @@ const liveRec = () => (gameOn ? { live: true, campaignId: "ash", number: 14, id:
 const asGM = async (fn) => { const was = me; me = users[0]; try { return await fn() } finally { me = was } }
 const resetSlice = () => Hooks.callAll("updateChatMessage", { flags: { [MOD]: { slice: {} } } })
 async function push() {
-  await asGM(() => tl.setTableLog(T.buildTableLog({ live: liveRec(), campaign, seated, lines, pending })))
+  // as RealmScreen sends it: the one list, grouped by in-world day like Session Over (lib/sessionOver groupByDay)
+  const sorted = lines.slice().sort((x, y) => x.ts - y.ts), groups = []
+  for (const l of sorted) {
+    const label = l.campaignDate?.label || "", day = label.split(" · ")[0], key = day.startsWith("22") ? 22 : 23
+    let g = groups[groups.length - 1]
+    if (!g || g.dayKey !== key) { g = { dayKey: key, header: `${day} – day ${key - 21}`, rows: [] }; groups.push(g) }
+    g.rows.push({ id: l.id, ts: l.ts, text: l.label, who: l.auto ? l.auto : l.by ? `${l.by.name} as ${l.by.character}` : "DM", by: l.by, auto: !!l.auto, kind: l.kind, vis: l.vis || (l.by || l.auto ? "public" : "dm"), dayKey: key })
+  }
+  const just = new Map(lines.filter(l => l.just).map(l => [l.id, l.just]))
+  await asGM(() => tl.setTableLog(T.buildTableLog({ live: liveRec(), campaign, seated, groups, just, pending })))
   await new Promise(r => setTimeout(r, 400))
   resetSlice()
 }
@@ -185,10 +195,26 @@ camps.setCampaignSender((m) => {
       const r = T.composePlayerLine(m.text, { entities: T.visibleTo(entities, { canSee: e => !e.secret }), by: { uid: m.userId, name: m.foundryName, character: m.userName }, just: m.just, quote: m.quote, allowJust: true, now: { key: 1, label: "23 Frostmoot · 4 pm" } })
       if (!r.ok) return ack(m, false, r.why)
       const d = r.event.data
-      const line = { id: "L" + (++n), ts: Date.now(), label: r.event.label, kind: d.kind, marks: d.marks || [], campaignDate: d.campaignDate, by: d.by, just: d.just, data: d }
+      const line = { vis: m.vis || "public", id: "L" + (++n), ts: Date.now(), label: r.event.label, kind: d.kind, marks: d.marks || [], campaignDate: d.campaignDate, by: d.by, just: d.just, data: d }
       if (campaign.tableNotes.wait) { pending.push(line); log(`waiting for the GM: ${line.label}`); await ack(m, true, "Sent to the GM. It joins the log once they say yes.") }
+      else if (m.after && lines.some(l => l.id === m.after)) {   // as RealmScreen does: the moment between the two neighbours
+        const sorted = lines.slice().sort((x, y) => x.ts - y.ts), i = sorted.findIndex(l => l.id === m.after)
+        line.ts = sorted[i + 1] ? (sorted[i].ts + sorted[i + 1].ts) / 2 : sorted[i].ts + 1
+        line.campaignDate = sorted[i].campaignDate
+        lines.push(line); log("added after " + m.after + ": " + line.label); await ack(m, true)
+      }
       else { lines.push(line); log(`filed: ${line.label}${line.just ? " (just me)" : ""}${r.unresolved.length ? " · not linked: " + r.unresolved.join(", ") : ""}`); await ack(m, true) }
       await push()
+    } else if (m.type === "tablelog.vis") {
+      const line = lines.find(l => l.id === m.lineId)
+      if (!line) return ack(m, false, "That line isn’t in this game’s log.")
+      if (!m.isGM && line.vis === "dm" && line.by?.uid !== m.userId) return ack(m, false, "That line is GM only.")
+      line.vis = m.vis; log("set " + m.lineId + " → " + m.vis); await ack(m, true); await push()
+    } else if (m.type === "tablelog.edit") {
+      const line = lines.find(l => l.id === m.lineId)
+      if (!line) return ack(m, false, "That line isn’t in this game’s log.")
+      if (!m.isGM && line.by?.uid !== m.userId) return ack(m, false, "Only your own lines.")
+      line.label = m.text; log("changed: " + m.text); await ack(m, true); await push()
     } else if (m.type === "tablelog.undo") {
       const i = lines.findIndex(l => l.id === m.lineId), p = pending.findIndex(l => l.id === m.lineId)
       const line = lines[i] || pending[p]
@@ -200,6 +226,14 @@ camps.setCampaignSender((m) => {
   }, 300)
   return true
 })
+// A few lines already written (made-up table): ?empty in the URL starts with none.
+if (!new URLSearchParams(location.search).has("empty")) {
+  const by = (uid) => ({ role: "player", uid, name: uid === "u1" ? "Sam" : "Ana", character: chars[uid] })
+  const seed = [["u1", "Arrived in Saltreach at dusk, the gate guard wanted 12 silver"], ["u2", "Nira talked him down to 8"], ["u1", "Varek the smith is selling a silver sword, 40 gold"], ["u2", "Someone followed us from the docks", "u2"], ["u1", "Mother Oss's house has no door on the street side"]]
+  lines.push({ id: "A1", ts: Date.now() - 20000, label: "Varek walks in", kind: "walk-on", auto: "Stage", campaignDate: { label: "22 Frostmoot · 1 pm" }, data: {} })
+  lines.push({ id: "G1", ts: Date.now() - 1500, label: "Mother Oss is the one following them", kind: "note", campaignDate: { label: "23 Frostmoot · 6 pm" }, data: {} })
+  for (const [uid, label, just] of seed) lines.push({ id: "L" + (++n), ts: Date.now() - 1000 * (10 - n), label, kind: "note", marks: [], campaignDate: { label: (n < 3 ? "22 Frostmoot · " : "23 Frostmoot · ") + (2 + n) + " pm" }, by: by(uid), ...(just ? { just } : {}), data: {} })
+}
 live.setLinked(true)
 await push()
 ui.realmtable.render()

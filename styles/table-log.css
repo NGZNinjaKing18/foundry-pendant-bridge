@@ -18,22 +18,114 @@
 .pb-tablog .pb-tablog-form textarea { resize: vertical; min-height: 2.6em; font-size: var(--font-size-13); }
 .pb-tablog .pb-tablog-form footer { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
 .pb-tablog .pb-tablog-form footer button { flex: 0 0 auto; width: auto; }
-.pb-tablog .pb-tablog-just { display: inline-flex; align-items: center; gap: 4px; font-size: var(--font-size-12); color: var(--color-text-secondary); }
 .pb-tablog .pb-tablog-form .hint, .pb-tablog .hint { font-size: var(--font-size-11); color: var(--color-text-secondary); margin: 0; }
 .pb-tablog code { font-size: var(--font-size-11); }
-/* 2026-11-18 first-time-friendly look: status line, "how it works", mark buttons, example note, empty state. */
-.pb-tablog .pb-tablog-live { display: flex; align-items: center; gap: 5px; font-size: var(--font-size-11); color: var(--color-text-secondary); }
-.pb-tablog .pb-tablog-live i { font-size: 7px; color: var(--color-level-success, #3ba55d); }
-.pb-tablog .pb-tablog-help { flex: none; border: 1px solid var(--color-border); border-radius: 5px; padding: 4px 8px; font-size: var(--font-size-12); }
-.pb-tablog .pb-tablog-help summary { cursor: pointer; color: var(--color-text-secondary); list-style: none; display: flex; align-items: center; gap: 5px; }
-.pb-tablog .pb-tablog-help summary::-webkit-details-marker { display: none; }
-.pb-tablog .pb-tablog-help[open] summary { color: var(--color-text-emphatic); margin-bottom: 3px; }
-.pb-tablog .pb-tablog-help ol { margin: 0 0 4px; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; color: var(--color-text-primary); }
-.pb-tablog .pb-tablog-line.is-example { opacity: .55; border-style: dashed; }
-.pb-tablog .pb-tablog-marks { display: flex; flex-wrap: wrap; gap: 4px; }
-.pb-tablog .pb-tablog-marks button { flex: 1 1 auto; width: auto; min-height: 0; padding: 1px 6px; font-size: var(--font-size-11); line-height: 1.6; white-space: nowrap; }
-.pb-tablog .pb-tablog-marks button b { color: var(--color-text-emphatic); }
-.pb-tablog .pb-tablog-off { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; padding: 24px 10px; }
-.pb-tablog .pb-tablog-off > i { font-size: 26px; color: var(--color-text-secondary); }
-.pb-tablog .pb-tablog-off h4 { margin: 0; border: 0; color: var(--color-text-emphatic); }
-.pb-tablog .pb-tablog-off p { margin: 0; }
+/* 2026-11-18 visual look: faces, mark chips, icon status, the mark buttons as the cheat sheet. */
+.pb-tablog .pb-tablog-head { flex-direction: row; align-items: center; gap: 6px; }
+.pb-tablog .pb-tablog-head h4 { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pb-tablog .pb-tablog-head h4 span { color: var(--color-text-secondary); font-weight: 400; }
+.pb-tablog .pb-tl-live i { font-size: 8px; color: var(--color-level-success, #3ba55d); filter: drop-shadow(0 0 3px var(--color-level-success, #3ba55d)); }
+.pb-tablog .pb-tl-seen { color: var(--color-text-secondary); }
+.pb-tablog .pb-tablog-line { display: grid; grid-template-columns: 26px 1fr auto; gap: 6px; align-items: start; border: 0; padding: 0; background: none; }
+.pb-tablog .pb-tl-face { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; border: 1px solid var(--color-border); margin: 0; }
+.pb-tablog .pb-tl-bubble { border: 1px solid var(--color-border); border-radius: 4px 9px 9px 9px; padding: 4px 8px; background: var(--table-row-color-even, rgba(127,127,127,.08)); min-width: 0; }
+.pb-tablog .pb-tl-bubble p { margin: 0; font-size: var(--font-size-13); line-height: 1.45; overflow-wrap: anywhere; }
+.pb-tablog .pb-tablog-line.is-mine .pb-tl-bubble { border-color: color-mix(in srgb, var(--color-warm-2, #c9a45c) 55%, var(--color-border)); }
+.pb-tablog .pb-tablog-line.is-quote .pb-tl-bubble p { font-style: italic; }
+.pb-tablog .pb-tablog-line.is-waiting .pb-tl-bubble, .pb-tablog .pb-tablog-line.is-saving .pb-tl-bubble { border-style: dashed; opacity: .7; }
+.pb-tablog .pb-tl-icons { display: flex; flex-direction: column; align-items: center; gap: 3px; padding-top: 4px; font-size: var(--font-size-11); color: var(--color-text-secondary); }
+.pb-tablog .pb-tl-icons a { color: var(--color-text-secondary); margin: 0; }
+.pb-tablog .pb-tl-chip { display: inline-flex; align-items: center; gap: 3px; padding: 0 5px; border-radius: 3px; font-weight: 600; white-space: nowrap;
+  background: color-mix(in srgb, var(--pb-tl-c) 18%, transparent); color: color-mix(in srgb, var(--pb-tl-c) 70%, var(--color-text-primary)); }
+.pb-tablog .pb-tl-chip i { font-size: .8em; }
+.pb-tablog .is-person { --pb-tl-c: #6aa9e9; } .pb-tablog .is-place { --pb-tl-c: #5fbf8f; }
+.pb-tablog .is-loot { --pb-tl-c: #e0b24a; } .pb-tablog .is-question { --pb-tl-c: #c48ad6; }
+.pb-tablog .pb-tl-q { color: #c48ad6; }
+.pb-tablog .pb-tablog-empty { flex: 1; display: grid; place-items: center; font-size: 46px; color: var(--color-text-secondary); opacity: .25; min-height: 120px; }
+.pb-tablog .pb-tablog-marks { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.pb-tablog .pb-tablog-marks button { display: flex; flex-direction: column; align-items: center; gap: 0; width: auto; min-height: 0; padding: 3px 2px; line-height: 1.2;
+  border-color: color-mix(in srgb, var(--pb-tl-c) 45%, var(--color-border)); background: color-mix(in srgb, var(--pb-tl-c) 10%, transparent); }
+.pb-tablog .pb-tablog-marks button b { font-size: var(--font-size-14); color: var(--pb-tl-c); }
+.pb-tablog .pb-tablog-marks button i { display: none; }
+.pb-tablog .pb-tablog-marks button span { font-size: var(--font-size-10, 10px); color: var(--color-text-secondary); }
+.pb-tablog .pb-tablog-off { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; height: 100%; color: var(--color-text-secondary); }
+.pb-tablog .pb-tablog-off > i:first-child { font-size: 46px; opacity: .3; }
+.pb-tablog .pb-tablog-off .pb-tl-sleep { position: absolute; transform: translate(26px, -30px); font-size: 16px; opacity: .6; }
+.pb-tablog .pb-tablog-off span { font-size: var(--font-size-12); }
+.pb-tablog .pb-tablog-list { overflow-x: hidden; }
+.pb-tablog .pb-tl-chip { white-space: normal; }
+.pb-tablog .pb-tablog-form textarea { resize: none; min-height: 3.2em; }
+.pb-tablog .pb-tablog-just { display: inline-flex; align-items: center; gap: 4px; font-size: var(--font-size-12); color: var(--color-text-secondary); }
+/* 2026-11-18 v4: the ONE list — Session Over's recap look (.pb-so-*, styles/session-over.css) in the sidebar. */
+.pb-tablog.pb-session-over { padding: 6px 8px; }
+.pb-tablog .pb-tl-head { display: flex; align-items: center; gap: 8px; flex: none; }
+.pb-tablog .pb-tl-head h4 { flex: 1; margin: 0; border: 0; font-size: var(--font-size-16, 16px); color: var(--color-text-emphatic); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pb-tablog .pb-tl-head h4 span { font-size: var(--font-size-12); font-weight: 400; color: var(--color-text-secondary); margin-left: 4px; }
+.pb-tablog .pb-tl-live { font-size: 8px; color: var(--color-level-success, #3ba55d); }
+.pb-tablog .pb-tl-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 2px 2px 8px 0; }
+/* the sidebar is narrow: the writer is their picture (name on hover); a ✕ for your own fresh lines */
+.pb-tablog.pb-session-over .pb-so-recap li.pb-so-line, .pb-tablog.pb-session-over .pb-so-recap:not(:has(.pb-so-vis)) li.pb-so-line { grid-template-columns: 0.85rem minmax(0, 1fr) auto auto auto; gap: 0.4rem; }
+.pb-tablog.pb-session-over .pb-so-whoname { display: none; }
+.pb-tablog .pb-tl-x { font-size: var(--font-size-11); color: var(--pb-so-faint); opacity: 0; transition: opacity 120ms ease; }
+.pb-tablog li.pb-so-line:hover .pb-tl-x { opacity: 1; }
+.pb-tablog li.pb-so-line.is-waiting .pb-so-text, .pb-tablog li.pb-so-line.is-saving .pb-so-text { opacity: 0.55; }
+.pb-tablog li.pb-so-line.is-quote .pb-so-text { font-style: italic; }
+.pb-tablog li.pb-so-line .pb-so-edit { grid-column: 2 / span 2; width: 100%; }
+.pb-tablog .pb-tl-empty, .pb-tablog .pb-tl-off { padding: 12px 4px; text-align: center; }
+/* Keep / GM / Drop: one small tag, always there on lines you may change (Session Over's state tag) */
+.pb-tablog .pb-tl-vis { flex: none; width: auto; min-height: 0; height: 17px; margin: 0; padding: 0 6px; border-radius: 3px; font-size: var(--font-size-10, 10px); font-weight: 600; line-height: 15px; letter-spacing: .02em; cursor: pointer;
+  border: 1px solid var(--color-border, #4a4842); background: transparent; color: var(--color-text-secondary); }
+.pb-tablog .pb-tl-vis.is-public { color: var(--color-light-1, #f7f3e8); background: color-mix(in srgb, var(--color-warm-2, #c9593f) 55%, transparent); border-color: var(--color-warm-2, #c9593f); }
+.pb-tablog .pb-tl-vis.is-drop { opacity: .7; }
+.pb-tablog .pb-tl-vis:hover { border-color: var(--color-text-secondary); }
+/* the box = Foundry's chat input: the roll-privacy button row (ui-control, Foundry's own colours as the fallback),
+   then the dark message panel with its centred italic placeholder */
+.pb-tablog .pb-tl-compose { flex: none; display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.pb-tablog .pb-tl-controls { display: flex; justify-content: space-between; }
+.pb-tablog .pb-tl-controls .control-buttons { display: flex; gap: 4px; }
+.pb-tablog .pb-tl-controls button.ui-control { --control-size: 32px; width: var(--control-size); height: var(--control-size); min-height: 0; margin: 0; padding: 0; display: grid; place-items: center;
+  background: var(--control-bg-color, rgba(11, 10, 19, .75)); border: 1px solid var(--control-border-color, #302831); border-radius: 4px;
+  color: var(--control-icon-color, #efe6d8); font-size: var(--font-size-16, 16px); transition: border .25s, color .25s; }
+.pb-tablog .pb-tl-controls button.ui-control:hover { background: var(--control-hover-bg-color, #0b0a13); border-color: var(--control-hover-border-color, #584a75); color: var(--control-hover-icon-color, #f7f3e8); }
+.pb-tablog .pb-tl-controls button.ui-control[aria-pressed=true] { background: var(--control-active-bg-color, #0b0a13); border-color: var(--control-active-border-color, #c9593f); color: var(--control-active-icon-color, #f7f3e8); }
+.pb-tablog textarea.pb-tl-input { width: 100%; height: 96px; min-height: 0; margin: 0; padding: 6px 8px; resize: none; box-sizing: border-box;
+  background: var(--color-cool-5, #0b0a13); border: 2px solid var(--color-cool-4, #302831); border-radius: 8px;
+  color: var(--color-text-primary, #efe6d8); font-family: var(--font-body); font-size: var(--font-size-14, 14px); line-height: 1.4; transition: box-shadow 250ms, outline 250ms; }
+.pb-tablog textarea.pb-tl-input:focus { outline: none; box-shadow: 0 0 6px var(--color-warm-1, #ee9b3a); }
+.pb-tablog textarea.pb-tl-input:placeholder-shown { padding-top: 36px; text-align: center; }
+.pb-tablog textarea.pb-tl-input::placeholder { font-size: var(--font-size-16, 16px); font-style: italic; color: var(--color-light-5, #9f8475); opacity: 1; }
+.pb-tablog .pb-tl-compose.is-private textarea.pb-tl-input { border-style: dashed; }
+/* the marks: one faint line of hints (RealmScreen's capture-box pattern) — hover brightens, click puts the mark in */
+.pb-tablog .pb-tl-marksbtn span { font-size: var(--font-size-11, 11px); font-weight: 700; letter-spacing: -.02em; }
+.pb-tablog .pb-tl-hints { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 0 1px; margin: -2px 0 -2px; opacity: .72; transition: opacity .15s; }
+.pb-tablog .pb-tl-hints:hover { opacity: 1; }
+.pb-tablog .pb-tl-hint { width: auto; min-height: 0; height: auto; margin: 0; padding: 1px 4px; display: inline-flex; align-items: baseline; gap: 2px; border: 0; border-radius: 3px;
+  background: none; box-shadow: none; font: inherit; font-size: var(--font-size-11, 11px); line-height: 1.5; color: var(--color-text-secondary, #9f8475); cursor: pointer; }
+.pb-tablog .pb-tl-hint:hover { color: var(--color-text-primary, #efe6d8); background: rgba(255, 255, 255, .06); }
+.pb-tablog .pb-tl-hint b { font-family: var(--font-mono, ui-monospace, monospace); font-weight: 700; color: var(--control-active-border-color, var(--color-warm-2, #c9593f)); }
+/* Players | GM — the segmented switch from RealmScreen (the user's pick, 2026-11-18): one dark rounded track,
+   the chosen side a lighter grey with bright bold text, the other faint */
+.pb-tablog .pb-tl-seg { display: inline-flex; align-items: stretch; height: 32px; padding: 3px; gap: 0; border-radius: 6px; box-sizing: border-box;
+  background: var(--control-bg-color, rgba(11, 10, 19, .75)); border: 1px solid var(--control-border-color, #302831); }
+.pb-tablog .pb-tl-seg > button { width: auto; min-height: 0; height: auto; margin: 0; padding: 0 12px; border: 0; border-radius: 4px; background: none; box-shadow: none;
+  font-family: var(--font-body); font-size: var(--font-size-13, 13px); font-weight: 700; line-height: 1; color: var(--color-text-secondary, #9f9a92); cursor: pointer; transition: background .15s, color .15s; }
+.pb-tablog .pb-tl-seg > button:hover:not(.active) { color: var(--color-text-primary, #efe6d8); }
+.pb-tablog .pb-tl-seg > button.active { background: rgba(255, 255, 255, .2); color: var(--color-light-1, #f7f3e8); }
+/* the switch on each line: a small Players | GM | Drop at the far right; text column takes the rest */
+.pb-tablog.pb-session-over .pb-so-recap li.pb-tl-line { grid-template-columns: 0.85rem minmax(0, 1fr) auto auto auto; }
+.pb-tablog .pb-tl-seg--sm { order: 9; height: 22px; padding: 2px; border-radius: 5px; justify-self: end; }
+.pb-tablog .pb-tl-seg--sm > button { padding: 0 6px; font-size: var(--font-size-10, 10px); border-radius: 3px; }
+.pb-tablog .pb-tl-seg > button:disabled { cursor: default; }
+.pb-tablog .pb-tl-seg > button:disabled:not(.active) { opacity: .35; }
+/* GM lines: tinted for the two who can see them; Drop: greyed and crossed out (Session Over already fades it) */
+.pb-tablog li.pb-tl-line.is-dm { background: rgba(255, 255, 255, .03); border-radius: 4px; }
+.pb-tablog li.pb-tl-line.is-drop .pb-so-text { text-decoration: line-through; opacity: .45; }
+.pb-tablog li.pb-tl-line.is-drop .pb-so-whochip { opacity: .45; }
+/* each line = the words across the full width, then a slim row: who wrote it on the left, Players | GM | Drop far right */
+.pb-tablog.pb-session-over .pb-so-recap li.pb-tl-line { grid-template-columns: 0.85rem minmax(0, 1fr) auto; grid-template-rows: auto auto; row-gap: 2px; align-items: center; padding-bottom: 3px; }
+.pb-tablog li.pb-tl-line > .pb-so-dot { grid-column: 1; grid-row: 1; align-self: start; margin-top: 0.3rem; }
+.pb-tablog li.pb-tl-line > .pb-so-text { grid-column: 2 / span 2; grid-row: 1; }
+.pb-tablog li.pb-tl-line > .pb-so-whochip { grid-column: 2; grid-row: 2; justify-self: start; }
+.pb-tablog.pb-session-over li.pb-tl-line .pb-so-whoname { display: inline; }
+.pb-tablog li.pb-tl-line > .pb-tl-x { grid-column: 2; grid-row: 2; justify-self: end; margin-right: 4px; }
+.pb-tablog li.pb-tl-line > .pb-tl-seg--sm { grid-column: 3; grid-row: 2; height: 20px; }
