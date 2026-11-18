@@ -21,7 +21,7 @@
 
 import { mySlice, onSlice, setFull, fullTableLog, sendOp } from "./private.js"
 import { realmLive } from "./live.js"
-import { cleanLog, noteCommand, canUndo, canEdit, chatText } from "./table-log-model.js"
+import { cleanLog, noteCommand, canUndo, canEdit, chatText, activeMark, suggestNames, completeMark } from "./table-log-model.js"
 
 const MOD = "pendant-bridge"
 const CHANNEL = `module.${MOD}`
@@ -194,13 +194,14 @@ function tabHtml() {
         </div>
       </div>
       ${sheetOpen ? sheetHtml() : ""}
-      <textarea name="note" class="pb-tl-input" placeholder="${boxVis === "dm" ? "Just for the GM…" : "What just happened?"}"></textarea>
+      <div class="pb-tl-inputwrap"><ul class="pb-tl-suggest" role="listbox" aria-label="Names" hidden></ul><textarea name="note" class="pb-tl-input" placeholder="${boxVis === "dm" ? "Just for the GM…" : "What just happened?"}"></textarea></div>
     </form>`
 }
 
 // The marks, as ONE faint line of hints — RealmScreen's own capture box pattern (SessionCapture.jsx CaptureHints:
 // "@ person  # place  $ loot …", hover brightens, click puts the mark in). The user, 2026-11-18: the boxed cheat
-// sheet was "bulky and ugly". A player's line can't be GM / prep / a clock step, so they get the first six.
+// sheet was "bulky and ugly". A player's line can't be GM-only (~); time marks move the clock for anyone
+// (the user, 2026-11-18: "players time marks can move the clock. and always do, unless dropped").
 const MARKS = [
   ["@", "person", "Someone you met: @Varek"],
   ["#", "place", "Somewhere: #Saltreach"],
@@ -208,10 +209,10 @@ const MARKS = [
   ["?", "question", "Something to find out: ?who sent the letter"],
   ["!", "thread", "A hook to follow up later"],
   ["\u201C", "quote", "Word for word: \u201C\u2026\u201D @Who said it"],
+  ["+2h", "time", "Time passing: +2h, +1d, +1w. Moves the clock now; dropping the line moves it back"],
 ]
 const GM_MARKS = [
   ["~", "GM only", "Start the line with ~: never reaches the players"],
-  ["+2h", "time", "Time passing: +2h, +1d, +1w"],
 ]
 const SHEET_KEY = `${MOD}.tablelogMarks`
 let sheetOpen = (() => { try { return localStorage.getItem(SHEET_KEY) !== "0" } catch { return true } })()   // shown until hidden
@@ -286,8 +287,12 @@ function wire(root, refocus = false, caret = null) {
   if (list) list.scrollTop = keepScroll != null && (editing || inserting) ? keepScroll : list.scrollHeight
   if (!ta) return
   ta.value = draft
-  ta.addEventListener("input", () => { draft = ta.value })
-  ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(root) } })
+  const sug = wireSuggest(root, ta)
+  ta.addEventListener("input", () => { draft = ta.value; sug.update() })
+  ta.addEventListener("keydown", (e) => {
+    if (sug.key(e)) return
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(root) }
+  })
   root.querySelector("form.pb-tl-compose")?.addEventListener("submit", (e) => { e.preventDefault(); submit(root) })
   // the in-place fields: change a line's words / put a line in between (Enter or leaving saves, Esc cancels)
   const field = root.querySelector("input.pb-so-edit")
@@ -312,7 +317,54 @@ function wire(root, refocus = false, caret = null) {
     field.focus(); field.setSelectionRange(field.value.length, field.value.length)
     return
   }
-  if (refocus) { ta.focus(); if (caret) ta.setSelectionRange(caret[0], caret[1]) }
+  if (refocus) { ta.focus(); if (caret) ta.setSelectionRange(caret[0], caret[1]); sug.update() }
+}
+
+// @ / # suggestions under the caret: only the names RealmScreen says this user may see (the user, 2026-11-18:
+// "only people the user is allowed to know / isn't hidden from"). ↑↓ pick, Enter / Tab put it in, Esc closes.
+function myNames() {
+  const book = myLog()?.names || {}
+  return isGM() ? arr(book.gm) : arr(book[game.user?.id])
+}
+function wireSuggest(root, ta) {
+  const ul = root.querySelector(".pb-tl-suggest")
+  let items = [], pick = 0, mark = null
+  const close = () => { items = []; mark = null; if (ul) { ul.hidden = true; ul.replaceChildren() } }
+  const draw = () => {
+    if (!ul) return
+    if (!items.length) return close()
+    ul.innerHTML = items.map((x, i) => `<li role="option" class="pb-tl-sug${i === pick ? " active" : ""}" aria-selected="${i === pick}" data-i="${i}"><i class="fa-solid ${x.t === "l" ? "fa-location-dot" : "fa-user"}" inert></i><span>${esc(x.n)}</span></li>`).join("")
+    ul.hidden = false
+  }
+  const choose = (x) => {
+    if (!x || !mark) return
+    const r = completeMark(ta.value, mark, x.n)
+    ta.value = r.text; draft = r.text
+    ta.focus(); ta.setSelectionRange(r.caret, r.caret)
+    close()
+  }
+  const update = () => {
+    mark = ta.selectionStart === ta.selectionEnd ? activeMark(ta.value, ta.selectionStart) : null
+    items = mark ? suggestNames(myNames(), mark, { own: isGM() ? "" : str(game.user?.character?.name) }) : []
+    pick = 0
+    draw()
+  }
+  ul?.addEventListener("mousedown", (e) => {
+    const li = e.target.closest?.("li[data-i]")
+    if (!li) return
+    e.preventDefault()   // keep the caret in the box
+    choose(items[Number(li.dataset.i)])
+  })
+  ta.addEventListener("click", update)
+  ta.addEventListener("blur", () => setTimeout(close, 120))
+  const key = (e) => {
+    if (!items.length) return false
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); pick = (pick + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length; draw(); return true }
+    if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); choose(items[pick]); return true }
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); return true }
+    return false
+  }
+  return { update, key, close }
 }
 
 let drawT = 0

@@ -136,3 +136,13 @@
 .pb-tablog li.pb-tl-line > .pb-tl-seg--sm { grid-column: 3; grid-row: 1; }
 .pb-tablog li.pb-tl-line > .pb-so-text { grid-column: 2 / span 2; grid-row: 2; }
 .pb-tablog li.pb-tl-line > .pb-so-dot { grid-row: 1; align-self: center; margin-top: 0; }
+/* @ / # suggestions: a small Foundry-dark list right above the box (only names this user may see) */
+.pb-tablog .pb-tl-inputwrap { position: relative; flex: none; }
+.pb-tablog .pb-tl-suggest { position: absolute; left: 0; right: 0; bottom: calc(100% + 4px); z-index: 5; margin: 0; padding: 3px; list-style: none;
+  border-radius: 6px; background: var(--color-cool-5, #0b0a13); border: 1px solid var(--control-border-color, #302831); box-shadow: 0 4px 14px rgba(0, 0, 0, .5); }
+.pb-tablog .pb-tl-suggest[hidden] { display: none; }
+.pb-tablog .pb-tl-sug { display: flex; align-items: center; gap: 7px; padding: 3px 7px; border-radius: 4px; cursor: pointer;
+  font-size: var(--font-size-13, 13px); color: var(--color-text-primary, #efe6d8); }
+.pb-tablog .pb-tl-sug i { width: 12px; text-align: center; font-size: 10px; color: var(--color-text-secondary, #9f8475); }
+.pb-tablog .pb-tl-sug:hover, .pb-tablog .pb-tl-sug.active { background: rgba(255, 255, 255, .08); }
+.pb-tablog .pb-tl-sug.active i { color: var(--control-active-border-color, var(--color-warm-2, #c9593f)); }

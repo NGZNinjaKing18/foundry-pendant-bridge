@@ -14,6 +14,66 @@
 const str = (v) => (typeof v === "string" ? v.trim() : "")
 const arr = (v) => (Array.isArray(v) ? v : [])
 
+// ── @ / # suggestions ─────────────────────────────────────────
+// RealmScreen sends `names` = { gm: [...], [userId]: [...] } of { n: name, t: "p" person | "l" place }:
+// each player's list holds only what the Directory lets them see (lib/foundryTableLog.js nameLists).
+const cleanNames = (v) => arr(v).filter(x => x && str(x.n)).slice(0, 800).map(x => ({ n: str(x.n).slice(0, 80), t: x.t === "l" ? "l" : "p" }))
+function cleanNameBook(v) {
+  const out = {}
+  if (!v || typeof v !== "object") return out
+  for (const [k, list] of Object.entries(v).slice(0, 80)) if (str(k)) out[str(k)] = cleanNames(list)
+  return out
+}
+const normName = (s) => String(s ?? "").replace(/\s+/g, " ").trim().toLowerCase()
+
+/** The unfinished @ / # the caret is in (RealmScreen's captureCompose activeMark rule), or null. */
+export function activeMark(text, caret = String(text ?? "").length) {
+  const t = String(text ?? "").slice(0, caret)
+  const m = /(^|[\s("'\u201C])(@|#)(\[?)([^\]\n@#]*)$/.exec(t)
+  if (!m || m[4].startsWith("+")) return null
+  const query = m[4]
+  if (!m[3]) {   // unbracketed: the mark ends at the first word that isn't Capitalised
+    const words = query.split(/\s+/)
+    if (words.slice(0, -1).some(w => w && !/^[A-Z\u00C0-\u024F]/.test(w))) return null
+    if (/\s$/.test(query) && query.trim() && !/[A-Z\u00C0-\u024F]/.test(query.trim()[0] || "")) return null
+  }
+  return { type: m[2] === "#" ? "place" : "person", query: query.replace(/^\s+/, ""), start: m.index + m[1].length, end: caret }
+}
+
+/** Names to offer for a mark, best first: `own` (the player's character) leads for @. → [{ n, t }] */
+export function suggestNames(names, mark, { own = "", limit = 6 } = {}) {
+  if (!mark) return []
+  const kind = mark.type === "place" ? "l" : "p"
+  const q = normName(mark.query)
+  const fits = (n) => !q || normName(n).startsWith(q) || normName(n).split(/[\s[\]()-]+/).some(w => w.startsWith(q))
+  const pool = [...(kind === "p" && str(own) ? [{ n: str(own), t: "p" }] : []), ...arr(names).filter(x => x && x.t === kind)]
+  const out = [], seen = new Set()
+  for (const x of pool) {
+    const k = normName(x.n)
+    if (!k || seen.has(k) || !fits(x.n)) continue
+    if (q && k === q) continue   // already typed in full
+    seen.add(k); out.push(x)
+    if (out.length >= limit) break
+  }
+  return out
+}
+
+/** The form a chosen name goes in as: @Name, or @[two words] when a word isn't Capitalised. */
+export function markFor(type, name) {
+  const key = type === "place" ? "#" : "@"
+  const n = String(name ?? "").replace(/\s+/g, " ").trim()
+  const plain = n.split(" ").every(w => /^[A-Z\u00C0-\u024F]/.test(w)) && !/[\][]/.test(n)
+  return key + (plain ? n : `[${n}]`)
+}
+
+/** Replace the active mark with the chosen name. → { text, caret } */
+export function completeMark(text, mark, name) {
+  const before = String(text ?? "").slice(0, mark.start)
+  const after = String(text ?? "").slice(mark.end).replace(/^[^\s,.;:]*/, "")
+  const token = markFor(mark.type, name) + " "
+  return { text: before + token + after.replace(/^\s+/, ""), caret: (before + token).length }
+}
+
 /** A log from RealmScreen, cleaned (unknown fields dropped, sizes capped). */
 export function cleanLog(log) {
   if (!log || typeof log !== "object" || !log.live || !str(log.live.campaignId)) return null
@@ -23,6 +83,7 @@ export function cleanLog(log) {
     showLog: log.showLog !== false,
     justMe: log.justMe !== false,
     wait: !!log.wait,
+    names: cleanNameBook(log.names),
     lines: arr(log.lines).filter(l => l && str(l.id)).slice(-200).map(l => ({
       id: str(l.id), ts: Number(l.ts) || 0, when: str(l.when).slice(0, 80),
       text: String(l.text ?? "").slice(0, 600),
@@ -48,6 +109,7 @@ export function logFor(log, uid) {
   return {
     ...l,
     users: [uid],
+    names: { [uid]: l.names[uid] || [] },      // only the names this player may see — never the GM's list
     // their own lines (any), else what is Keep (Public) — the GM's too (the user: "my lines if not designated GM
     // should be shown to everyone"); never a GM / Drop line of someone else, never someone's "Only me + GM"
     // Dropped lines stay for everyone (greyed, crossed out — anyone can bring one back); GM lines only for the writer.

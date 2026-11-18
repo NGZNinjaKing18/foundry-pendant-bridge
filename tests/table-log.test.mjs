@@ -84,3 +84,25 @@ test("anyone seated may press Players / GM / Drop on a line they can see; a GM l
   assert.equal(canSetVis({ id: "a", uid: "u2", vis: "dm" }, "u2", false), true)
   assert.equal(canSetVis({ id: "a", uid: "u2", vis: "dm" }, "gm", true), true)
 })
+
+// @ / # suggestions (the user, 2026-11-18: only names the user may see)
+const { activeMark, suggestNames, completeMark } = await import("../scripts/table-log-model.js")
+test("each player gets only their own name list, never the GM's", () => {
+  const withNames = { ...log, names: { gm: [{ n: "Secret Lich", t: "p" }, { n: "Varek", t: "p" }], u1: [{ n: "Varek", t: "p" }], u2: [{ n: "Saltreach", t: "l" }] } }
+  assert.deepEqual(logFor(withNames, "u1").names, { u1: [{ n: "Varek", t: "p" }] })
+  assert.deepEqual(logFor(withNames, "u2").names, { u2: [{ n: "Saltreach", t: "l" }] })
+  assert.ok(!JSON.stringify(slicesOf({ tablelog: withNames }, ["u1", "u2"]).u1 || {}).includes("Secret Lich"))
+  assert.equal(cleanLog(withNames).names.gm.length, 2)
+})
+test("@ / # under the caret, and what it offers", () => {
+  assert.deepEqual(activeMark("we met @Va"), { type: "person", query: "Va", start: 7, end: 10 })
+  assert.equal(activeMark("we met @Varek and then"), null)
+  assert.equal(activeMark("@+New"), null)
+  assert.equal(activeMark("off to #Sal").type, "place")
+  const names = [{ n: "Varek", t: "p" }, { n: "Vala the Grey", t: "p" }, { n: "Saltreach", t: "l" }]
+  assert.deepEqual(suggestNames(names, activeMark("@va")).map(x => x.n), ["Varek", "Vala the Grey"])
+  assert.deepEqual(suggestNames(names, activeMark("#")).map(x => x.n), ["Saltreach"])
+  assert.deepEqual(suggestNames(names, activeMark("@N"), { own: "Nira" }).map(x => x.n), ["Nira"])
+  assert.deepEqual(completeMark("hi @Va", activeMark("hi @Va"), "Vala the Grey"), { text: "hi @[Vala the Grey] ", caret: 20 })
+  assert.deepEqual(completeMark("hi @Va", activeMark("hi @Va"), "Varek"), { text: "hi @Varek ", caret: 10 })
+})

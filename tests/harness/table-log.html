@@ -182,7 +182,9 @@ async function push() {
     g.rows.push({ id: l.id, ts: l.ts, text: l.label, who: l.auto ? l.auto : l.by ? `${l.by.name} as ${l.by.character}` : "DM", by: l.by, auto: !!l.auto, kind: l.kind, vis: l.vis || (l.by || l.auto ? "public" : "dm"), dayKey: key })
   }
   const just = new Map(lines.filter(l => l.just).map(l => [l.id, l.just]))
-  await asGM(() => tl.setTableLog(T.buildTableLog({ live: liveRec(), campaign, seated, groups, just, pending })))
+  const nm = (e) => ({ n: e.name, t: e.type === "character" ? "p" : "l" })
+  const names = { gm: entities.map(nm), ...Object.fromEntries(seated.map(u => [u, entities.filter(e => !e.secret).map(nm)])) }
+  await asGM(() => tl.setTableLog(T.buildTableLog({ live: liveRec(), campaign, seated, groups, just, pending, names })))
   await new Promise(r => setTimeout(r, 400))
   resetSlice()
 }
