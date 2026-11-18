@@ -29,15 +29,16 @@ li[data-entry-id] a.entry-name { position: relative; margin: auto; font-size: 18
 </section>
 <script type="module">
 const pic = (c) => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="300" height="80"><rect width="300" height="80" fill="${c}"/><rect x="40" y="10" width="220" height="60" fill="#0005"/></svg>`)
-const folders = [{ id: "f0", name: "Chronicles of Albuna", c: "#12942f", kids: ["f1"] }, { id: "f1", name: "Battle Maps", c: "#d9434a", kids: ["f2"] }, { id: "f2", name: "indoor", c: "#e8a33a", kids: [], pictures: true }]
+const folders = [{ id: "f0", name: "Chronicles of Albuna", c: "#12942f", kids: ["f3", "f1"] }, { id: "f3", name: "Tonight", c: "#8a3fd6", kids: [], fast: { on: true, scenes: ["s5", "s2"] } }, { id: "f1", name: "Battle Maps", c: "#d9434a", kids: ["f2"] }, { id: "f2", name: "indoor", c: "#e8a33a", kids: [], pictures: true }]
 const scenes = [["s1", "Academy: Metal Depot", "#556", ["battlemap", "indoors"]], ["s2", "Ad verticem Map", "#433", ["battlemap"]], ["s3", "B-room", "#445", ["indoors"]], ["s4", "Ball room", "#733", ["battlemap", "indoors"]], ["s5", "Courtyard Default", "#454", ["outside"]]]
 const sceneObjs = scenes.map(([id, name, c, tags]) => ({ id, name, thumb: pic(c), flags: { "pendant-bridge": { tags } } }))
 for (let i = 0; i < 180; i++) sceneObjs.push({ id: "x" + i, name: "x" + i, flags: { "pendant-bridge": { tags: ["tag" + (i % 170)] } } })
 const S = new Map(sceneObjs.map(s => [s.id, s])); S.contents = sceneObjs
-const F = new Map(folders.map(f => [f.id, { ...f, type: "Scene", flags: { "pendant-bridge": { dir: { pictures: !!f.pictures } } } }]))
+const F = new Map(folders.map(f => [f.id, { ...f, type: "Scene", flags: { "pendant-bridge": { dir: { pictures: !!f.pictures }, ...(f.fast ? { fast: f.fast } : {}) } } }]))
+for (const f of F.values()) f.setFlag = async (m, k, v) => { f.flags[m][k] = v; (await import("../../scripts/scene-dir.js"))._test.decorate(document.getElementById("scenes")) }
 globalThis.Hooks = { on() {}, once() {}, callAll() {} }
-globalThis.game = { scenes: Object.assign(S, { active: sceneObjs[1] }), folders: F, user: { getFlag: () => ["s4"] }, settings: { get: () => ["s3", "s5"] } }
-globalThis.ui = {}
+globalThis.ui = { notifications: { warn: (m) => console.warn(m) } }
+globalThis.game = { scenes: Object.assign(S, { active: sceneObjs[1] }), folders: F, user: { isGM: true, getFlag: () => ["s4"] }, settings: { get: (m, k) => (k === "clockLive" ? true : ["s3", "s5"]) }, users: { get: () => null, some: () => true } }
 const entry = ([id, name, c]) => `<li class="directory-item entry document scene" data-entry-id="${id}" style="position:relative"><img class="thumbnail" src="${pic(c)}"><a class="entry-name">${name}</a></li>`
 const folder = (f) => `<li class="directory-item folder flexcol expanded" data-folder-id="${f.id}"><header class="folder-header" style="background-color: ${f.c};"><i class="fa-solid fa-folder-open fa-fw"></i><span class="folder-name ellipsis">${f.name}</span></header>
   <ol class="subdirectory plain" style="border-left-color: ${f.c};">${f.kids.map(k => folder(folders.find(x => x.id === k))).join("")}${f.id === "f2" || f.id === "f0" ? scenes.map(entry).join("") : ""}</ol></li>`

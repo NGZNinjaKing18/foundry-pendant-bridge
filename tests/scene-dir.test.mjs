@@ -38,3 +38,14 @@ test("tag row: most-used first, capped, picked one kept, rest A–Z", async () =
   assert.deepEqual(tagRows(scenes, "zz", 2), { shown: ["Town", "Battle", "zz"], rest: ["aa", "Cave"] })
   assert.deepEqual(tagRows([], null), { shown: [], rest: [] })
 })
+
+test("fast folders: state, add (no repeats), remove, and what a drop carries", async () => {
+  const { fastOf, fastAdd, fastRemove, droppedSceneId } = await import("../scripts/scene-dir.js")
+  assert.deepEqual(fastOf({}), { on: false, scenes: [] })
+  assert.deepEqual(fastOf({ flags: { "pendant-bridge": { fast: { on: true, scenes: ["a", "a", "b", ""] } } } }), { on: true, scenes: ["a", "b"] })
+  assert.deepEqual(fastAdd(["a"], "b"), ["a", "b"]); assert.deepEqual(fastAdd(["a"], "a"), ["a"])
+  assert.deepEqual(fastRemove(["a", "b"], "a"), ["b"])
+  assert.equal(droppedSceneId(JSON.stringify({ type: "Scene", uuid: "Scene.abc" })), "abc")
+  assert.equal(droppedSceneId(JSON.stringify({ type: "Actor", uuid: "Actor.x" })), null)
+  assert.equal(droppedSceneId("not json"), null)
+})

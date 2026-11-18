@@ -5,7 +5,12 @@
 //   Top strip   Live + pinned scenes, then Recent (this account's last scenes), as small pictures; click = view,
 //               right-click = Foundry's own scene menu (as on the scene's row).
 //               Tags (the scenes' own flags[MOD].tags, set from RealmScreen's sorter) filter the tree below.
-//   Pin         a ★ on each scene row (shown on hover, stays lit when pinned). Pins are per account (user flag).
+//   Pin         a ★ on each scene row (shown on hover, stays lit when pinned), or right-click a scene → Pin to
+//               the top / Unpin. Pins are per account (user flag).
+//   Fast folder a folder whose scenes aren't really in it: each still lives in its real folder and ALSO shows here,
+//               as a full scene row (right-click, click, drag out — all as the real one). Drop a scene on a fast
+//               folder to add it; right-click a copy → Remove from fast folder. Made with a Scene folder's
+//               right-click → Make fast folder (or its Edit Folder window). flags[MOD].fast = { on, scenes: [ids] }.
 //   Folders     quiet look: the folder colour is a thin left edge + the folder icon, not a full bar.
 //               Each folder has two switches in its own Edit Folder window:
 //                 • Show as pictures — its scenes as a 2-wide picture grid (concept C) instead of rows
@@ -58,6 +63,23 @@ export function dirOf(folder) {
   const d = folder?.flags?.[MOD]?.dir ?? folder?.getFlag?.(MOD, "dir") ?? {}
   return { pictures: !!d.pictures, bar: d.bar !== false }   // the coloured bar is on unless switched off (the user, 2026-11-17)
 }
+/** A folder's fast-folder state: { on, scenes } (scene ids, in the order added, no repeats). */
+export function fastOf(folder) {
+  const f = folder?.flags?.[MOD]?.fast ?? folder?.getFlag?.(MOD, "fast") ?? {}
+  const scenes = Array.isArray(f.scenes) ? [...new Set(f.scenes.map(String).filter(Boolean))] : []
+  return { on: !!f.on, scenes }
+}
+export const fastAdd = (ids, id) => (id && !ids.includes(id) ? [...ids, id] : ids)
+export const fastRemove = (ids, id) => ids.filter(x => x !== id)
+/** A Scene from a drag's text/plain JSON ({ type: "Scene", uuid: "Scene.<id>" } or { id }) → its id, else null. */
+export function droppedSceneId(text) {
+  let d = null
+  try { d = JSON.parse(text) } catch { return null }
+  if (!d || d.type !== "Scene") return null
+  const id = d.uuid ? String(d.uuid).split(".").pop() : d.id
+  return id ? String(id) : null
+}
+
 /** The strip's two rows: live + pinned (live first, no repeats, only scenes that still exist), recent (minus those). */
 export function stripRows({ live, pins, recent, exists }) {
   const ok = (id) => !!id && exists(id)
@@ -133,6 +155,22 @@ function decorate(root) {
     li.classList.toggle("pb-bar", d.bar)
   }
 
+  // Fast folders: a copy of each of their scenes' rows, inside them (the real row stays where it is).
+  for (const li of list.querySelectorAll("li.folder[data-folder-id]")) {
+    const f = game.folders?.get(li.dataset.folderId)
+    const fast = fastOf(f)
+    li.classList.toggle("pb-fast", fast.on)
+    for (const old of li.querySelectorAll(":scope > .subdirectory > .pb-fast-copy")) old.remove()
+    const head = li.querySelector(":scope > .folder-header")
+    head?.querySelector(".pb-fast-mark")?.remove()
+    if (!fast.on) continue
+    head?.querySelector(".folder-name")?.insertAdjacentHTML("beforebegin", `<i class="fa-solid fa-bolt pb-fast-mark" data-tooltip="Fast folder" inert></i>`)
+    let sub = li.querySelector(":scope > .subdirectory")
+    if (!sub) { sub = document.createElement("ol"); sub.className = "subdirectory plain"; li.append(sub) }
+    const ids = fast.scenes.filter(id => scenes.get(id)).sort((a, b) => scenes.get(a).name.localeCompare(scenes.get(b).name))
+    for (const id of ids) sub.append(copyRow(list, scenes.get(id)))
+  }
+
   // Scene rows: a pin star (stays lit when pinned).
   const pins = new Set(pinsOf())
   for (const li of list.querySelectorAll("li[data-entry-id]")) {
@@ -151,7 +189,56 @@ function decorate(root) {
   if (!root._pbDir) {
     root._pbDir = true
     root.addEventListener("click", onClick, true)
+    root.addEventListener("drop", onDrop, true)
   }
+}
+
+// A fast folder's row for a scene: Foundry's own row for it, cloned (same classes, picture, name, click action),
+// marked as a copy; dragging it drags the real scene, exactly as the real row does.
+function copyRow(list, scene) {
+  const real = list.querySelector(`li[data-entry-id="${CSS.escape(scene.id)}"]:not(.pb-fast-copy)`)
+  let li
+  if (real) {
+    li = real.cloneNode(true)
+    li.querySelector(":scope > .pb-dir-pin")?.remove()
+    li.classList.remove("pb-dir-out", "context")
+  } else {
+    li = document.createElement("li")
+    li.className = "directory-item entry document scene"
+    li.dataset.entryId = scene.id
+    li.innerHTML = `${scene.thumb ? `<img class="thumbnail" src="${esc(scene.thumb)}" alt="${esc(scene.name)}" loading="lazy">` : ""}<a class="entry-name" data-action="activateEntry">${esc(scene.name)}</a>`
+  }
+  li.classList.add("pb-fast-copy")
+  li.style.display = ""
+  li.draggable = true
+  li.querySelector(".entry-name")?.insertAdjacentHTML("afterbegin", `<i class="fa-solid fa-link pb-fast-link" data-tooltip="Also in its own folder" inert></i>`)
+  li.addEventListener("dragstart", (ev) => {
+    const data = scene.toDragData ? scene.toDragData() : { type: "Scene", uuid: `Scene.${scene.id}` }
+    ev.dataTransfer?.setData("text/plain", JSON.stringify(data))
+  })
+  return li
+}
+
+// Dropping a scene on a fast folder adds it there (the scene stays in its real folder). Caught before Foundry's
+// own drop (which would move the scene into the folder).
+function onDrop(ev) {
+  if (!on() || !game.user?.isGM) return
+  const li = ev.target.closest?.("li.folder.pb-fast[data-folder-id]")
+  if (!li) return
+  const id = droppedSceneId(ev.dataTransfer?.getData("text/plain") || "")
+  ev.preventDefault(); ev.stopPropagation()
+  if (!id) return ui.notifications?.warn("Only scenes go in a fast folder.")
+  const f = game.folders.get(li.dataset.folderId)
+  const fast = fastOf(f)
+  if (fast.scenes.includes(id)) return
+  return f.setFlag(MOD, "fast", { on: true, scenes: fastAdd(fast.scenes, id) }).catch(e => ui.notifications?.warn(e?.message || String(e)))
+}
+async function setFast(folder, on) { await folder.setFlag(MOD, "fast", { ...fastOf(folder), on: !!on }) }
+async function removeFromFast(folderId, sceneId) {
+  const f = game.folders.get(folderId)
+  if (!f) return
+  const fast = fastOf(f)
+  await f.setFlag(MOD, "fast", { ...fast, scenes: fastRemove(fast.scenes, sceneId) })
 }
 
 // Tag filter: hide scene rows without the tag and folders left empty; open the rest.
@@ -199,8 +286,9 @@ function undecorate(root) {
   if (!root) return
   root.classList.remove("pb-dir")
   root.querySelector(".pb-dir-strip")?.remove()
-  for (const el of root.querySelectorAll(".pb-dir-pin")) el.remove()
+  for (const el of root.querySelectorAll(".pb-dir-pin, .pb-fast-copy, .pb-fast-mark")) el.remove()
   for (const el of root.querySelectorAll(".pb-pics, .pb-bar, .pb-dir-out, .pb-dir-open")) el.classList.remove("pb-pics", "pb-bar", "pb-dir-out", "pb-dir-open")
+  for (const el of root.querySelectorAll(".pb-fast")) el.classList.remove("pb-fast")
 }
 
 Hooks.on("renderSceneDirectory", (app, element) => {
@@ -220,6 +308,38 @@ Hooks.on("canvasReady", () => {
   try { game.settings.set(MOD, "sceneRecent", next).then(() => { if (on()) rerender() }) } catch { /* not ready */ }
 })
 
+// ── right-click menus (Foundry's own, on rows, strip pictures and fast-folder copies) ──
+const isScenes = (app) => app?.documentName === "Scene" || app?.constructor?.tabName === "scenes" || app?.id === "scenes"
+Hooks.on("getSceneContextOptions", (app, options) => {
+  if (!Array.isArray(options)) return
+  options.push({
+    label: "Pin to the top", icon: "fa-solid fa-star",
+    visible: (li) => on() && !pinsOf().includes(li.dataset.entryId),
+    onClick: (_ev, li) => togglePin(li.dataset.entryId),
+  }, {
+    label: "Unpin", icon: "fa-regular fa-star",
+    visible: (li) => on() && pinsOf().includes(li.dataset.entryId),
+    onClick: (_ev, li) => togglePin(li.dataset.entryId),
+  }, {
+    label: "Remove from fast folder", icon: "fa-solid fa-link-slash",
+    visible: (li) => on() && !!game.user?.isGM && li.classList.contains("pb-fast-copy"),
+    onClick: (_ev, li) => removeFromFast(li.closest("li.folder[data-folder-id]")?.dataset.folderId, li.dataset.entryId),
+  })
+})
+Hooks.on("getFolderContextOptions", (app, options) => {
+  if (!Array.isArray(options) || !isScenes(app)) return
+  const folderOf = (header) => game.folders.get(header.closest(".directory-item")?.dataset.folderId)
+  options.push({
+    label: "Make fast folder", icon: "fa-solid fa-bolt",
+    visible: (header) => on() && !!game.user?.isGM && !fastOf(folderOf(header)).on,
+    onClick: (_ev, header) => setFast(folderOf(header), true),
+  }, {
+    label: "Make normal folder", icon: "fa-solid fa-folder",
+    visible: (header) => on() && !!game.user?.isGM && fastOf(folderOf(header)).on,
+    onClick: (_ev, header) => setFast(folderOf(header), false),
+  })
+})
+
 // ── the folder's own switches (Edit Folder) ───────────────────
 Hooks.on("renderFolderConfig", (app, element) => {
   const root = element instanceof HTMLElement ? element : element?.[0]
@@ -230,7 +350,8 @@ Hooks.on("renderFolderConfig", (app, element) => {
   box.className = "pb-dir-switches"
   box.innerHTML = `<legend>Scenes sidebar</legend>
     <div class="form-group"><label>Show as pictures</label><div class="form-fields"><input type="checkbox" name="flags.${MOD}.dir.pictures" ${d.pictures ? "checked" : ""}></div></div>
-    <div class="form-group"><label>Coloured bar</label><div class="form-fields"><input type="checkbox" name="flags.${MOD}.dir.bar" ${d.bar ? "checked" : ""}></div></div>`
+    <div class="form-group"><label>Coloured bar</label><div class="form-fields"><input type="checkbox" name="flags.${MOD}.dir.bar" ${d.bar ? "checked" : ""}></div></div>
+    <div class="form-group"><label>Fast folder</label><div class="form-fields"><input type="checkbox" name="flags.${MOD}.fast.on" ${fastOf(folder).on ? "checked" : ""}></div></div>`
   const form = root.matches("form") ? root : root.querySelector("form") || root
   const foot = form.querySelector("footer, .form-footer") || form.querySelector("button[type=submit]")
   if (foot) foot.before(box); else form.append(box)
@@ -238,4 +359,4 @@ Hooks.on("renderFolderConfig", (app, element) => {
 })
 
 // For the render harness (no effect in Foundry).
-export const _test = { decorate, undecorate, applyTag, strip, setTag: (t) => { tagPick = t } }
+export const _test = { decorate, undecorate, applyTag, strip, onDrop, setTag: (t) => { tagPick = t } }
