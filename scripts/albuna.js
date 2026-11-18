@@ -67,13 +67,13 @@ function relabel(root, actor) {
     row ||= input.closest(".currency, .currency-list, ol, ul, .form-fields") || box?.parentElement
     if (NOT_ALBUNA.includes(key)) {
       if (!Number(cur[key])) { box.classList.add("pb-albuna-hide"); continue }
-      box.dataset.tooltip = `${key.toUpperCase()} — not an Albuna coin (kept as it is)`
+      box.dataset.tooltip = `${key.toUpperCase()}: not an Albuna coin (kept as it is)`
       box.classList.add("pb-albuna-foreign")
       continue
     }
     const c = coin(key)
     if (!c) continue
-    box.dataset.tooltip = `${c.label} — ${RATE_TEXT}`
+    box.dataset.tooltip = `${c.label}: ${RATE_TEXT}`
     input.setAttribute("aria-label", c.label)
     if (box.getAttribute("aria-label")) box.setAttribute("aria-label", c.label)   // dnd5e 6: <label aria-label="Copper">…</label>
     input.placeholder = c.abbr
@@ -96,7 +96,7 @@ function relabel(root, actor) {
   mark.type = "button"
   mark.className = "pb-albuna-mark"
   mark.dataset.tooltip = `Albuna coins: ${RATE_TEXT}. Click to change coins up.`
-  mark.setAttribute("aria-label", "Albuna coins — change up")
+  mark.setAttribute("aria-label", "Albuna coins: change up")
   mark.innerHTML = '<i class="fa-solid fa-coins" inert></i> Albuna'
   mark.disabled = !actor.isOwner
   mark.addEventListener("click", async (ev) => {
