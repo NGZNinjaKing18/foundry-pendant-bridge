@@ -36,3 +36,10 @@ test("a player may ask for Next day (next day, 6 am) — nothing else", () => {
   assert.equal(clock.onClockAsk({ t: "clock.ask", user: "p1", msg: { days: 2, hours: 0, atHour: 6 } }), false)
   assert.equal(clock.onClockAsk({ t: "clock.ask", user: "nobody", msg: { days: 1, hours: 0, atHour: 6 } }), false)
 })
+
+test("Play / Pause from another GM window is passed on; a player's never", () => {
+  live.setLinked(true)
+  assert.equal(clock.onClockAsk({ t: "clock.ask", user: "gm2", msg: { type: "clock.play", on: true } }), true)
+  assert.deepEqual(sent.at(-1), { type: "clock.play", on: true })
+  assert.equal(clock.onClockAsk({ t: "clock.ask", user: "p1", msg: { type: "clock.play", on: true } }), false)
+})

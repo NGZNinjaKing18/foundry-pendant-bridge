@@ -35,3 +35,8 @@ test("a player is asked first; the GM isn't", async () => {
   assert.equal(await confirmAct("nextDay", false), true)
   assert.equal(asked, 2)
 })
+
+test("Play / Pause is a GM box; players never get it", () => {
+  assert.match(barHtml(10, true), /data-act="play"/)
+  assert.doesNotMatch(barHtml(10, false), /data-act="play"/)
+})

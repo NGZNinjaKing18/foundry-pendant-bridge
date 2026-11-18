@@ -13,6 +13,9 @@
 //                  Players get it too, behind an "are you sure"; the GM doesn't.
 //   4  Session over — reopens the last finished session's panel (session-over.js):
 //                  the GM's full one, a player's read-only copy.
+//   5  Play / Pause — GM only: in-world time runs (1 real second = 2.5 in-world seconds) on the
+//                  running campaign's date, else the world date; everyone placed by time moves with it.
+//                  RealmScreen runs it (lib/foundryClock.js); lit + a pause icon while it runs.
 // Grid / Nations = the same switches as the eye's column; lit = showing.
 // Icons: assets/icon-*.svg, drawn as masks in the button's text colour (pendant-bridge.css).
 //
@@ -21,7 +24,7 @@
 // ──────────────────────────────────────────────────────────────
 
 import { seeing, toggleSee } from "./my-view.js"
-import { askStep, PLAYER_STEP } from "./clock.js"
+import { askStep, PLAYER_STEP, askPlay, clockRunning } from "./clock.js"
 
 export const SLOT_COUNT = 10
 /** The boxes that do something, in order from the left. */
@@ -30,6 +33,7 @@ export const SLOTS = [
   { see: "borders", label: "Nations", icon: "nations" },
   { act: "nextDay", label: "Next day (6 am)", icon: "next-day" },
   { act: "sessionOver", label: "Session over", icon: "session-over", open: true },   // session-over.js (opens a window: no "are you sure")
+  { act: "play", label: "Play", icon: "play", gm: true, run: true },                    // the running clock (no "are you sure")
 ]
 /** What an action box asks for. */
 export const ACTS = { nextDay: PLAYER_STEP }
@@ -49,6 +53,7 @@ export async function confirmAct(a, gm = !!globalThis.game?.user?.isGM) {
 }
 const doAct = async (a) => {
   if (SLOTS.find(x => x.act === a)?.open) return Hooks.callAll(`pendantOpen${a[0].toUpperCase()}${a.slice(1)}`)   // e.g. pendantOpenSessionOver
+  if (SLOTS.find(x => x.act === a)?.run) return askPlay(!clockRunning())
   if (await confirmAct(a)) askStep(ACTS[a])
 }
 const OPEN = "pb-realm-open"
@@ -68,8 +73,16 @@ export function barHtml(n = SLOT_COUNT, gm = !!globalThis.game?.user?.isGM) {
   return `<ol class="pb-realm-bar">${html}</ol>`
 }
 
-/** Light each toggle box by its switch. */
-export function paintBar(root = document.getElementById("hotbar"), see = seeing) {
+/** Light each toggle box by its switch, and Play / Pause by the clock. */
+export function paintBar(root = document.getElementById("hotbar"), see = seeing, running = clockRunning) {
+  for (const b of root?.querySelectorAll('.pb-realm-act[data-act="play"]') ?? []) {
+    const on = !!running()
+    b.classList.toggle("active", on)
+    b.setAttribute("aria-pressed", on ? "true" : "false")
+    b.dataset.tooltip = on ? "Pause time" : "Play time (1 s = 2.5 in-world s)"
+    b.setAttribute("aria-label", b.dataset.tooltip)
+    b.querySelector(".pb-realm-icon")?.setAttribute("data-icon", on ? "pause" : "play")
+  }
   for (const b of root?.querySelectorAll(".pb-realm-toggle") ?? []) {
     const s = SLOTS.find(x => x.see === b.dataset.see), on = !!see(s.see)
     b.classList.toggle("active", on)
@@ -125,3 +138,5 @@ Hooks.on("renderHotbar", (_app, html) => {
 })
 // The eye's column (or another device) flipped a switch: keep the boxes in step.
 Hooks.on("pendantSeeChanged", () => paintBar())
+// RealmScreen's clock came in (it says whether it is running): keep Play / Pause in step.
+Hooks.on("pendantClockChanged", () => paintBar())

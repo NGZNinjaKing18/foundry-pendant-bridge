@@ -139,6 +139,7 @@ export function onClockAsk(m) {
   if (!m || m.t !== "clock.ask" || !linkedHere() || !sender) return false
   const asker = game.users?.get?.(m.user)
   const st = m.msg || {}
+  if (st.type === "clock.play") return !!asker?.isGM && !!sender({ type: "clock.play", on: !!st.on })
   if (!asker || (!asker.isGM && !isPlayerStep(st))) return false
   if (!asker.isGM) ui.notifications?.info?.(`${asker.name || "A player"} moved the day on (next day, 6 am).`)
   const out = { type: "clock.step", days: n(st.days), hours: n(st.hours) }
@@ -193,6 +194,19 @@ function redraw() {
 export function applyClock(c) {
   clock = c && typeof c === "object" && c.date ? c : null
   redraw()
+  Hooks.callAll("pendantClockChanged", clock)
+}
+/** Is RealmScreen's clock running (the Realm menu's Play)? From the last clock.set. */
+export const clockRunning = () => !!clock?.running
+
+/** Play / Pause the running clock (GM only). RealmScreen runs it; the next clock.set says `running`. */
+export function askPlay(on) {
+  if (!game.user?.isGM) return false
+  const msg = { type: "clock.play", on: !!on }
+  if (linkedHere() && sender && sender(msg)) return true
+  if (realmLive()) { try { game.socket?.emit(CHANNEL, { t: "clock.ask", user: game.user?.id || null, msg }) } catch { /* socket not ready */ } return true }
+  ui.notifications?.warn("RealmScreen isn’t connected, so the clock can’t run from here.")
+  return false
 }
 function readSetting() { try { return game.settings.get(MOD, "clock") || null } catch { return null } }
 
