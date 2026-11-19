@@ -276,7 +276,7 @@ export function findActorFor(p, actors) {
   if (p && p.actorId) { const a = list.find(x => x && (x.id ?? x._id) === p.actorId); if (a) return a }
   const n = lc(p && p.name)
   if (!n) return null
-  const same = list.filter(a => a && a.type !== "group" && a.type !== "vehicle" && lc(a.name) === n)
+  const same = list.filter(a => a && a.type !== "group" && a.type !== "vehicle" && a.type !== "pendant-bridge.mount" && lc(a.name) === n)
   return same.length === 1 ? same[0] : null
 }
 

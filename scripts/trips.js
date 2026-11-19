@@ -126,7 +126,7 @@ Hooks.on("updateToken", (doc, changes, options, userId) => {
 
 // An actor the GM said isn't one of RealmScreen's people (the picker's "Not a person") is never asked about again;
 // party groups and vehicles never are (found live 2026-11-01: moving an army token asked "Who is this?" every time).
-const notAPerson = (doc) => { const a = doc?.actor; return !a || a.type === "group" || a.type === "vehicle" || !!a.getFlag?.(MOD, "notPerson") }
+const notAPerson = (doc) => { const a = doc?.actor; return !a || a.type === "group" || a.type === "vehicle" || a.type === "pendant-bridge.mount" || !!a.getFlag?.(MOD, "notPerson") }
 
 // A token put on the scene by hand (Plan a trip on): its character appears there in RealmScreen.
 Hooks.on("createToken", (doc, options, userId) => {

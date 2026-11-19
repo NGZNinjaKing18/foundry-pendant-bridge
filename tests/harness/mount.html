@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mount Harness</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Signika:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="../../styles/mount.css">
+<style>
+/* Dev harness (not loaded by Foundry): the REAL scripts/mount.js + mount-view.js + mount-model.js inside a
+   stand-in Foundry (in-memory actors/items, a stand-in dnd5e character sheet, stub ContextMenu/DialogV2).
+   Moving, putting tack on, packing, the how-many prompt, the character's Mounts card + Inventory row and the
+   GM relay check all run the shipped code. Serve the Downloads folder (launch config "campaign-page-harness") →
+   /foundry-pendant-bridge/tests/harness/mount.html  (?theme=light · ?tab=ah|details · ?as=gm). Made-up characters. */
+:root { --font-primary: "Signika", sans-serif; }
+.theme-dark { --color-text-primary: #e7e1d4; --color-text-secondary: #b5aea0; --color-text-subtle: #8a847a; --bg: #1f1e25; color-scheme: dark; }
+.theme-light { --color-text-primary: #2b2a24; --color-text-secondary: #4b4a44; --color-text-subtle: #6e6c62; --bg: #ece4d2; color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #0d100c; font: 14px/1.35 var(--font-primary); color: #ddd; }
+#bar { display: flex; gap: 12px; align-items: center; padding: 7px 12px; background: #151515; border-bottom: 1px solid #333; flex-wrap: wrap; font-size: 13px; }
+#bar select, #bar button { background: #2a2a2a; color: #ddd; border: 1px solid #444; border-radius: 3px; padding: 3px 9px; font: inherit; cursor: pointer; }
+#bar label { display: flex; gap: 6px; align-items: center; color: #aaa; }
+#log { margin-left: auto; font: 12px monospace; color: #9c9; max-width: 40vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#stage { display: flex; gap: 14px; padding: 14px; align-items: flex-start; flex-wrap: wrap; }
+.application { background: var(--bg); color: var(--color-text-primary); border: 1px solid #000; border-radius: 6px; box-shadow: 0 0 20px #000; display: flex; flex-direction: column; overflow: hidden; }
+.window-header { background: #0e0d13; color: #ddd; padding: 5px 10px; display: flex; gap: 8px; align-items: center; font-size: 13px; }
+.window-header .t { flex: 1; } .window-header i { cursor: pointer; opacity: .7; }
+.window-content { height: 690px; }
+input, select, textarea, button { font: inherit; color: var(--color-text-primary); background: color-mix(in srgb, var(--color-text-primary) 7%, transparent); border: 1px solid color-mix(in srgb, var(--color-text-primary) 25%, transparent); border-radius: 3px; padding: 2px 6px; }
+button { cursor: pointer; }
+/* stand-in dnd5e character sheet */
+.char .window-content { display: grid; grid-template-columns: 200px 1fr; overflow: hidden; }
+.char .sidebar { padding: 12px 10px; border-right: 1px solid color-mix(in srgb, var(--color-text-primary) 15%, transparent); background: color-mix(in srgb, var(--color-text-primary) 4%, transparent); overflow: auto; }
+.char .card .portrait { aspect-ratio: 1; border-radius: 6px; background: linear-gradient(135deg, #7a5a3c, #2c2418); display: grid; place-items: center; font-size: 48px; color: #fff6; }
+.char .card .stats { margin-top: 8px; font-size: 12px; color: var(--color-text-secondary); display: flex; justify-content: space-between; }
+.char .favorites { margin-top: 10px; font-size: 11px; color: var(--color-text-subtle); border-top: 1px dashed color-mix(in srgb, var(--color-text-primary) 20%, transparent); padding-top: 6px; }
+.char .main { padding: 10px 14px; overflow: auto; }
+.char h1 { margin: 0 0 8px; font-size: 21px; }
+.char .inv-row { display: grid; grid-template-columns: 1fr 70px 50px; padding: 4px 6px; border-bottom: 1px solid color-mix(in srgb, var(--color-text-primary) 12%, transparent); cursor: grab; font-size: 13px; }
+.char .inv-row span:not(:first-child) { text-align: center; color: var(--color-text-secondary); }
+.char .inv-h { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-subtle); padding: 6px 6px 3px; border-bottom: 1px solid color-mix(in srgb, var(--color-text-primary) 25%, transparent); }
+/* stub context menu + dialog + toasts */
+#context-menu { position: fixed; z-index: 50; min-width: 200px; background: #1d1d22; border: 1px solid #000; border-radius: 4px; box-shadow: 0 4px 14px #000a; padding: 3px 0; color: #ddd; font-size: 13px; list-style: none; margin: 0; }
+#context-menu li { padding: 5px 10px; display: flex; gap: 9px; align-items: center; cursor: pointer; }
+#context-menu li:hover { background: #33333b; } #context-menu li i { width: 14px; text-align: center; color: #aaa; }
+.dlg-veil { position: fixed; inset: 0; background: #0005; z-index: 40; }
+.dlg { position: fixed; left: 50%; top: 30%; transform: translateX(-50%); width: 300px; z-index: 41; }
+.dlg form { padding: 12px 14px; display: grid; gap: 10px; } .dlg .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+#toasts { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); display: grid; gap: 5px; z-index: 60; width: 440px; }
+.toast { background: #1d2a1e; border: 1px solid #3f6b3c; color: #dfe; border-radius: 4px; padding: 6px 10px; font-size: 13px; box-shadow: 0 2px 8px #0008; }
+.toast.warn, .toast.error { background: #2e2616; border-color: #8a6a2a; color: #f2e4c4; }
+</style>
+</head>
+<body class="theme-dark">
+<div id="bar"><b>Mount / Vehicle · real code</b>
+  <label>Theme <select id="theme"><option>dark</option><option>light</option></select></label>
+  <label>Viewing as <select id="as"><option value="player">Ari's player</option><option value="gm">GM</option></select></label>
+  <label><input type="checkbox" id="ah" checked> Anti-Hammer tab</label>
+  <button id="reset">Reset</button><span id="log">drag between the sheets · right-click / ⋮ / click a slot or hex</span></div>
+<div id="stage"></div>
+<div id="toasts"></div>
+<script type="module">
+// ── stand-in Foundry ────────────────────────────────────────────
+const LV = { NONE: 0, LIMITED: 1, OBSERVER: 2, OWNER: 3 }
+const log = (t) => { document.getElementById("log").textContent = t }
+const hooks = {}
+globalThis.Hooks = { on(n, f) { (hooks[n] ||= []).push(f) }, once(n, f) { (hooks[n] ||= []).push(f) }, callAll(n, ...a) { for (const f of hooks[n] || []) f(...a) }, call(n, ...a) { for (const f of hooks[n] || []) if (f(...a) === false) return false; return true } }
+const getP = (o, p) => p.split(".").reduce((x, k) => (x == null ? x : x[k]), o)
+const setP = (o, p, v) => { const ks = p.split("."); let x = o; for (const k of ks.slice(0, -1)) x = x[k] ??= {}; x[ks.at(-1)] = v }
+const flat = (o, pre = "", out = {}) => { for (const [k, v] of Object.entries(o)) { const key = pre + k; if (v && typeof v === "object" && !Array.isArray(v) && !key.startsWith("ownership")) flat(v, key + ".", out); else out[key] = v } return out }
+const apply = (doc, changes) => { for (const [k, v] of Object.entries(flat(changes))) { if (k.startsWith("ownership.")) { const id = k.slice(10); if (v === -1) delete doc.ownership[id]; else doc.ownership[id] = v } else setP(doc, k, v) } }
+class Coll extends Map { [Symbol.iterator]() { return this.values() } get contents() { return [...this.values()] } filter(f) { return this.contents.filter(f) } find(f) { return this.contents.find(f) } map(f) { return this.contents.map(f) } some(f) { return this.contents.some(f) } }
+let uid = 1000
+class Item { constructor(d, parent) { this.id = d._id || "i" + uid++; this.name = d.name; this.type = d.type; this.img = d.img || ""; this.system = structuredClone(d.system || {}); this.flags = structuredClone(d.flags || {}); this.parent = parent; this.sort = d.sort || 0 }
+  get documentName() { return "Item" } get uuid() { return this.parent.uuid + ".Item." + this.id } get isOwner() { return this.parent.isOwner }
+  getFlag(s, k) { return this.flags?.[s]?.[k] } toObject() { return structuredClone({ _id: this.id, name: this.name, type: this.type, img: this.img, system: this.system, flags: this.flags }) }
+  toDragData() { return { type: "Item", uuid: this.uuid } }
+  async update(c) { apply(this, c); Hooks.callAll("updateItem", this); redraw() } async delete() { this.parent.items.delete(this.id); Hooks.callAll("deleteItem", this); redraw() }
+  get sheet() { return { render: () => log("(would open " + this.name + "'s item sheet)") } } }
+class Actor { constructor(d) { Object.assign(this, structuredClone({ flags: {}, ownership: { default: 0 }, ...d, items: undefined })); this.items = new Coll(); for (const i of d.items || []) { const it = new Item(i, this); this.items.set(it.id, it) } }
+  get documentName() { return "Actor" } get uuid() { return "Actor." + this.id }
+  getUserLevel(u) { return u.isGM ? 3 : (this.ownership[u.id] ?? this.ownership.default ?? 0) }
+  testUserPermission(u, lv) { return this.getUserLevel(u) >= LV[lv] }
+  get isOwner() { return this.testUserPermission(game.user, "OWNER") } get hasPlayerOwner() { return game.users.contents.some(u => !u.isGM && this.getUserLevel(u) >= 3) }
+  getFlag(s, k) { return this.flags?.[s]?.[k] }
+  async update(c) { apply(this, c); Hooks.callAll("updateActor", this, c, {}); redraw() }
+  async updateEmbeddedDocuments(t, ups) { for (const u of ups) { const it = this.items.get(u._id); if (it) apply(it, Object.fromEntries(Object.entries(u).filter(([k]) => k !== "_id"))) } redraw() }
+  async createEmbeddedDocuments(t, datas, o = {}) { const made = datas.map(d => { const it = new Item(o.keepId ? d : { ...d, _id: undefined }, this); this.items.set(it.id, it); return it }); made.forEach(m => Hooks.callAll("createItem", m)); redraw(); return made }
+  get sheet() { const id = this.id; return { render: () => openSheet(id), get rendered() { return open.includes(id) } } } }
+const users = [{ id: "gm", name: "GM", isGM: true }, { id: "p1", name: "Ari's player", isGM: false }]
+const userColl = new Coll(users.map(u => [u.id, u])); userColl.filter = (f) => users.filter(f)
+globalThis.game = { user: users[1], users: userColl, actors: null, settings: { get: (m, k) => k === "mountAH" ? document.getElementById("ah").checked : undefined, register() {} } }
+Object.defineProperty(game.users, "activeGM", { get: () => ({ ...users[0], isSelf: game.user.isGM, query: async (n, data) => { const asker = game.user; game.user = users[0]; try { const r = await CONFIG.queries[n]?.(data, { user: asker }); toast("(the GM's Foundry did that move for " + asker.name + ")"); return r } finally { game.user = asker } } }) })
+globalThis.CONFIG = { Actor: { dataModels: {} }, Item: { documentClass: {} }, queries: {} }
+globalThis.CONST = { DOCUMENT_OWNERSHIP_LEVELS: { INHERIT: -1 }, TOKEN_DISPOSITIONS: { FRIENDLY: 1 } }
+globalThis.ui = { notifications: Object.fromEntries(["info", "warn", "error"].map(k => [k, (t) => toast(t, k)])) }
+const parseUuid = (u) => { const m = /^Actor\.([^.]+)(?:\.Item\.([^.]+))?$/.exec(u || ""); if (!m) return null; const a = game.actors.get(m[1]); return m[2] ? a?.items.get(m[2]) : a }
+globalThis.fromUuid = async (u) => parseUuid(u); globalThis.fromUuidSync = parseUuid
+globalThis.Roll = class { constructor(f) { this.f = f } async toMessage(o) { toast("🎲 " + o.flavor + ": " + this.f) } }
+globalThis.ChatMessage = { getSpeaker: (o) => o }
+class CM { constructor(container, selector, items, { eventName = "contextmenu", onOpen } = {}) { this.menuItems = items
+    container.addEventListener(eventName, (e) => { const t = e.target.closest(selector); if (!t || !container.contains(t)) return; e.preventDefault(); e.stopImmediatePropagation(); onOpen?.(t); showMenu(this.menuItems, e) }) } }
+globalThis.foundry = { utils: { hasProperty: (o, p) => getP(o, p) !== undefined, getProperty: getP, setProperty: setP }, applications: { ux: { ContextMenu: CM }, api: { DialogV2: { prompt: dialogPrompt } } } }
+function showMenu(items, e) {
+  document.getElementById("context-menu")?.remove(); if (!items.length) return
+  const m = document.createElement("ol"); m.id = "context-menu"
+  for (const it of items) { const li = document.createElement("li"); li.innerHTML = '<i class="' + it.icon + '"></i>' + it.label; li.onclick = () => { m.remove(); it.onClick?.(e, li) }; m.appendChild(li) }
+  document.body.appendChild(m); m.style.left = Math.min(e.clientX, innerWidth - 220) + "px"; m.style.top = Math.min(e.clientY, innerHeight - m.offsetHeight - 6) + "px"
+}
+document.addEventListener("click", (e) => { if (!e.target.closest("#context-menu")) setTimeout(() => { if (!document.querySelector("#context-menu:hover")) document.getElementById("context-menu")?.remove() }, 0) }, true)
+function dialogPrompt({ window: w, content, ok, render }) {
+  return new Promise((res) => {
+    const veil = document.createElement("div"); veil.className = "dlg-veil"
+    const d = document.createElement("div"); d.className = "application dlg " + document.body.className
+    d.innerHTML = '<div class="window-header"><span class="t">' + w.title + '</span></div><form>' + content + '<div class="btns"><button type="submit">' + ok.label + '</button><button type="button" data-x>Cancel</button></div></form>'
+    const close = (v) => { veil.remove(); d.remove(); res(v) }
+    veil.onclick = () => close(null); d.querySelector("[data-x]").onclick = () => close(null)
+    d.querySelector("form").onsubmit = (e) => { e.preventDefault(); close(ok.callback(e, { form: e.target })) }
+    document.body.append(veil, d); render?.(null, { element: d }); window.__dlg = d
+  })
+}
+function toast(t, k) { const n = document.createElement("div"); n.className = "toast " + (k || ""); n.textContent = t; document.getElementById("toasts").appendChild(n); setTimeout(() => n.remove(), 4000); log(t) }
+
+// ── the real code ─────────────────────────────────────────────
+const M = await import("../../scripts/mount.js")
+const V = await import("../../scripts/mount-view.js")
+const { MOUNT_TYPE, kindSystem } = await import("../../scripts/mount-model.js")
+
+// ── made-up world ─────────────────────────────────────────────
+const tile = (name, type) => "data:image/svg+xml," + encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='" + ({ weapon: "#6b3b30", equipment: "#3c4a62", consumable: "#3c5a3a", tool: "#5e4b22", container: "#4c3f63", loot: "#4a4640" }[type] || "#444") + "'/><text x='16' y='21' font-size='15' text-anchor='middle' fill='#e8dfcc' font-family='sans-serif'>" + name[0] + "</text></svg>")
+const dnd = (name, type, img, weight, quantity, extra = {}) => ({ name, type, img: tile(name, type), system: { weight: { value: weight, units: "lb" }, quantity, ...extra.system }, flags: extra.flags || {} })
+const ic = (n) => "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/svgs/solid/" + n + ".svg"
+function freshWorld() {
+  const horse = kindSystem("ridingHorse")
+  return [
+    new Actor({ id: "ari", name: "Ari Vell", type: "character", img: "", ownership: { default: 0, p1: 3 }, system: { attributes: { encumbrance: { max: 180 } } },
+      items: [dnd("Longsword", "weapon", ic("khanda"), 3, 1), dnd("Spear", "weapon", ic("staff-snake"), 3, 1), dnd("Chain Shirt", "equipment", ic("shirt"), 20, 1),
+        dnd("Rations (1 day)", "consumable", ic("drumstick-bite"), 2, 10), dnd("Torch", "consumable", ic("fire"), 1, 5), dnd("Rope, Hempen (50 feet)", "loot", ic("grip-lines"), 10, 1),
+        dnd("Tent, Two-Person", "loot", ic("campground"), 20, 1), dnd("Side Harness", "equipment", ic("grip-lines-vertical"), 2, 1), dnd("Climbing Feat", "feat", ic("person-hiking"), 0, null)] }),
+    new Actor({ id: "bramble", name: "Bramble", type: MOUNT_TYPE, img: "../../assets/mount.svg", ownership: { default: 0, p1: 3 }, flags: { "pendant-bridge": { granted: ["p1"] } },
+      system: { ...horse, owner: "ari", pulledBy: [], currency: { pp: 0, gp: 0, ep: 0, sp: 0, cp: 0 }, description: "Bay mare, bites strangers." },
+      items: [dnd("Bit and bridle", "equipment", ic("link"), 1, 1, { flags: { "pendant-bridge": { mountSlot: "head" } } }), dnd("Saddle, Riding", "equipment", ic("chair"), 25, 1, { flags: { "pendant-bridge": { mountSlot: "back" } } }),
+        dnd("Saddlebags", "container", ic("suitcase"), 8, 1, { flags: { "pendant-bridge": { mountSlot: "flanks" } } }), dnd("Bedroll Straps", "equipment", ic("grip-lines"), 1, 1), dnd("Panniers", "equipment", ic("boxes-stacked"), 10, 1),
+        dnd("Feed (1 day)", "consumable", ic("wheat-awn"), 10, 3), dnd("Rations (1 day)", "consumable", ic("drumstick-bite"), 2, 4), dnd("Lantern, Hooded", "tool", ic("lightbulb"), 2, 1)] }),
+    new Actor({ id: "rattler", name: "Old Rattler", type: MOUNT_TYPE, img: "../../assets/mount.svg", ownership: { default: 2 }, system: { ...kindSystem("cart"), owner: "", pulledBy: ["bramble"], currency: {}, description: "" }, items: [dnd("Crate of Nails", "loot", ic("box"), 30, 2)] }),
+  ]
+}
+let open = ["ari", "bramble"]
+function reset() { const all = freshWorld(); const c = new Coll(all.map(a => [a.id, a])); game.actors = c; open = ["ari", "bramble"]; sheets.clear(); redraw() }
+
+// ── windows ───────────────────────────────────────────────────
+const sheets = new Map()
+let drawing = false
+function redraw() { if (drawing) return; drawing = true; queueMicrotask(() => { drawing = false; draw() }) }
+function openSheet(id) { if (!open.includes(id)) open.push(id); redraw() }
+function draw() {
+  const theme = "theme-" + document.getElementById("theme").value, stage = document.getElementById("stage")
+  const keep = {}; stage.querySelectorAll(".window-content").forEach(w => { keep[w.dataset.id] = w.querySelector(".pbm-body, .main")?.scrollTop || 0 })
+  stage.innerHTML = ""
+  for (const id of open) {
+    const a = game.actors.get(id); if (!a) continue
+    const win = document.createElement("div"); win.className = "application " + theme + (a.type === MOUNT_TYPE ? " pb-mount" : " char"); win.style.width = (a.type === MOUNT_TYPE ? 680 : 640) + "px"
+    win.innerHTML = '<div class="window-header"><i class="fa-solid ' + (a.type === MOUNT_TYPE ? "fa-horse" : "fa-user") + '"></i><span class="t">' + a.name + '</span>' + (id === "rattler" ? '<i class="fa-solid fa-xmark" data-x></i>' : "") + '</div><div class="window-content" data-id="' + id + '"></div>'
+    stage.appendChild(win); const content = win.querySelector(".window-content")
+    win.querySelector("[data-x]")?.addEventListener("click", () => { open = open.filter(x => x !== id); redraw() })
+    if (a.type === MOUNT_TYPE) drawMount(a, content); else drawChar(a, win, content)
+    const sc = content.querySelector(".pbm-body, .main"); if (sc && keep[id]) sc.scrollTop = keep[id]
+  }
+}
+function drawMount(a, content) {
+  let s = sheets.get(a.id); if (!s) { s = { actor: a, pbTab: new URLSearchParams(location.search).get("tab") || "inventory", pbFind: "", render: () => redraw() }; sheets.set(a.id, s) }
+  s.actor = a; s.element = content; s.isEditable = a.isOwner; s._pbmMenus = null
+  content.classList.add("pbm"); content.innerHTML = V.mountSheetHTML(M.buildVM(a, s))
+  if (s.isEditable) content.querySelectorAll(".pbm-row, .pbm-slot.filled, .pbm-biglist li").forEach(el => { el.classList.add("draggable"); el.draggable = true })
+  M.wireSheet(s)
+  content.querySelectorAll(".draggable").forEach(el => el.addEventListener("dragstart", (e) => { const it = a.items.get(el.closest("[data-item-id]").dataset.itemId); e.dataTransfer.setData("text/plain", JSON.stringify(it.toDragData())) }))
+  content.addEventListener("dragover", (e) => e.preventDefault())
+  content.addEventListener("drop", async (e) => { e.preventDefault(); let d; try { d = JSON.parse(e.dataTransfer.getData("text/plain")) } catch { return } const it = fromUuidSync(d.uuid); if (it) M.dropOnMount(s, e, it) })
+}
+function drawChar(a, win, content) {
+  const rows = a.items.filter(i => i.system.quantity != null)
+  content.innerHTML = '<div class="sidebar"><div class="card"><div class="portrait"><i class="fa-solid fa-user"></i></div><div class="stats"><span>AC 15</span><span>HP 24 / 28</span></div></div><div class="favorites">Favorites</div></div>' +
+    '<div class="main"><h1>' + a.name + '</h1><section class="tab" data-tab="inventory"><div class="inv-h">dnd5e inventory (stand-in)</div>' +
+    rows.map(i => '<div class="inv-row" draggable="true" data-item-id="' + i.id + '"><span>' + i.name + '</span><span>' + (i.system.weight.value * i.system.quantity) + ' lb</span><span>×' + i.system.quantity + "</span></div>").join("") + "</section></div>"
+  M.injectCharacter({ actor: a }, win)
+  content.querySelectorAll(".inv-row").forEach(el => {
+    el.addEventListener("dragstart", (e) => e.dataTransfer.setData("text/plain", JSON.stringify(a.items.get(el.dataset.itemId).toDragData())))
+    el.addEventListener("contextmenu", (e) => { e.preventDefault(); const items = []; Hooks.callAll("dnd5e.getItemContextOptions", a.items.get(el.dataset.itemId), items); showMenu([{ label: "View", icon: "fa-solid fa-eye", onClick: () => {} }, ...items], e) })
+  })
+  // what ActorSheetV2._onDrop does: the dropActorSheetData hook, then dnd5e's default (a COPY from another actor)
+  content.addEventListener("dragover", (e) => e.preventDefault())
+  content.addEventListener("drop", async (e) => {
+    e.preventDefault(); let d; try { d = JSON.parse(e.dataTransfer.getData("text/plain")) } catch { return }
+    if (Hooks.call("dropActorSheetData", a, {}, d) === false) return
+    const it = fromUuidSync(d.uuid); if (it && it.parent !== a) { await a.createEmbeddedDocuments("Item", [it.toObject()]); log("dnd5e default: copied " + it.name) }
+  })
+}
+
+// ── bar ──
+const Q = new URLSearchParams(location.search)
+if (Q.get("theme")) document.getElementById("theme").value = Q.get("theme")
+if (Q.get("as") === "gm") document.getElementById("as").value = "gm"
+document.getElementById("theme").onchange = redraw; document.getElementById("ah").onchange = redraw
+document.getElementById("as").onchange = (e) => { game.user = users[e.target.value === "gm" ? 0 : 1]; redraw() }
+document.getElementById("reset").onclick = reset
+game.user = users[document.getElementById("as").value === "gm" ? 0 : 1]
+Hooks.callAll("init")
+reset()
+Hooks.callAll("ready")
+if (Q.get("open")) openSheet(Q.get("open"))
+window.H = { M, game, draw, openSheet }
+</script>
+</body>
+</html>

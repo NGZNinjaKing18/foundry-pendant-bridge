@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Default art for the Mount / Vehicle actor type: a horseshoe. Original drawing for pendant-bridge. -->
+  <rect width="512" height="512" rx="64" fill="#3a2f24"/>
+  <path d="M256 84c-92 0-150 74-150 178 0 64 18 120 44 166h66c-28-46-46-104-46-166 0-70 34-118 86-118s86 48 86 118c0 62-18 120-46 166h66c26-46 44-102 44-166 0-104-58-178-150-178z" fill="#c9b48a"/>
+  <g fill="#3a2f24">
+    <circle cx="142" cy="230" r="9"/><circle cx="146" cy="292" r="9"/><circle cx="160" cy="352" r="9"/>
+    <circle cx="370" cy="230" r="9"/><circle cx="366" cy="292" r="9"/><circle cx="352" cy="352" r="9"/>
+    <circle cx="198" cy="148" r="9"/><circle cx="314" cy="148" r="9"/>
+  </g>
+</svg>

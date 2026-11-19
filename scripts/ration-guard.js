@@ -27,7 +27,7 @@ const born = new Map()           // actorId → ms it was created here
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]))
 
 const ddbOn = () => { try { return !!game.modules?.get("ddb-importer")?.active } catch { return false } }
-const watched = (a) => !!a && a.type !== "group" && a.type !== "vehicle" && !a.pack && a.isOwner
+const watched = (a) => !!a && a.type !== "group" && a.type !== "vehicle" && a.type !== "pendant-bridge.mount" && !a.pack && a.isOwner
 
 function snap(a) { if (watched(a)) snaps.set(a.id, snapshotRations(a.items, isRation)) }
 

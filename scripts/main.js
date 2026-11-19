@@ -31,6 +31,7 @@ import { setPages, whisperCampaign } from "./campaign-page.js"
 import {} from "./group-stack.js"    // dnd5e group tokens: stacked art, pile order, pull-out fan
 import { syncParty, syncTrails, setPartySender, partySwitch, partyGroups } from "./party.js"
 import { syncCaravans } from "./caravans.js"   // RealmScreen's caravans: a vehicle actor + token each, driving the roads
+import { isMount } from "./mount.js"   // our own Mount / Vehicle actor type (pendant-bridge.mount) — works without RealmScreen
 import { setTripSender, tripAnswer } from "./trips.js"
 import { setProfilesSender, profilesAnswer } from "./profiles.js"   // GM sidebar tab: RealmScreen's Character Profiles, live
 import { setMusicSender, setMusicState, musicNote } from "./music-panel.js"   // RealmScreen music in the Playlists tab
@@ -7167,6 +7168,7 @@ function ahInjectPanel(app, html) {
   const actor = app?.actor || (app?.document?.documentName === "Actor" ? app.document : null)
   if (!actor) return
   if (actor.type === "group" || actor.type === "party") return   // containers of actors, not carriers
+  if (isMount(actor)) return   // a Mount / Vehicle sheet has its own Anti-Hammer tab (tack + bags, scripts/mount.js)
   // Don't rebuild this actor's panel out from under an in-progress drag — defer until it ends.
   if (_ahDrag.active && _ahDrag.actorId === actor.id) { _ahDrag.missed = true; return }
   const root = (html instanceof HTMLElement) ? html : (html && html[0]) ? html[0] : null
@@ -7436,3 +7438,11 @@ Hooks.once("ready", () => {
 // Expose for debugging from the Foundry console.
 globalThis.PendantBridge = bridge
 globalThis.PendantBridge.ahSummary = (actor) => AH.actorSummary(actor, AH.cfg())   // debugging + the harness: what the cockpit receives
+// one item's Anti-Hammer footprint — the Mount / Vehicle sheet packs its bags with the same spaces (scripts/mount.js)
+globalThis.PendantBridge.ahItemFoot = (it) => {
+  const cfg = AH.cfg(); if (!AH.counted(it, cfg)) return { counted: false, spaces: 0, long: false }
+  let rule = null; try { rule = ahRuleFor(it) } catch {}
+  const ov = AH.itemOverride(it), eff = ov != null ? ov : (rule && rule.spaces != null ? Number(rule.spaces) : null)
+  let m = null; try { m = ahMeta(it) } catch {}
+  return { counted: true, spaces: AH.itemSpaces(it, cfg, eff), long: !!(m && (m.longItem || m.length === "Long" || m.length === "Oversized")) }
+}

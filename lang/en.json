@@ -11,5 +11,7 @@
   "PENDANT-BRIDGE.notif.disconnected": "Pendant Bridge: disconnected",
   "PENDANT-BRIDGE.notif.error": "Pendant Bridge: connection error",
   "PENDANT-BRIDGE.settings.lookOptOut.name": "Hide the campaign look on my screen",
-  "PENDANT-BRIDGE.settings.lookOptOut.hint": "Your GM can give each campaign its own Foundry look. Turn this on to keep stock Foundry on your screen (only if the GM allows it)."
+  "PENDANT-BRIDGE.settings.lookOptOut.hint": "Your GM can give each campaign its own Foundry look. Turn this on to keep stock Foundry on your screen (only if the GM allows it).",
+  "TYPES.Actor.pendant-bridge.mount": "Mount / Vehicle",
+  "TYPES.Actor.pendant-bridge.mountPl": "Mounts / Vehicles"
 }

@@ -43,7 +43,7 @@ onWindow((win) => {
   if (!log?.live?.campaignId) return
   if (Date.now() - (imported.get(win.actorId) || 0) < AFTER_IMPORT_MS) return
   const actor = game.actors?.get(win.actorId)
-  if (!actor || actor.type === "group" || actor.type === "vehicle") return
+  if (!actor || actor.type === "group" || actor.type === "vehicle" || actor.type === "pendant-bridge.mount") return
   const owners = seatedOwners(actor, log).map(u => u.id)
   if (!owners.length) return
   const things = itemsIn(win, { gainOk: (c) => !!game.users?.get(c.user)?.isGM })

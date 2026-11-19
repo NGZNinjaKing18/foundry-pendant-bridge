@@ -1,0 +1,749 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mount Mockup</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Signika:wght@400;500;600&family=Roboto+Slab:wght@500;700&display=swap">
+<style>
+/* MOCKUP (not loaded by Foundry): the proposed "Mount / Vehicle" actor type (pendant-bridge.mount) next to a
+   dnd5e character sheet, drawn to look like Foundry V14 + dnd5e 6. Everything runs in memory: drag items
+   between the two sheets (they MOVE), drop a stack → how-many prompt (Shift = all), right-click an item, the
+   Anti-Hammer tab, the Create Actor picker. Made-up characters. Serve the Downloads folder (launch config
+   "campaign-page-harness") → /foundry-pendant-bridge/tests/harness/mount-mockup.html */
+:root { --font-primary: "Signika", sans-serif; --font-head: "Roboto Slab", serif; }
+body.theme-dark {
+  --bg: #24252b; --bg-2: #2c2e35; --bg-3: #33363e; --row: #2a2c33; --row-hover: #31343c;
+  --ink: #e9e4d8; --ink-2: #bdb6a6; --ink-3: #8d887c; --line: #43464f; --line-2: #383b43;
+  --gold: #c2a66b; --hp: #a23a33; --hp-bg: #4a2321; --ok: #5d8a4f; --warn: #b8862f; --bad: #b0443a;
+  --hdr: #141418; --hdr-ink: #ddd8cc; --shadow: 0 0 22px #000c; --desk: #10120f; --chip: #3a3d45;
+  color-scheme: dark;
+}
+body.theme-light {
+  --bg: #ece4d3; --bg-2: #e3d9c4; --bg-3: #d9cdb3; --row: #f4eee1; --row-hover: #fbf6ea;
+  --ink: #2a2620; --ink-2: #4c463b; --ink-3: #776f60; --line: #bfb299; --line-2: #d3c7ae;
+  --gold: #8a6f35; --hp: #a23a33; --hp-bg: #e3c3bd; --ok: #4c7a3e; --warn: #9a6a14; --bad: #a23a33;
+  --hdr: #2a2a30; --hdr-ink: #eee8da; --shadow: 0 0 18px #0006; --desk: #6f6a60; --chip: #ddd2bb;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--desk); font: 14px/1.35 var(--font-primary); color: var(--ink); }
+button { font: inherit; color: inherit; }
+#bar { display: flex; gap: 12px; align-items: center; padding: 7px 12px; background: #151515; color: #ccc; border-bottom: 1px solid #333; flex-wrap: wrap; font-size: 13px; }
+#bar b { color: #eee; }
+#bar select, #bar button { background: #2a2a2a; color: #ddd; border: 1px solid #444; border-radius: 3px; padding: 3px 9px; cursor: pointer; }
+#bar label { display: flex; gap: 6px; align-items: center; color: #aaa; }
+#bar .note { margin-left: auto; color: #8a8; font-size: 12px; }
+#stage { display: flex; gap: 16px; padding: 16px; align-items: flex-start; flex-wrap: wrap; }
+
+/* ── Foundry V14 window ───────────────────────────── */
+.app { background: var(--bg); border: 1px solid #000; border-radius: 6px; box-shadow: var(--shadow); display: flex; flex-direction: column; overflow: hidden; position: relative; }
+.app.flash { animation: flash .6s; }
+@keyframes flash { 50% { box-shadow: 0 0 0 2px var(--gold), var(--shadow); } }
+.win-head { background: var(--hdr); color: var(--hdr-ink); display: flex; align-items: center; gap: 8px; padding: 5px 8px 5px 10px; font-size: 13px; }
+.win-head .t { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.win-head i { opacity: .75; cursor: pointer; padding: 2px 4px; }
+
+/* ── dnd5e-6-style sheet ──────────────────────────── */
+.sheet { display: grid; grid-template-columns: 196px 1fr 34px; min-height: 0; flex: 1; }
+.side { background: var(--bg-2); border-right: 1px solid var(--line-2); padding: 12px 10px; display: flex; flex-direction: column; gap: 10px; }
+.cover { width: 100%; aspect-ratio: 1; border-radius: 6px; border: 1px solid var(--line); display: grid; place-items: center; font-size: 54px; color: #fff8; position: relative; overflow: hidden; }
+.cover.pc { background: radial-gradient(circle at 40% 35%, #8a6a4a, #3b2c22); }
+.cover.horse { background: radial-gradient(circle at 40% 35%, #7b5b39, #2e2116); }
+.cover.cart { background: radial-gradient(circle at 40% 35%, #6c6a52, #2b2a1f); }
+.cover .lbl { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font-size: 10px; letter-spacing: .06em; color: #fff9; text-transform: uppercase; }
+.vitals { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; }
+.ac { width: 44px; height: 50px; display: grid; place-items: center; font: 700 18px var(--font-head); color: var(--ink); background: var(--bg-3); border: 1px solid var(--line);
+  clip-path: polygon(50% 0, 100% 14%, 100% 60%, 50% 100%, 0 60%, 0 14%); }
+.ac small { display: block; font: 9px var(--font-primary); color: var(--ink-3); text-align: center; margin-top: -6px; }
+.meter { height: 22px; border-radius: 4px; background: var(--hp-bg); border: 1px solid var(--line); position: relative; overflow: hidden; }
+.meter > i { position: absolute; inset: 0 auto 0 0; background: var(--hp); }
+.meter > span { position: relative; display: block; text-align: center; font: 600 12px/20px var(--font-primary); color: #fff; text-shadow: 0 1px 2px #000; }
+.side-h { font: 600 10.5px var(--font-primary); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); border-bottom: 1px solid var(--line-2); padding-bottom: 3px; margin-top: 2px; }
+.speed { font-size: 12px; color: var(--ink-2); }
+
+/* sidebar mount card (character sheet) */
+.mcard { display: grid; grid-template-columns: 36px 1fr; gap: 3px 8px; align-items: center; padding: 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--row); cursor: pointer; }
+.mcard:hover { background: var(--row-hover); }
+.mcard .th { grid-row: span 2; width: 36px; height: 36px; border-radius: 4px; display: grid; place-items: center; color: #fff9; font-size: 18px; }
+.mcard .nm { font-weight: 600; font-size: 13px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.mcard .sub { font-size: 11px; color: var(--ink-3); }
+.mcard .load { grid-column: 1 / -1; }
+.drop-ok { outline: 2px dashed var(--gold); outline-offset: -2px; background: var(--row-hover) !important; }
+
+.main { min-width: 0; display: flex; flex-direction: column; }
+.sh-head { padding: 10px 14px 8px; border-bottom: 1px solid var(--line-2); }
+.sh-head h1 { margin: 0; font: 700 22px var(--font-head); color: var(--ink); }
+.sh-head .sub { font-size: 12px; color: var(--ink-3); margin-top: 1px; }
+.sh-head .sub a { color: var(--ink-2); text-decoration: underline dotted; cursor: pointer; }
+.body { padding: 10px 14px 14px; overflow: auto; flex: 1; }
+.tabs { background: var(--bg-2); border-left: 1px solid var(--line-2); display: flex; flex-direction: column; padding-top: 52px; gap: 2px; }
+.tabs button { background: none; border: 0; height: 34px; color: var(--ink-3); cursor: pointer; font-size: 14px; position: relative; }
+.tabs button:hover { color: var(--ink); }
+.tabs button.on { color: var(--ink); background: var(--bg); }
+.tabs button[disabled] { opacity: .35; cursor: default; }
+.tabs button .tip { display: none; position: absolute; right: 38px; top: 6px; white-space: nowrap; background: #000d; color: #eee; font-size: 11px; padding: 2px 6px; border-radius: 3px; z-index: 5; }
+.tabs button:hover .tip { display: block; }
+
+/* inventory (dnd5e list look) */
+.inv-tools { display: flex; gap: 6px; margin-bottom: 8px; }
+.inv-tools input { flex: 1; background: var(--row); border: 1px solid var(--line); border-radius: 4px; color: var(--ink); padding: 4px 8px; font: inherit; font-size: 13px; }
+.inv-tools button { background: var(--row); border: 1px solid var(--line); border-radius: 4px; color: var(--ink-2); padding: 0 8px; cursor: pointer; }
+.sec { margin-bottom: 10px; }
+.sec-h { display: grid; grid-template-columns: 1fr 64px 70px 26px; align-items: end; font: 600 10.5px var(--font-primary); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); padding: 0 6px 3px; border-bottom: 1px solid var(--line); }
+.sec-h span:not(:first-child) { text-align: center; }
+.row { display: grid; grid-template-columns: 1fr 64px 70px 26px; align-items: center; padding: 4px 6px; border-bottom: 1px solid var(--line-2); background: var(--row); cursor: grab; }
+.row:hover { background: var(--row-hover); }
+.row.dragging { opacity: .4; }
+.row .nm { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ico { width: 28px; height: 28px; flex: none; border-radius: 4px; border: 1px solid var(--line); display: grid; place-items: center; background: var(--bg-3); color: var(--ink-2); font-size: 13px; }
+.row .nm b { font-weight: 500; font-size: 13.5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.row .nm em { font-style: normal; font-size: 11px; color: var(--ink-3); display: block; }
+.row .w, .row .q { text-align: center; font-size: 12.5px; color: var(--ink-2); }
+.row .q { display: flex; justify-content: center; align-items: center; gap: 5px; }
+.row .q i { font-size: 9px; color: var(--ink-3); cursor: pointer; }
+.row .menu { text-align: center; color: var(--ink-3); cursor: pointer; }
+.tag { font-size: 10.5px; padding: 0 5px; border-radius: 3px; background: var(--chip); color: var(--ink-2); margin-left: 4px; white-space: nowrap; }
+.tag.bad { background: transparent; color: var(--bad); border: 1px solid var(--bad); }
+.empty { padding: 10px 6px; color: var(--ink-3); font-size: 12.5px; font-style: italic; border-bottom: 1px solid var(--line-2); }
+.foot { margin-top: 10px; display: grid; gap: 8px; }
+.enc { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; font-size: 12px; color: var(--ink-2); }
+.enc .bar { height: 14px; border-radius: 3px; background: var(--bg-3); border: 1px solid var(--line); position: relative; overflow: hidden; }
+.enc .bar i { position: absolute; inset: 0 auto 0 0; background: var(--ok); }
+.enc .bar.warn i { background: var(--warn); } .enc .bar.over i { background: var(--bad); }
+.enc .bar span { position: relative; display: block; text-align: right; padding-right: 6px; font: 600 10.5px/12px var(--font-primary); color: var(--ink); }
+.coins { display: flex; gap: 6px; justify-content: flex-end; font-size: 12px; color: var(--ink-2); }
+.coins span { border: 1px solid var(--line); border-radius: 3px; padding: 0 6px; background: var(--row); }
+.coins b { font-weight: 600; color: var(--ink); margin-right: 3px; }
+
+/* mount strip — top of the character's Inventory tab */
+.mstrip { display: grid; gap: 4px; margin-bottom: 10px; }
+.mstrip .mrow { display: grid; grid-template-columns: 28px 1fr 150px auto; gap: 8px; align-items: center; padding: 4px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--row); }
+.mstrip .mrow .th { width: 28px; height: 28px; border-radius: 4px; display: grid; place-items: center; color: #fff9; font-size: 14px; }
+.mstrip .mrow b { font-weight: 600; font-size: 13px; }
+.mstrip .mrow em { font-style: normal; color: var(--ink-3); font-size: 11.5px; margin-left: 6px; }
+.mstrip .mrow button { background: var(--bg-3); border: 1px solid var(--line); border-radius: 3px; padding: 1px 8px; font-size: 12px; cursor: pointer; }
+.mstrip .hint { font-size: 11px; color: var(--ink-3); padding-left: 2px; }
+
+/* mount header stats */
+.statline { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.statline span { font-size: 12px; border: 1px solid var(--line); border-radius: 3px; padding: 1px 7px; background: var(--row); color: var(--ink-2); }
+.statline b { color: var(--ink); font-weight: 600; }
+
+/* Anti-Hammer tab (mount) — copied from the chosen AH look (tests/harness/anti-hammer-c-prototype.html):
+   tack slots around the figure, then the storage that tack gives, as hex bags */
+body.theme-dark { --color-text-primary: #e9e4d8; --color-text-secondary: #bdb6a6; --color-text-subtle: #8d887c; --sheet: #24252b; }
+body.theme-light { --color-text-primary: #2a2620; --color-text-secondary: #4c463b; --color-text-subtle: #776f60; --sheet: #ece4d3; }
+.ah { --ink: var(--color-text-primary); --dim: var(--color-text-secondary); --mute: var(--color-text-subtle);
+  --line: color-mix(in srgb, var(--ink) 15%, transparent); --line2: color-mix(in srgb, var(--ink) 28%, transparent);
+  --surf: color-mix(in srgb, var(--ink) 5%, transparent); --surf2: color-mix(in srgb, var(--ink) 10%, transparent);
+  --cell: color-mix(in srgb, var(--ink) 6%, transparent); --cellline: color-mix(in srgb, var(--ink) 13%, transparent);
+  --accent: #c9893a; --good: #4f9a4f; --bad: #c4504a;
+  --k-weapon: #c0603f; --k-armor: #6f88b0; --k-tool: #b48a32; --k-cons: #5c9c58; --k-gear: #8f78b8; --k-other: #8a8578; --k-ammo: #a3876a;
+  color: var(--ink); container-type: inline-size; }
+.kind-weapon { --kc: var(--k-weapon); } .kind-armor { --kc: var(--k-armor); } .kind-tool { --kc: var(--k-tool); } .kind-cons { --kc: var(--k-cons); }
+.kind-gear { --kc: var(--k-gear); } .kind-other { --kc: var(--k-other); }
+.ah-h { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; padding-bottom: 5px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.ah-h b { font-size: 11.5px; letter-spacing: .09em; text-transform: uppercase; }
+.ah-h .meta { color: var(--mute); font-size: 12px; }
+.ah-h .sp { flex: 1; }
+.btn { font: inherit; font-size: 11.5px; padding: 2px 8px; border: 1px solid var(--line2); border-radius: 3px; background: var(--surf); color: var(--ink); cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.doll { display: grid; grid-template-columns: minmax(0,1fr) 92px minmax(0,1fr); gap: 5px 8px; margin: 2px 0 16px; }
+.doll .fig { grid-column: 2; grid-row: 1 / span 4; display: flex; align-items: center; justify-content: center; font-size: 74px; color: var(--ink); opacity: .22; }
+.slot { position: relative; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 1px; min-height: 44px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--surf); cursor: pointer; }
+.slot.l { grid-column: 1; } .slot.r { grid-column: 3; text-align: right; }
+.slot .k { display: flex; justify-content: space-between; gap: 6px; font-size: 9.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--mute); }
+.slot.r .k { flex-direction: row-reverse; }
+.slot .k i { font-style: normal; letter-spacing: 0; text-transform: none; }
+.slot .v { font-size: 13px; font-weight: 600; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slot.filled { background: var(--surf2); border-left: 3px solid var(--kc); }
+.slot.r.filled { border-left: 1px solid var(--line); border-right: 3px solid var(--kc); }
+.slot.empty { border-style: dashed; background: none; }
+.slot.empty .v { color: var(--mute); font-weight: 400; font-size: 12px; }
+.slot:hover { border-color: var(--line2); } .slot.empty:hover { border-color: var(--accent); border-style: solid; }
+.slot.drop-ok { outline: 2px dashed var(--accent); outline-offset: -2px; }
+.bagmark { font-weight: 400; color: var(--accent); margin-left: 3px; }
+@keyframes land { 0% { transform: scale(1.06); background: color-mix(in srgb, var(--accent) 30%, transparent); } 100% { transform: none; } }
+.landed { animation: land .45s cubic-bezier(.22,1,.36,1); }
+.ah-meter { height: 7px; border-radius: 3px; background: var(--cell); overflow: hidden; margin: -1px 0 10px; }
+.ah-meter i { display: block; height: 100%; background: var(--good); }
+.bags { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+.bag { border: 1px solid var(--line); border-radius: 4px; background: var(--surf); padding: 6px 8px; max-width: 100%; }
+.bag.drop-ok { outline: 2px dashed var(--accent); outline-offset: -2px; }
+.bag-h { display: flex; align-items: baseline; gap: 6px; margin-bottom: 5px; font-size: 12.5px; }
+.bag-h b { font-weight: 600; } .bag-h .where { font-size: 10.5px; color: var(--mute); }
+.bag-h .n { margin-left: auto; padding-left: 8px; color: var(--mute); font-size: 11.5px; }
+.bag-h .n.full { color: var(--good); font-weight: 600; } .bag-h .n.full::after { content: " ✓"; }
+.bag svg { display: block; max-width: 100%; height: auto; }
+.hx-cell { fill: var(--cell); stroke: var(--cellline); stroke-width: 1; }
+.hx-fill { fill: var(--kc); fill-opacity: .42; }
+.hx-edge { fill: none; stroke: var(--kc); stroke-width: 2; stroke-linecap: round; }
+.hx-it { cursor: grab; } .hx-it:hover .hx-fill { fill-opacity: .72; }
+.hx-name { fill: var(--ink); font: 600 9.5px Signika; pointer-events: none; paint-order: stroke; stroke: color-mix(in srgb, var(--sheet) 70%, transparent); stroke-width: 3px; stroke-linejoin: round; }
+.ah-over { margin-top: 8px; padding: 5px 9px; border: 1px solid color-mix(in srgb, var(--bad) 50%, transparent); background: color-mix(in srgb, var(--bad) 12%, transparent); border-radius: 3px; font-size: 12px; }
+.ah-none { font-size: 12px; color: var(--mute); padding: 4px 0 2px; }
+.ah-off { padding: 18px; text-align: center; color: var(--ink-3); font-size: 13px; border: 1px dashed var(--line); border-radius: 6px; }
+#ctx .g { padding: 6px 10px 2px; font-size: 9.5px; letter-spacing: .09em; text-transform: uppercase; color: #888; cursor: default; }
+#ctx .g:hover { background: none; }
+#ctx div.off { color: #777; cursor: default; } #ctx div.off:hover { background: none; }
+#ctx div small { margin-left: auto; color: #999; font-size: 11px; }
+
+/* Details tab */
+.fld { display: grid; gap: 3px; margin-bottom: 10px; }
+.fld > label { font: 600 10.5px var(--font-primary); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.fld select, .fld input, .fld textarea { background: var(--row); border: 1px solid var(--line); border-radius: 4px; color: var(--ink); padding: 4px 7px; font: inherit; font-size: 13px; }
+.fld textarea { min-height: 54px; resize: vertical; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.abil { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; margin-bottom: 10px; }
+.abil div { border: 1px solid var(--line); border-radius: 4px; background: var(--row); text-align: center; padding: 3px 0 4px; }
+.abil small { display: block; font-size: 10px; letter-spacing: .08em; color: var(--ink-3); }
+.abil b { font: 700 16px var(--font-head); }
+.abil em { display: block; font-style: normal; font-size: 11px; color: var(--ink-2); }
+.atk { display: grid; grid-template-columns: 28px 1fr auto auto; gap: 8px; align-items: center; padding: 4px 6px; border: 1px solid var(--line-2); background: var(--row); border-radius: 4px; margin-bottom: 4px; font-size: 13px; }
+.atk span { font-size: 12px; color: var(--ink-2); border: 1px solid var(--line); border-radius: 3px; padding: 0 6px; cursor: pointer; }
+.rule { font-size: 12px; color: var(--ink-3); margin-top: -4px; }
+
+.readonly .row { cursor: default; }
+.lock { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--ink-2); padding: 7px 9px; border: 1px solid var(--line); border-radius: 4px; background: var(--row); margin-bottom: 10px; }
+
+/* Foundry context menu */
+#ctx { position: fixed; z-index: 50; min-width: 190px; background: #1d1d22; border: 1px solid #000; border-radius: 4px; box-shadow: 0 4px 14px #000a; padding: 3px 0; color: #ddd; font-size: 13px; display: none; }
+#ctx div { padding: 5px 10px; display: flex; gap: 9px; align-items: center; cursor: pointer; }
+#ctx div:hover { background: #33333b; }
+#ctx div i { width: 14px; text-align: center; color: #aaa; }
+
+/* DialogV2 */
+#veil { position: fixed; inset: 0; background: #0005; display: none; z-index: 40; }
+.dlg { position: fixed; z-index: 41; left: 50%; top: 32%; transform: translateX(-50%); width: 300px; background: var(--bg); border: 1px solid #000; border-radius: 6px; box-shadow: var(--shadow); display: none; }
+.dlg .in { padding: 12px 14px; display: grid; gap: 10px; font-size: 13.5px; }
+.dlg .qty { display: grid; grid-template-columns: 1fr 64px; gap: 8px; align-items: center; }
+.dlg input[type=number] { background: var(--row); border: 1px solid var(--line); border-radius: 4px; color: var(--ink); padding: 3px 6px; font: inherit; }
+.dlg .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 0 14px 12px; }
+.dlg .btns button { background: var(--bg-3); border: 1px solid var(--line); border-radius: 4px; padding: 5px; cursor: pointer; }
+.dlg .btns button.def { border-color: var(--ink-3); }
+
+/* Create Actor dialog (dnd5e create-document-dialog look) */
+#create { width: 470px; top: 14%; }
+.types { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.types label { border: 1px solid var(--line); border-radius: 5px; background: var(--row); padding: 8px 4px 6px; text-align: center; cursor: pointer; font-size: 12.5px; }
+.types label i { display: block; font-size: 24px; color: var(--ink-2); margin-bottom: 4px; }
+.types input { display: none; }
+.types input:checked + label { border-color: var(--ink-2); background: var(--row-hover); color: var(--ink); }
+
+/* notifications */
+#notes { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); display: grid; gap: 5px; z-index: 60; width: 420px; }
+.nt { background: #1d2a1e; border: 1px solid #3f6b3c; color: #dfe; border-radius: 4px; padding: 6px 10px; font-size: 13px; display: flex; gap: 8px; align-items: center; box-shadow: 0 2px 8px #0008; }
+.nt.warn { background: #2e2616; border-color: #8a6a2a; color: #f2e4c4; }
+.nt a { margin-left: auto; color: inherit; text-decoration: underline; cursor: pointer; }
+</style>
+</head>
+<body class="theme-dark">
+<div id="bar">
+  <b>Mount / Vehicle — mockup</b>
+  <label>Theme <select id="theme"><option value="dark">dark</option><option value="light">light</option></select></label>
+  <label>Viewing as <select id="who"><option value="player">Ari's player</option><option value="gm">GM</option></select></label>
+  <label><input type="checkbox" id="ahOn" checked> Anti-Hammer in use</label>
+  <button id="openCreate"><i class="fa-solid fa-user-plus"></i> Create Actor…</button>
+  <button id="reset">Reset</button>
+  <span class="note">Drag items between the sheets · right-click an item · Shift-drop = all</span>
+</div>
+<div id="stage"></div>
+<div id="ctx"></div>
+<div id="veil"></div>
+<div class="dlg" id="qdlg"><div class="win-head"><span class="t" id="qt">Store</span><i class="fa-solid fa-xmark" data-close></i></div>
+  <div class="in"><div id="qmsg"></div><div class="qty"><input type="range" id="qr" min="1"><input type="number" id="qn" min="1"></div></div>
+  <div class="btns"><button id="qok" class="def"><i class="fa-solid fa-check"></i> <span id="qverb">Store</span></button><button data-close><i class="fa-solid fa-xmark"></i> Cancel</button></div></div>
+<div class="dlg" id="create"><div class="win-head"><span class="t">Create Actor</span><i class="fa-solid fa-xmark" data-close></i></div>
+  <div class="in">
+    <div class="fld"><label>Name</label><input id="cName" placeholder="New Actor"></div>
+    <div class="types" id="cTypes"></div>
+    <div class="fld" id="cFromWrap" style="display:none"><label>Start from</label><select id="cFrom"></select><div class="rule" id="cRule"></div></div>
+    <div class="fld"><label>Folder</label><select><option>—</option><option>Mounts</option></select></div>
+  </div>
+  <div class="btns"><button id="cOk" class="def"><i class="fa-solid fa-check"></i> Create Actor</button><button data-close>Cancel</button></div></div>
+<div id="notes"></div>
+
+<script>
+// ── 5e kinds (2014 SRD stat blocks; carry = Str × 15 × size, Beast of Burden counts as Large; drawn = 5 × pullers) ──
+const KINDS = {
+  ridingHorse: { label: "Riding Horse", group: "Mounts (5e)", icon: "fa-horse", size: "Large", ac: 10, hp: 13, speed: "60 ft", abil: [16,10,12,2,11,7], atk: ["Hooves", "+2", "2d4 + 3"], sizeX: 2, tack: true },
+  warhorse:    { label: "Warhorse",     group: "Mounts (5e)", icon: "fa-horse-head", size: "Large", ac: 11, hp: 19, speed: "60 ft", abil: [18,12,13,2,12,7], atk: ["Hooves", "+6", "2d6 + 4"], sizeX: 2, tack: true },
+  draftHorse:  { label: "Draft Horse",  group: "Mounts (5e)", icon: "fa-horse", size: "Large", ac: 10, hp: 19, speed: "40 ft", abil: [18,10,12,2,11,7], atk: ["Hooves", "+6", "2d4 + 4"], sizeX: 2, tack: true },
+  pony:        { label: "Pony",         group: "Mounts (5e)", icon: "fa-horse", size: "Medium", ac: 10, hp: 11, speed: "40 ft", abil: [15,10,13,2,11,7], atk: ["Hooves", "+4", "2d4 + 2"], sizeX: 1, tack: true },
+  mule:        { label: "Mule",         group: "Mounts (5e)", icon: "fa-horse", size: "Medium", ac: 10, hp: 11, speed: "40 ft", abil: [14,10,13,2,10,5], atk: ["Hooves", "+4", "1d4 + 2"], sizeX: 2, burden: true, tack: true },
+  camel:       { label: "Camel",        group: "Mounts (5e)", icon: "fa-horse", size: "Large", ac: 9, hp: 15, speed: "50 ft", abil: [16,8,14,2,8,5], atk: ["Bite", "+5", "1d4"], sizeX: 2, tack: true },
+  cart:        { label: "Cart",         group: "Vehicles",    icon: "fa-cart-flatbed", size: "Large", ac: 15, hp: 25, speed: "pulled", drawn: true, bins: [["bed", "Cart Bed", 100]] },
+  wagon:       { label: "Wagon",        group: "Vehicles",    icon: "fa-trailer", size: "Large", ac: 15, hp: 40, speed: "pulled", drawn: true, bins: [["bed", "Wagon Bed", 200]] },
+  rowboat:     { label: "Rowboat",      group: "Vehicles",    icon: "fa-sailboat", size: "Large", ac: 11, hp: 50, speed: "15 ft (swim)", fixed: 500, bins: [["hull", "Hull", 60]] },
+}
+// tack spots on an animal — rows line up left/right like the Anti-Hammer body
+const SLOTS = {
+  head:  ["Head", "l", 1, "bridle"],              body:    ["Body", "r", 1, "barding"],
+  back:  ["Back", "l", 2, "saddle, pack saddle"], flanks:  ["Flanks", "r", 2, "saddlebags, panniers"],
+  lside: ["Left side", "l", 3, "side harness"],   rside:   ["Right side", "r", 3, "side harness"],
+  rear:  ["Rear", "l", 4, "bedroll straps"],      harness: ["Harness", "r", 4, "draft harness"],
+}
+// tack (dnd5e equipment items flagged as tack): name -> [icon, lb, fits, bags it gives [key, label, spaces, longOnly], note]
+const TACK = {
+  "Bit and Bridle":   ["fa-link", 1, ["head"], []],
+  "Saddle, Riding":   ["fa-chair", 25, ["back"], [], "rider seat"],
+  "Saddle, Military": ["fa-chair", 30, ["back"], [], "rider seat, hard to knock off"],
+  "Pack Saddle":      ["fa-box", 15, ["back"], [["frame", "Pack Frame", 16]], "no rider"],
+  "Saddlebags":       ["fa-suitcase", 8, ["flanks"], [["L", "Left Saddlebag", 8], ["R", "Right Saddlebag", 8]]],
+  "Panniers":         ["fa-boxes-stacked", 10, ["flanks"], [["L", "Left Pannier", 12], ["R", "Right Pannier", 12]]],
+  "Bedroll Straps":   ["fa-grip-lines", 1, ["rear"], [["rear", "Rear Cargo", 6]]],
+  "Side Harness":     ["fa-grip-lines-vertical", 2, ["lside", "rside"], [["side", "Side Harness", 4, true]], "long things"],
+  "Barding, Leather": ["fa-shield", 40, ["body"], [], "AC 11 + Dex"],
+  "Draft Harness":    ["fa-link", 10, ["harness"], [], "can pull a cart"],
+}
+const tk = (name, on) => { const t = TACK[name]; return it(name, "equipment", t[0], t[1], 1, { fits: t[2], on: on || null }) }
+const COLORS = ["#8a6db0", "#5f8fb5", "#b5875f", "#6aa37a", "#b56a7c", "#9aa35f", "#5fa3a0", "#a37a5f", "#7c7fb8", "#b59a5f"]
+const SECTIONS = [["weapon", "Weapons"], ["equipment", "Equipment"], ["consumable", "Consumables"], ["tool", "Tools"], ["container", "Containers"], ["loot", "Loot"]]
+
+let uid = 100
+const it = (name, type, icon, w, qty, extra) => Object.assign({ id: "i" + (uid++), name, type, icon, w, qty }, extra || {})
+function fresh() {
+  return {
+    actors: {
+      ari: { id: "ari", kind: "pc", name: "Ari Vell", sub: "Level 3 Ranger · Human", str: 12, ac: 15, hp: [24, 28], mounts: ["bramble"], coins: [0, 14, 0, 22, 8],
+        items: [
+          it("Longsword", "weapon", "fa-khanda", 3, 1, { eq: true }), it("Spear", "weapon", "fa-staff-snake", 3, 1, { long: true }),
+          it("Shield", "equipment", "fa-shield-halved", 6, 1, { eq: true }), it("Chain Shirt", "equipment", "fa-shirt", 20, 1, { eq: true }),
+          it("Rations (1 day)", "consumable", "fa-drumstick-bite", 2, 10), it("Torch", "consumable", "fa-fire", 1, 5),
+          it("Waterskin", "consumable", "fa-bottle-water", 5, 1), it("Rope, Hempen (50 ft)", "tool", "fa-grip-lines", 10, 1),
+          it("Tent, Two-Person", "loot", "fa-campground", 20, 1), it("Bedroll", "loot", "fa-bed", 7, 1), tk("Side Harness"), it("Backpack", "container", "fa-bag-shopping", 5, 1, { eq: true }),
+        ] },
+      bramble: { id: "bramble", kind: "mount", k: "ridingHorse", name: "Bramble", owner: "ari", pulledBy: [], desc: "Bay mare, bites strangers. Bought in Ichtaca for 70 gp.", coins: [0, 0, 0, 0, 0],
+        items: [
+          tk("Bit and Bridle", "head"), tk("Saddle, Riding", "back"), tk("Saddlebags", "flanks"), tk("Bedroll Straps"), tk("Panniers"),
+          it("Feed (1 day)", "consumable", "fa-wheat-awn", 10, 3), it("Rations (1 day)", "consumable", "fa-drumstick-bite", 2, 4), it("Lantern, Hooded", "tool", "fa-lightbulb", 2, 1),
+        ] },
+    },
+    open: ["ari", "bramble"], tabs: { ari: "inventory", bramble: "inventory" }, pins: {}, undo: [],
+  }
+}
+let S = fresh()
+const A = (id) => S.actors[id]
+const isMount = (a) => a && a.kind === "mount"
+const colorOf = (id) => { let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0; return COLORS[h % COLORS.length] }
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]))
+const fmt = (n) => (Math.round(n * 10) / 10).toLocaleString()
+const viewer = () => document.getElementById("who").value
+const ahOn = () => document.getElementById("ahOn").checked
+const canEdit = (a) => viewer() === "gm" || a.id === "ari" || (isMount(a) && a.owner === "ari")
+
+// ── carrying ──
+const load = (a) => a.items.reduce((s, i) => s + i.w * i.qty, 0)
+function carryMax(a) {
+  if (!isMount(a)) return a.str * 15
+  const k = KINDS[a.k]
+  if (k.fixed) return k.fixed
+  if (k.drawn) return a.pulledBy.reduce((s, id) => s + carryMax(A(id)), 0) * 5
+  return k.abil[0] * 15 * k.sizeX
+}
+function carryRule(a) {
+  const k = KINDS[a.k]
+  if (k.fixed) return "Set by its kind · " + fmt(k.fixed) + " lb"
+  if (k.drawn) return a.pulledBy.length ? "5 × what pulls it (" + a.pulledBy.map(id => A(id).name).join(", ") + ")" : "Nothing pulling it yet. Pick who pulls it below"
+  return "Str " + k.abil[0] + " × 15 × " + k.sizeX + (k.burden ? " (Beast of Burden)" : k.size === "Large" ? " (Large)" : "")
+}
+
+// ── Anti-Hammer packing (mockup: spaces from weight; long things only on side harnesses) ──
+const spacesOf = (i) => { const w = i.w * i.qty; return w <= 1 ? 1 : w <= 4 ? 2 : w <= 10 ? 3 : w <= 20 ? 4 : w <= 40 ? 6 : Math.ceil(w / 8) }
+// bags come from the tack that is ON the animal (a cart/boat has its own built in)
+function binsOf(a) {
+  const k = KINDS[a.k]
+  if (k.bins) return k.bins.map(([key, label, cap]) => ({ id: key, label, cap, where: "built in" }))
+  const out = []
+  for (const i of a.items) if (i.on && TACK[i.name]) for (const [key, label, cap, long] of TACK[i.name][3])
+    out.push({ id: i.id + ":" + key, label: key === "side" ? (i.on === "lside" ? "Left " : "Right ") + label : label, cap, long: !!long, where: "on " + SLOTS[i.on][0] + (long ? " · long things" : "") })
+  return out
+}
+function pack(a) {
+  const bins = binsOf(a).map(b => ({ ...b, used: 0, items: [] }))
+  const out = new Map(), notPacked = []
+  const order = a.items.filter(i => !i.fits).slice().sort((x, y) => spacesOf(y) - spacesOf(x))
+  const tryPut = (i, b) => { const s = spacesOf(i); if (b.long && !i.long) return false; if (b.used + s > b.cap) return false; b.used += s; b.items.push(i); out.set(i.id, b.id); return true }
+  for (const i of order) {
+    const pin = S.pins[i.id], pb = pin && bins.find(b => b.id === pin)
+    if (pb && tryPut(i, pb)) continue
+    const fit = bins.filter(b => !b.long || i.long).sort((x, y) => (i.long ? (y.long ? 1 : 0) - (x.long ? 1 : 0) : 0))
+    if (!fit.some(b => tryPut(i, b))) notPacked.push(i)
+  }
+  return { bins, where: out, notPacked }
+}
+function equip(aId, itemId, slot) {
+  const a = A(aId), i = a.items.find(x => x.id === itemId); if (!i) return
+  if (!i.fits || !i.fits.includes(slot)) { note(i.name + (i.fits ? " goes on " + i.fits.map(f => SLOTS[f][0]).join(" or ") : " isn't tack"), "warn"); return }
+  snapshot(); for (const o of a.items) if (o !== i && o.on === slot) o.on = null
+  i.on = slot; S.landed = i.id; render()
+}
+function unequip(aId, itemId) { const i = A(aId).items.find(x => x.id === itemId); if (!i) return; snapshot(); i.on = null; render() }
+function tackUp(aId) {
+  const a = A(aId); snapshot()
+  for (const i of a.items) if (i.fits && !i.on) { const f = i.fits.find(x => !a.items.some(o => o.on === x)); if (f) i.on = f }
+  render()
+}
+function strip(aId) { snapshot(); for (const i of A(aId).items) i.on = null; render() }
+
+// ── moving items (the real build: one modifyBatch write; through the GM when the player doesn't own both) ──
+function snapshot() { S.undo.push(JSON.stringify({ actors: S.actors, pins: S.pins })); if (S.undo.length > 20) S.undo.shift() }
+function moveItem(fromId, toId, itemId, n) {
+  const from = A(fromId), to = A(toId), src = from.items.find(i => i.id === itemId)
+  if (!src || fromId === toId) return
+  if (!canEdit(to) || !canEdit(from)) { note((canEdit(to) ? from : to).name + " isn't yours. The GM can make you its owner on its Details tab", "warn"); return }
+  n = Math.max(1, Math.min(src.qty, n || src.qty))
+  snapshot()
+  const same = !src.fits && to.items.find(i => i.name === src.name && i.type === src.type && !i.fits)
+  if (same) same.qty += n
+  else to.items.push(Object.assign({}, src, { id: n === src.qty ? src.id : "i" + (uid++), qty: n, eq: false, on: null }))
+  if (n === src.qty) from.items = from.items.filter(i => i !== src); else src.qty -= n
+  delete S.pins[itemId]
+  const verb = isMount(to) ? "Stored" : "Took"
+  note(verb + " " + (n > 1 ? n + " × " : "") + src.name + (isMount(to) ? " on " + to.name : " from " + from.name), "", true)
+  render()
+}
+function splitStack(aId, itemId) {
+  const a = A(aId), src = a.items.find(i => i.id === itemId); if (!src || src.qty < 2) return
+  snapshot(); const half = Math.floor(src.qty / 2); src.qty -= half
+  a.items.splice(a.items.indexOf(src) + 1, 0, Object.assign({}, src, { id: "i" + (uid++), qty: half })); render()
+}
+function undo() { const s = S.undo.pop(); if (!s) return; const o = JSON.parse(s); S.actors = o.actors; S.pins = o.pins; render() }
+
+// ── how-many prompt ──
+function askQty(fromId, toId, itemId, shift) {
+  const src = A(fromId).items.find(i => i.id === itemId); if (!src) return
+  if (src.qty < 2 || shift) return moveItem(fromId, toId, itemId, src.qty)
+  const to = A(toId), verb = isMount(to) ? "Store" : "Take"
+  qs("#qt").textContent = verb + (isMount(to) ? " on " + to.name : " from " + A(fromId).name)
+  qs("#qverb").textContent = verb
+  qs("#qmsg").innerHTML = "How many <b>" + esc(src.name) + "</b>? <span style='color:var(--ink-3)'>(has " + src.qty + ")</span>"
+  const r = qs("#qr"), nIn = qs("#qn"); r.max = nIn.max = src.qty; r.value = nIn.value = src.qty
+  r.oninput = () => { nIn.value = r.value }; nIn.oninput = () => { r.value = nIn.value }
+  qs("#qok").onclick = () => { closeDlg(); moveItem(fromId, toId, itemId, Number(nIn.value)) }
+  showDlg("#qdlg"); setTimeout(() => { nIn.focus(); nIn.select() }, 0)
+}
+const qs = (s, r) => (r || document).querySelector(s)
+function showDlg(sel) { qs("#veil").style.display = "block"; qs(sel).style.display = "block" }
+function closeDlg() { qs("#veil").style.display = "none"; document.querySelectorAll(".dlg").forEach(d => d.style.display = "none") }
+document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", closeDlg))
+qs("#veil").addEventListener("click", closeDlg)
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeDlg(); hideCtx() } if (e.key === "Enter" && qs("#qdlg").style.display === "block") qs("#qok").click() })
+
+// ── notifications ──
+function note(text, kind, withUndo) {
+  const n = document.createElement("div"); n.className = "nt " + (kind || "")
+  n.innerHTML = '<i class="fa-solid ' + (kind === "warn" ? "fa-triangle-exclamation" : "fa-check") + '"></i><span>' + esc(text) + "</span>" + (withUndo ? "<a>Undo</a>" : "")
+  if (withUndo) n.querySelector("a").onclick = () => { undo(); n.remove() }
+  qs("#notes").appendChild(n); setTimeout(() => n.remove(), 4500)
+}
+
+// ── rendering ──
+function encBar(a, label) {
+  const l = load(a), m = carryMax(a), pct = m ? Math.min(100, l / m * 100) : 100
+  const cls = !m || l > m ? "over" : l > m * 2 / 3 ? "warn" : ""
+  return '<div class="enc"><span>' + label + '</span><div class="bar ' + cls + '"><i style="width:' + pct + '%"></i><span>' + fmt(l) + " / " + (m ? fmt(m) : "—") + " lb</span></div></div>"
+}
+function rowHTML(a, i, np) {
+  const sub = [i.on ? "on " + SLOTS[i.on][0] : i.fits ? (isMount(a) ? "carried, not on" : "tack") : i.eq ? "equipped" : "", i.long ? "long" : ""].filter(Boolean).join(" · ")
+  return '<div class="row" draggable="' + canEdit(a) + '" data-actor="' + a.id + '" data-item="' + i.id + '">' +
+    '<div class="nm"><span class="ico"><i class="fa-solid ' + i.icon + '"></i></span><span style="min-width:0"><b>' + esc(i.name) + "</b>" +
+    (sub || np ? "<em>" + esc(sub) + (np ? '<span class="tag bad">not packed</span>' : "") + "</em>" : "") + "</span></div>" +
+    '<div class="w">' + fmt(i.w * i.qty) + ' lb</div><div class="q"><i class="fa-solid fa-minus"></i>' + i.qty + '<i class="fa-solid fa-plus"></i></div><div class="menu" data-menu><i class="fa-solid fa-ellipsis-vertical"></i></div></div>'
+}
+function inventoryHTML(a) {
+  const np = isMount(a) && ahOn() ? new Set(pack(a).notPacked.map(i => i.id)) : new Set()
+  const q = (S.find && S.find[a.id]) || ""
+  let h = ""
+  if (!isMount(a)) h += mountStripHTML(a)
+  h += '<div class="inv-tools"><input type="search" placeholder="Search inventory" data-find="' + a.id + '" value="' + esc(q) + '"><button title="Filter"><i class="fa-solid fa-filter"></i></button><button title="Sort"><i class="fa-solid fa-arrow-down-a-z"></i></button>' + (canEdit(a) ? '<button title="Create item"><i class="fa-solid fa-plus"></i></button>' : "") + "</div>"
+  const list = a.items.filter(i => !q || i.name.toLowerCase().includes(q.toLowerCase()))
+  const secs = [["tack", "Tack"], ...SECTIONS]
+  for (const [key, label] of secs) {
+    const rows = list.filter(i => key === "tack" ? i.fits : !i.fits && i.type === key)
+    if (!rows.length && !(isMount(a) && key === "consumable")) continue
+    h += '<div class="sec"><div class="sec-h"><span>' + label + "</span><span>Weight</span><span>Qty</span><span></span></div>"
+    h += rows.length ? rows.map(i => rowHTML(a, i, np.has(i.id))).join("") : '<div class="empty">Nothing here. Drag things from a character onto this sheet</div>'
+    h += "</div>"
+  }
+  h += '<div class="foot">' + encBar(a, isMount(a) ? "Carrying" : "Encumbrance") +
+    '<div class="coins">' + ["pp", "gp", "ep", "sp", "cp"].map((c, k) => "<span><b>" + a.coins[k] + "</b>" + c + "</span>").join("") + "</div></div>"
+  return h
+}
+function mountStripHTML(a) {
+  const ms = a.mounts.map(A).filter(Boolean)
+  if (!ms.length) return ""
+  return '<div class="mstrip">' + ms.map(m => {
+    const k = KINDS[m.k], l = load(m), mx = carryMax(m)
+    return '<div class="mrow" data-drop-mount="' + m.id + '"><span class="th cover ' + (k.drawn ? "cart" : "horse") + '"><i class="fa-solid ' + k.icon + '"></i></span>' +
+      "<span><b>" + esc(m.name) + "</b><em>" + k.label + "</em></span>" +
+      '<div class="enc" style="grid-template-columns:1fr"><div class="bar ' + (l > mx ? "over" : l > mx * 2 / 3 ? "warn" : "") + '"><i style="width:' + (mx ? Math.min(100, l / mx * 100) : 100) + '%"></i><span>' + fmt(l) + " / " + fmt(mx) + " lb</span></div></div>" +
+      '<button data-open="' + m.id + '">Open</button></div>'
+  }).join("") + '<div class="hint">Drop an item on a mount to store it there</div></div>'
+}
+const KINDCLS = { weapon: "weapon", equipment: "armor", consumable: "cons", tool: "tool", container: "gear", loot: "other" }
+function slotHTML(a, key) {
+  const [label, side, row, hint] = SLOTS[key], worn = a.items.find(i => i.on === key)
+  if (!worn) return '<div class="slot ' + side + ' empty" style="grid-row:' + row + '" data-slot="' + key + '" data-actor="' + a.id + '"><span class="k">' + label + '</span><span class="v">+ ' + hint + "</span></div>"
+  const t = TACK[worn.name] || [], gives = (t[3] || []).length, rider = key === "back" && /^Saddle,/.test(worn.name) && a.owner
+  const sub = rider ? "rider: " + A(a.owner).name : t[4] || ""
+  return '<div class="slot ' + side + ' filled kind-gear' + (S.landed === worn.id ? " landed" : "") + '" style="grid-row:' + row + '" data-slot="' + key + '" data-actor="' + a.id + '" data-item="' + worn.id + '" draggable="' + canEdit(a) + '">' +
+    '<span class="k">' + label + (sub ? "<i>" + esc(sub) + "</i>" : "") + '</span><span class="v">' + esc(worn.name) + (gives ? '<span class="bagmark">▸</span>' : "") + "</span></div>"
+}
+// hex bag drawing — same geometry as the AH prototype (4 rows, column-major, biggest first)
+const HS = 17, HW = Math.sqrt(3) * HS
+const hcen = (c, r) => ({ x: HW / 2 + 3 + HW * (c + 0.5 * (r & 1)), y: HS + 3 + 1.5 * HS * r })
+const hpts = (x, y, s) => { let p = ""; for (let i = 0; i < 6; i++) { const t = (60 * i - 90) * Math.PI / 180; p += (x + s * Math.cos(t)).toFixed(1) + "," + (y + s * Math.sin(t)).toFixed(1) + " " } return p }
+const SHAPE = { 1: [[0, 0]], 2: [[0, 0], [1, 0]], 3: [[0, 0], [1, 0], [2, 0]], 4: [[0, 0], [1, 0], [0, 1], [1, 1]], 6: [[0, 0], [1, 0], [0, 1], [1, 1], [0, 2], [1, 2]] }
+const shapeOf = (n) => SHAPE[n] || Array.from({ length: n }, (_, i) => [Math.floor(i / 4), i % 4])
+function bagSVG(a, b) {
+  const rows = 4, cols = Math.max(1, Math.ceil(b.cap / rows)), valid = new Set(), occ = new Set(), placed = []
+  for (let i = 0; i < b.cap; i++) valid.add(Math.floor(i / rows) + "," + (i % rows))
+  const free = () => [...valid].filter(k => !occ.has(k)).map(k => k.split(",").map(Number))
+  for (const it of b.items.slice().sort((x, y) => spacesOf(y) - spacesOf(x))) {
+    const n = spacesOf(it), sh = shapeOf(n); let cells = null
+    for (let c = 0; c < cols && !cells; c++) for (let r = 0; r < rows && !cells; r++) {
+      const cs = sh.map(([dc, dr]) => [c + dc, r + dr]); if (cs.every(([x, y]) => valid.has(x + "," + y) && !occ.has(x + "," + y))) cells = cs }
+    if (!cells) cells = free().slice(0, n)
+    cells.forEach(([x, y]) => occ.add(x + "," + y)); placed.push([it, cells])
+  }
+  const w = HW * (cols + 0.5) + 6, h = 1.5 * HS * (rows - 1) + 2 * HS + 6
+  let s = '<svg viewBox="0 0 ' + w.toFixed(0) + " " + h.toFixed(0) + '" width="' + w.toFixed(0) + '" height="' + h.toFixed(0) + '">'
+  for (let i = 0; i < b.cap; i++) { const p = hcen(Math.floor(i / rows), i % rows); s += '<polygon class="hx-cell" points="' + hpts(p.x, p.y, HS - 1) + '"/>' }
+  for (const [it, cells] of placed) {
+    const cs = cells.map(([c, r]) => hcen(c, r)); let d = ""
+    for (const c of cs) for (let i = 0; i < 6; i++) {
+      const t = (60 * i - 60) * Math.PI / 180, nx = c.x + HW * Math.cos(t), ny = c.y + HW * Math.sin(t)
+      if (cs.some(o => Math.abs(o.x - nx) < 2 && Math.abs(o.y - ny) < 2)) continue
+      const v = (j) => { const q = (60 * j - 90) * Math.PI / 180; return [c.x + (HS + .4) * Math.cos(q), c.y + (HS + .4) * Math.sin(q)] }
+      const p1 = v(i), p2 = v(i + 1); d += "M" + p1[0].toFixed(1) + " " + p1[1].toFixed(1) + "L" + p2[0].toFixed(1) + " " + p2[1].toFixed(1)
+    }
+    const mx = cs.reduce((t, c) => t + c.x, 0) / cs.length, my = cs.reduce((t, c) => t + c.y, 0) / cs.length
+    const span = Math.max(...cs.map(c => c.x)) - Math.min(...cs.map(c => c.x)) + HW, nm = it.name + (it.qty > 1 ? " ×" + it.qty : "")
+    const maxCh = Math.max(3, Math.floor(span / 5.6)), label = nm.length > maxCh ? nm.slice(0, maxCh - 1) + "…" : nm
+    s += '<g class="hx-it kind-' + (KINDCLS[it.type] || "other") + '" data-actor="' + a.id + '" data-item="' + it.id + '"><title>' + esc(nm) + " · " + spacesOf(it) + " spaces</title>" +
+      cs.map(c => '<polygon class="hx-fill" points="' + hpts(c.x, c.y, HS + .4) + '"/>').join("") + '<path class="hx-edge" d="' + d + '"/><text class="hx-name" x="' + mx.toFixed(1) + '" y="' + (my + 3).toFixed(1) + '" text-anchor="middle">' + esc(label) + "</text></g>"
+  }
+  return s + "</svg>"
+}
+function ahHTML(a) {
+  if (!ahOn()) return '<div class="ah-off">Anti-Hammer isn\'t in use in this world. The Inventory tab and the pounds limit work on their own</div>'
+  const k = KINDS[a.k], p = pack(a), ed = canEdit(a)
+  let h = '<div class="ah">'
+  if (k.tack) h += '<div class="ah-h"><b>Tack</b><span class="meta">click or drop to put on</span><span class="sp"></span>' + (ed ? '<button class="btn" data-tackup>Tack up</button><button class="btn" data-strip>Strip</button>' : "") + "</div>" +
+    '<div class="doll"><div class="fig"><i class="fa-solid ' + k.icon + '"></i></div>' + Object.keys(SLOTS).map(s => slotHTML(a, s)).join("") + "</div>"
+  const used = p.bins.reduce((t, b) => t + b.used, 0), cap = p.bins.reduce((t, b) => t + b.cap, 0)
+  h += '<div class="ah-h"><b>' + (k.tack ? "Bags" : "Storage") + '</b><span class="meta">' + used + " / " + cap + " packed</span></div>"
+  h += '<div class="ah-meter"><i style="width:' + (cap ? Math.round(used / cap * 100) : 0) + '%"></i></div>'
+  if (!p.bins.length) h += '<div class="ah-none">No bags on ' + esc(a.name) + " yet. Put on saddlebags, panniers or a pack saddle</div>"
+  h += '<div class="bags">' + p.bins.map(b => {
+    const big = b.cap > 60
+    return '<div class="bag" data-bin="' + b.id + '"' + (big ? ' style="flex:1 1 100%"' : "") + '><div class="bag-h"><b>' + esc(b.label) + '</b><span class="where">' + esc(b.where) + '</span><span class="n' + (b.used >= b.cap ? " full" : "") + '">' + b.used + " / " + b.cap + "</span></div>" +
+      (big ? (b.items.length ? b.items.map(i => rowHTML(a, i, false)).join("") : '<div class="ah-none">Empty. Drag things onto it</div>') : bagSVG(a, b)) + "</div>"
+  }).join("") + "</div>"
+  if (p.notPacked.length) h += '<div class="ah-over"><b>' + p.notPacked.length + " not packed</b>: " + p.notPacked.map(i => esc(i.name)).join(", ") + ". Drag one onto a bag, or click it</div>"
+  return h + "</div>"
+}
+function detailsHTML(a) {
+  const k = KINDS[a.k], ed = viewer() === "gm"
+  const pcs = Object.values(S.actors).filter(x => !isMount(x))
+  const pullers = Object.values(S.actors).filter(x => isMount(x) && !KINDS[x.k].drawn && x.id !== a.id)
+  let h = '<div class="two"><div class="fld"><label>Kind</label><select data-kind ' + (ed ? "" : "disabled") + ">" + Object.entries(KINDS).map(([key, v]) => '<option value="' + key + '"' + (key === a.k ? " selected" : "") + ">" + v.label + "</option>").join("") + "</select></div>" +
+    '<div class="fld"><label>Owner</label><select data-owner ' + (ed ? "" : "disabled") + '><option value="">Nobody (GM only)</option>' + pcs.map(p => '<option value="' + p.id + '"' + (p.id === a.owner ? " selected" : "") + ">" + esc(p.name) + "</option>").join("") + "</select></div></div>"
+  if (!ed) h += '<div class="rule" style="margin:-4px 0 10px">Only the GM sets the kind and the owner. The owner\'s player can open, store and take</div>'
+  if (k.abil) {
+    h += '<div class="abil">' + ["STR", "DEX", "CON", "INT", "WIS", "CHA"].map((n, j) => { const v = k.abil[j], m = Math.floor((v - 10) / 2); return "<div><small>" + n + "</small><b>" + v + "</b><em>" + (m >= 0 ? "+" : "") + m + "</em></div>" }).join("") + "</div>"
+    h += '<div class="fld"><label>Attacks</label><div class="atk"><span class="ico"><i class="fa-solid fa-horse"></i></span><b style="font-weight:500">' + k.atk[0] + "</b><span>" + k.atk[1] + " to hit</span><span>" + k.atk[2] + " bludgeoning</span></div></div>"
+  }
+  if (k.drawn) h += '<div class="fld"><label>Pulled by</label><select data-pull ' + (ed ? "" : "disabled") + '><option value="">Nothing</option>' + pullers.map(p => '<option value="' + p.id + '"' + (a.pulledBy.includes(p.id) ? " selected" : "") + ">" + esc(p.name) + " (" + KINDS[p.k].label + ")</option>").join("") + "</select></div>"
+  h += '<div class="fld"><label>Carry limit</label><div class="two"><input value="' + fmt(carryMax(a)) + ' lb" ' + (ed ? "" : "disabled") + '><span class="rule" style="margin:0;align-self:center">' + esc(carryRule(a)) + "</span></div></div>"
+  h += '<div class="fld"><label>Description</label><textarea ' + (canEdit(a) ? "" : "disabled") + ">" + esc(a.desc) + "</textarea></div>"
+  return h
+}
+function sheetHTML(a) {
+  const tab = S.tabs[a.id] || "inventory"
+  if (!isMount(a)) {
+    const ms = a.mounts.map(A).filter(Boolean)
+    const side = '<div class="cover pc"><i class="fa-solid fa-user"></i><span class="lbl">Cover</span></div>' +
+      '<div class="vitals"><div class="ac">' + a.ac + '<small>AC</small></div><div class="meter"><i style="width:' + (a.hp[0] / a.hp[1] * 100) + '%"></i><span>' + a.hp[0] + " / " + a.hp[1] + "</span></div></div>" +
+      '<div class="speed"><i class="fa-solid fa-person-running"></i> 30 ft</div>' +
+      (ms.length ? '<div class="side-h">Mounts</div>' + ms.map(m => { const k = KINDS[m.k], l = load(m), mx = carryMax(m)
+        return '<div class="mcard" data-open="' + m.id + '" data-drop-mount="' + m.id + '" title="Open ' + esc(m.name) + ' · drop an item here to store it"><span class="th cover ' + (k.drawn ? "cart" : "horse") + '"><i class="fa-solid ' + k.icon + '"></i></span><span class="nm">' + esc(m.name) + '</span><span class="sub">' + k.label + "</span>" +
+          '<div class="load enc" style="grid-template-columns:1fr"><div class="bar ' + (l > mx ? "over" : l > mx * 2 / 3 ? "warn" : "") + '"><i style="width:' + (mx ? Math.min(100, l / mx * 100) : 100) + '%"></i><span>' + fmt(l) + " / " + fmt(mx) + " lb</span></div></div></div>" }).join("") : "")
+    const tabs = [["details", "fa-id-card", "Details"], ["inventory", "fa-suitcase", "Inventory"], ["features", "fa-list", "Features"], ["spells", "fa-book", "Spells"], ["effects", "fa-bolt", "Effects"], ["biography", "fa-feather", "Biography"]]
+    return { title: a.name, side, head: "<h1>" + esc(a.name) + '</h1><div class="sub">' + a.sub + "</div>", body: inventoryHTML(a),
+      tabs: tabs.map(([id, ic, lb]) => '<button class="' + (id === "inventory" ? "on" : "") + '" ' + (id === "inventory" ? "" : "disabled") + '><i class="fa-solid ' + ic + '"></i><span class="tip">' + lb + "</span></button>").join("") }
+  }
+  const k = KINDS[a.k]
+  const side = '<div class="cover ' + (k.drawn ? "cart" : "horse") + '"><i class="fa-solid ' + k.icon + '"></i><span class="lbl">Cover</span></div>' +
+    '<div class="vitals"><div class="ac">' + k.ac + '<small>AC</small></div><div class="meter"><i style="width:100%"></i><span>' + k.hp + " / " + k.hp + "</span></div></div>" +
+    '<div class="speed"><i class="fa-solid fa-' + (k.drawn ? "road" : "horse") + '"></i> ' + k.speed + "</div>" +
+    '<div class="side-h">Owner</div><div style="font-size:13px">' + (a.owner ? '<i class="fa-solid fa-user" style="color:var(--ink-3)"></i> ' + esc(A(a.owner).name) : '<span style="color:var(--ink-3)">Nobody (GM only)</span>') + "</div>" +
+    '<div class="side-h">Carrying</div>' + encBar(a, "").replace('<div class="enc"><span></span>', '<div class="enc" style="grid-template-columns:1fr">')
+  const tabs = [["inventory", "fa-suitcase", "Inventory"], ["ah", "fa-cubes", "Anti-Hammer"], ["details", "fa-horse-head", "Details"]]
+  const body = tab === "ah" ? ahHTML(a) : tab === "details" ? detailsHTML(a) : inventoryHTML(a)
+  const lock = canEdit(a) ? "" : '<div class="lock"><i class="fa-solid fa-lock"></i> You can look, but ' + esc(a.name) + " isn't yours. The GM can make you its owner</div>"
+  return { title: a.name, side, head: "<h1>" + esc(a.name) + '</h1><div class="sub">' + k.label + " · " + k.size + (k.drawn ? " vehicle" : " beast") + " · Mount / Vehicle</div>",
+    body: lock + body,
+    tabs: tabs.filter(t => t[0] !== "ah" || ahOn()).map(([id, ic, lb]) => '<button data-tab="' + id + '" class="' + (id === tab ? "on" : "") + '"><i class="fa-solid ' + ic + '"></i><span class="tip">' + lb + "</span></button>").join("") }
+}
+function render() {
+  if (!ahOn() && S.tabs.bramble === "ah") S.tabs.bramble = "inventory"
+  for (const id of Object.keys(S.tabs)) if (!ahOn() && S.tabs[id] === "ah") S.tabs[id] = "inventory"
+  const stage = qs("#stage"), scroll = {}
+  stage.querySelectorAll(".app").forEach(w => { scroll[w.dataset.win] = qs(".body", w).scrollTop })
+  stage.innerHTML = ""
+  for (const id of S.open) {
+    const a = A(id); if (!a) continue
+    const s = sheetHTML(a)
+    const w = document.createElement("div"); w.className = "app" + (canEdit(a) ? "" : " readonly"); w.dataset.win = id
+    w.style.width = "664px"; w.style.height = "720px"
+    w.innerHTML = '<div class="win-head"><i class="fa-solid ' + (isMount(a) ? KINDS[a.k].icon : "fa-user") + '"></i><span class="t">' + esc(s.title) + '</span><i class="fa-solid fa-gear" title="Sheet"></i><i class="fa-solid fa-user-circle" title="Prototype token"></i>' + (isMount(a) && id !== "bramble" ? '<i class="fa-solid fa-xmark" data-close-win="' + id + '"></i>' : '<i class="fa-solid fa-xmark"></i>') + "</div>" +
+      '<div class="sheet"><div class="side">' + s.side + '</div><div class="main"><div class="sh-head">' + s.head + '</div><div class="body">' + s.body + '</div></div><nav class="tabs">' + s.tabs + "</nav></div>"
+    stage.appendChild(w)
+    if (scroll[id]) qs(".body", w).scrollTop = scroll[id]
+  }
+  wire()
+  setTimeout(() => { S.landed = null }, 0)
+}
+
+// ── wiring: tabs, drag/drop, context menu ──
+let drag = null
+function wire() {
+  document.querySelectorAll(".app").forEach(w => {
+    const id = w.dataset.win
+    w.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { S.tabs[id] = b.dataset.tab; render() })
+    w.querySelectorAll("[data-close-win]").forEach(b => b.onclick = () => { S.open = S.open.filter(x => x !== id); render() })
+    const find = w.querySelector("[data-find]")
+    if (find) find.oninput = () => { (S.find = S.find || {})[id] = find.value; const pos = find.selectionStart; render(); const f2 = qs('.app[data-win="' + id + '"] [data-find]'); if (f2) { f2.focus(); f2.setSelectionRange(pos, pos) } }
+    const kind = w.querySelector("[data-kind]"); if (kind) kind.onchange = () => { A(id).k = kind.value; render() }
+    const own = w.querySelector("[data-owner]"); if (own) own.onchange = () => { const a = A(id), old = a.owner; a.owner = own.value || null
+      for (const p of Object.values(S.actors)) if (!isMount(p)) p.mounts = p.mounts.filter(m => m !== id)
+      if (a.owner) A(a.owner).mounts.push(id)
+      note(a.owner ? A(a.owner).name + "'s player now owns " + a.name : a.name + " is GM only now"); render() }
+    const pull = w.querySelector("[data-pull]"); if (pull) pull.onchange = () => { A(id).pulledBy = pull.value ? [pull.value] : []; render() }
+    // drop on the whole sheet = move here; drop on an AH bin = move here + pin to that bin
+    w.addEventListener("dragover", (e) => { if (!drag) return; e.preventDefault(); w.classList.toggle("drop-ok", drag.actor !== id) })
+    w.addEventListener("dragleave", (e) => { if (!w.contains(e.relatedTarget)) w.classList.remove("drop-ok") })
+    w.addEventListener("drop", (e) => {
+      e.preventDefault(); w.classList.remove("drop-ok"); if (!drag) return
+      const bin = e.target.closest("[data-bin]"), mt = e.target.closest("[data-drop-mount]"), sl = e.target.closest("[data-slot]")
+      const d = drag; drag = null
+      if (sl) return putOn(d.actor, id, d.item, sl.dataset.slot)
+      if (mt) return askQty(d.actor, mt.dataset.dropMount, d.item, e.shiftKey)
+      if (d.actor === id) { if (bin && canEdit(A(id))) { S.pins[d.item] = bin.dataset.bin; render() } return }
+      if (bin) S.pins[d.item] = bin.dataset.bin
+      askQty(d.actor, id, d.item, e.shiftKey)
+    })
+  })
+  document.querySelectorAll("[data-drop-mount]").forEach(m => {
+    m.addEventListener("dragover", (e) => { if (!drag || drag.actor === m.dataset.dropMount) return; e.preventDefault(); e.stopPropagation(); m.classList.add("drop-ok") })
+    m.addEventListener("dragleave", () => m.classList.remove("drop-ok"))
+    m.addEventListener("drop", () => m.classList.remove("drop-ok"))
+  })
+  document.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", (e) => { e.stopPropagation(); openSheet(b.dataset.open) }))
+  document.querySelectorAll("[draggable=true][data-item]").forEach(r => {
+    r.addEventListener("dragstart", (e) => { drag = { actor: r.dataset.actor, item: r.dataset.item }; e.dataTransfer.setData("text/plain", r.dataset.item); e.dataTransfer.effectAllowed = "move"; setTimeout(() => r.classList.add("dragging"), 0) })
+    r.addEventListener("dragend", () => { r.classList.remove("dragging"); document.querySelectorAll(".drop-ok").forEach(x => x.classList.remove("drop-ok")); setTimeout(() => { drag = null }, 0) })
+  })
+  document.querySelectorAll("[data-item]").forEach(r => r.addEventListener("contextmenu", (e) => { e.preventDefault(); showCtx(e, r.dataset.actor, r.dataset.item) }))
+  document.querySelectorAll("[data-slot]").forEach(sl => sl.addEventListener("click", (e) => { e.stopPropagation(); if (sl.dataset.item) showCtx(e, sl.dataset.actor, sl.dataset.item); else slotMenu(e, sl.dataset.actor, sl.dataset.slot) }))
+  document.querySelectorAll(".hx-it").forEach(g => g.addEventListener("click", (e) => { e.stopPropagation(); showCtx(e, g.dataset.actor, g.dataset.item) }))
+  document.querySelectorAll("[data-tackup]").forEach(b => b.onclick = () => tackUp(b.closest(".app").dataset.win))
+  document.querySelectorAll("[data-strip]").forEach(b => b.onclick = () => strip(b.closest(".app").dataset.win))
+  document.querySelectorAll("[data-slot]").forEach(sl => {
+    sl.addEventListener("dragover", (e) => { if (!drag) return; e.preventDefault(); e.stopPropagation(); sl.classList.add("drop-ok") })
+    sl.addEventListener("dragleave", () => sl.classList.remove("drop-ok"))
+  })
+  document.querySelectorAll("[data-menu]").forEach(m => m.addEventListener("click", (e) => { const r = m.closest("[data-item]"); showCtx(e, r.dataset.actor, r.dataset.item) }))
+}
+function openSheet(id) {
+  if (!S.open.includes(id)) S.open.push(id)
+  render(); const w = qs('.app[data-win="' + id + '"]'); if (w) { w.classList.add("flash"); w.scrollIntoView({ block: "nearest", behavior: "smooth" }); setTimeout(() => w.classList.remove("flash"), 700) }
+}
+// put a tack item on an animal's slot — moving it over first when it comes from someone else
+function putOn(fromId, toId, itemId, slot) {
+  const src = A(fromId).items.find(x => x.id === itemId); if (!src) return
+  if (!src.fits) { note(src.name + " isn't tack. Drop it on a bag instead", "warn"); return }
+  if (!src.fits.includes(slot)) { note(src.name + " goes on " + src.fits.map(f => SLOTS[f][0]).join(" or "), "warn"); return }
+  if (fromId !== toId) { moveItem(fromId, toId, itemId, 1); if (!A(toId).items.some(x => x.id === itemId)) return }
+  equip(toId, itemId, slot)
+}
+function showCtx(e, aId, itemId) {
+  const a = A(aId), i = a.items.find(x => x.id === itemId); if (!i) return
+  const rows = []
+  if (isMount(a) && ahOn() && i.fits) {
+    if (i.on) { rows.push(["fa-arrow-down", "Take off", () => unequip(a.id, i.id), TACK[i.name] && TACK[i.name][3].length ? "its bags' things come loose" : ""])
+      for (const o of a.items) if (o !== i && o.fits && o.fits.includes(i.on)) rows.push(["fa-right-left", "Swap for " + o.name, () => equip(a.id, o.id, i.on), o.on ? "on " + SLOTS[o.on][0] : "carried"]) }
+    const put = i.fits.filter(f => f !== i.on)
+    if (put.length) { rows.push({ g: "Put on" }); for (const f of put) { const busy = a.items.find(o => o.on === f); rows.push(["fa-arrow-up", SLOTS[f][0], () => equip(a.id, i.id, f), busy ? "swap " + busy.name : ""]) } }
+  } else if (isMount(a) && ahOn()) {
+    const p = pack(a), here = p.where.get(i.id)
+    if (p.bins.length) { rows.push({ g: here ? "Move to" : "Pack into" })
+      for (const b of p.bins) if (b.id !== here) { const fits = (!b.long || i.long) && b.used + spacesOf(i) <= b.cap
+        rows.push(["fa-suitcase", b.label, () => { snapshot(); S.pins[i.id] = b.id; render() }, fits ? (b.cap - b.used) + " free" : b.long && !i.long ? "long things only" : "no room", !fits]) } }
+  }
+  if (!isMount(a)) for (const m of a.mounts.map(A)) {
+    if (i.fits && ahOn() && KINDS[m.k].tack) for (const f of i.fits) rows.push(["fa-horse", "Put on " + m.name + " · " + SLOTS[f][0], () => putOn(a.id, m.id, i.id, f)])
+    else rows.push(["fa-horse", "Store on " + m.name, () => askQty(a.id, m.id, i.id)])
+  }
+  if (isMount(a) && a.owner) { if (rows.length) rows.push({ g: "" }); rows.push(["fa-hand-holding", "Give to " + A(a.owner).name, () => askQty(a.id, a.owner, i.id)]) }
+  if (i.qty > 1) rows.push(["fa-arrows-split-up-and-left", "Split stack", () => splitStack(a.id, i.id)])
+  rows.push(["fa-pen-to-square", "Edit", () => {}], ["fa-trash", "Delete", () => {}])
+  ctxMenu(e, rows, i.name)
+}
+function slotMenu(e, aId, slot) {
+  const a = A(aId), rows = [], ownerItems = a.owner ? A(a.owner).items : []
+  const mine = a.items.filter(i => i.fits && i.fits.includes(slot)), theirs = ownerItems.filter(i => i.fits && i.fits.includes(slot))
+  if (canEdit(a)) {
+    for (const i of mine) rows.push(["fa-arrow-up", i.name, () => equip(a.id, i.id, slot), i.on ? "on " + SLOTS[i.on][0] : "carried"])
+    for (const i of theirs) rows.push(["fa-arrow-up", i.name, () => putOn(a.owner, a.id, i.id, slot), "from " + A(a.owner).name])
+  }
+  if (!rows.length) rows.push(["fa-circle-info", canEdit(a) ? "Nothing that fits. Drag tack here" : a.name + " isn't yours", () => {}, "", true])
+  ctxMenu(e, [{ g: SLOTS[slot][0] + " · fits here" }, ...rows])
+}
+function ctxMenu(e, rows, title) {
+  const c = qs("#ctx"); c.innerHTML = ""
+  if (title) { const h = document.createElement("div"); h.className = "g"; h.textContent = title; c.appendChild(h) }
+  for (const r of rows) {
+    const d = document.createElement("div")
+    if (!Array.isArray(r)) { if (!r.g) { d.style.cssText = "border-top:1px solid #333;margin:3px 0;padding:0;cursor:default" } else { d.className = "g"; d.textContent = r.g } c.appendChild(d); continue }
+    const [ic, lb, fn, sub, off] = r
+    d.innerHTML = '<i class="fa-solid ' + ic + '"></i>' + esc(lb) + (sub ? "<small>" + esc(sub) + "</small>" : ""); if (off) d.className = "off"
+    d.onclick = () => { if (off) return; hideCtx(); fn() }; c.appendChild(d)
+  }
+  c.style.display = "block"; c.style.left = Math.min(e.clientX, innerWidth - c.offsetWidth - 6) + "px"; c.style.top = Math.max(4, Math.min(e.clientY, innerHeight - c.offsetHeight - 4)) + "px"
+}
+function hideCtx() { qs("#ctx").style.display = "none" }
+document.addEventListener("click", (e) => { if (!e.target.closest("#ctx") && !e.target.closest("[data-menu]")) hideCtx() })
+
+// ── Create Actor dialog (dnd5e's picker + our type) ──
+const TYPES = [["character", "fa-user", "Character"], ["npc", "fa-skull", "NPC"], ["vehicle", "fa-ship", "Vehicle"], ["group", "fa-users", "Group"], ["encounter", "fa-dragon", "Encounter"], ["pendant-bridge.mount", "fa-horse", "Mount / Vehicle"]]
+qs("#cTypes").innerHTML = TYPES.map(([v, ic, lb], j) => '<input type="radio" name="ct" id="ct' + j + '" value="' + v + '"' + (j === 5 ? " checked" : "") + '><label for="ct' + j + '"><i class="fa-solid ' + ic + '"></i>' + lb + "</label>").join("")
+const groups = {}; for (const [key, v] of Object.entries(KINDS)) (groups[v.group] = groups[v.group] || []).push([key, v])
+qs("#cFrom").innerHTML = Object.entries(groups).map(([g, ks]) => '<optgroup label="' + g + '">' + ks.map(([key, v]) => '<option value="' + key + '">' + v.label + "</option>").join("") + "</optgroup>").join("")
+const cSync = () => { const ours = qs('input[name=ct]:checked').value === "pendant-bridge.mount"; qs("#cFromWrap").style.display = ours ? "" : "none"; const k = KINDS[qs("#cFrom").value]
+  qs("#cRule").textContent = k.abil ? "Stats, Hooves and carry limit from the 5e stat block" : k.drawn ? "Carries 5 × whatever pulls it" : "Set carry limit" }
+qs("#cTypes").addEventListener("change", cSync); qs("#cFrom").addEventListener("change", cSync)
+qs("#openCreate").onclick = () => { qs("#cName").value = ""; cSync(); showDlg("#create") }
+qs("#cOk").onclick = () => {
+  if (qs('input[name=ct]:checked').value !== "pendant-bridge.mount") { closeDlg(); note("Only the Mount / Vehicle type is mocked here", "warn"); return }
+  const key = qs("#cFrom").value, k = KINDS[key], id = "m" + (uid++)
+  S.actors[id] = { id, kind: "mount", k: key, name: qs("#cName").value.trim() || k.label, owner: null, pulledBy: k.drawn ? ["bramble"] : [], desc: "", coins: [0, 0, 0, 0, 0], items: [] }
+  S.tabs[id] = "inventory"; closeDlg(); openSheet(id); note("Created " + S.actors[id].name + ". The GM can set an owner on its Details tab")
+}
+
+// ── bar ──
+qs("#theme").onchange = (e) => { document.body.className = "theme-" + e.target.value }
+qs("#who").onchange = render; qs("#ahOn").onchange = render
+qs("#reset").onclick = () => { S = fresh(); render() }
+const p = new URLSearchParams(location.search)
+if (p.get("theme")) { qs("#theme").value = p.get("theme"); document.body.className = "theme-" + p.get("theme") }
+if (p.get("tab")) S.tabs.bramble = p.get("tab")
+if (p.get("ah") === "0") qs("#ahOn").checked = false
+render()
+</script>
+</body>
+</html>
