@@ -14,6 +14,11 @@
 //     only once the copies have landed
 //   • one person out on the road who overlaps nobody is just their token, never a number (2026-11-13)
 //   • a group on open ground (`spot.grid`, laid out side by side by RealmScreen) is always their tokens (2026-11-18)
+//   • a party's GROUP token (one dnd5e Group actor standing for several people) is always that token, never a
+//     number: it already is the short form (the user, 2026-11-18: Writ's Sin at Notchment Hideout read as "5" and
+//     zooming in on it blacked the canvas out)
+//   • nothing here may throw inside Foundry's render loop: any failure snaps every spot to where it's heading,
+//     drops the glide copies and stops the animation (a throw there blacks out the whole canvas)
 //   • the number's disc is 3/4 see-through (the user, 2026-11-11); the digits stay solid
 //   • click a number: the view zooms in on that town just past that point, which spreads it
 // Tokens without a spot (an older RealmScreen) are left alone.
@@ -34,6 +39,9 @@ const MS = 320                  // one spread / gather
 const S = { root: null, spots: new Map(), hidden: new Set(), raf: 0, ticking: false }
 
 const flagOf = (t) => t?.document?.getFlag?.(MOD, "party") || null
+const isGroup = (t) => t?.actor?.type === "group" || t?.document?.actor?.type === "group"
+// A texture PIXI can still draw (a destroyed one throws mid-render and blacks out the canvas).
+const drawable = (tex) => !!tex && !tex.destroyed && !!tex.baseTexture && !tex.baseTexture.destroyed && tex.valid !== false
 const scale = () => canvas?.stage?.scale?.x || 1
 const maxZoom = () => CONFIG.Canvas?.maxZoom ?? 3
 const spreadZoom = (scene) => Math.min(maxZoom() * 0.98, SPREAD_PX / (FACE * unitPx(scene)))
@@ -121,6 +129,8 @@ function rebuild() {
     let s = S.spots.get(k)
     if (!s) { s = { t: 0, target: 0 }; S.spots.set(k, s) }
     Object.assign(s, { spot: f.spot, tokens: f.tokens, n: f.n, sx, sy, cx: sx, cy: sy - (LIFT * u + r), r })
+    if (s.ghosts && !s.ghosts.destroyed) s.ghosts.destroy({ children: true })   // copies of the old pictures
+    s.ghosts = null
     if (!s.chip || s.chip.destroyed || s.chip.n !== f.n || s.u !== u) {
       s.chip?.destroy({ children: true })
       s.chip = root.addChild(makeChip(f.n, u))
@@ -138,7 +148,7 @@ function rebuild() {
     if (s.solo && was === undefined) { s.t = 1; s.target = 1 }     // first seen alone: just there, no glide
     // A grid of people on open ground (RealmScreen lays them out side by side): always open, no number.
     const wasGrid = s.grid
-    s.grid = !!s.spot.grid
+    s.grid = !!s.spot.grid || (s.tokens.length > 0 && s.tokens.every(isGroup))   // a party's Group token too
     if (s.grid && !wasGrid) { s.t = 1; s.target = 1 }
   }
   retarget(true)
@@ -175,7 +185,7 @@ function ghostsFor(s) {
   box.items = []
   for (const t of s.tokens) {
     const m = t.mesh
-    if (!m?.texture || !t.visible && !(game.user?.isGM)) continue
+    if (!drawable(m?.texture) || !t.visible && !(game.user?.isGM)) continue
     if (!game.user?.isGM && t.document.hidden) continue
     const sp = box.addChild(new PIXI.Sprite(m.texture))
     sp.anchor.set(0.5)
@@ -206,6 +216,7 @@ function paint() {
       const box = ghostsFor(s)
       box.visible = true
       for (const it of box.items) {
+        if (it.sp.destroyed || !drawable(it.sp.texture)) { if (!it.sp.destroyed) it.sp.visible = false; continue }
         it.sp.position.set(lerp(s.sx, it.x, e), lerp(s.sy, it.y, e))
         const k = lerp(0.35, 1, e)
         it.sp.width = it.w * k; it.sp.height = it.h * k
@@ -215,7 +226,20 @@ function paint() {
   }
 }
 
-function tick() {
+// Something went wrong mid-animation: land every spot where it's heading, no copies, no ticker.
+let warned = false
+function bail(e) {
+  if (!warned) { warned = true; console.warn(`${MOD} | people numbers: animation stopped`, e) }
+  stopTicker()
+  for (const s of S.spots.values()) {
+    s.t = s.target ?? 0
+    try { if (s.ghosts && !s.ghosts.destroyed) s.ghosts.destroy({ children: true }) } catch { /* already gone */ }
+    s.ghosts = null
+  }
+  try { paint() } catch { /* leave it */ }
+}
+function tick() { try { step() } catch (e) { bail(e) } }
+function step() {
   const now = performance.now()
   let moving = false
   for (const s of S.spots.values()) {
@@ -231,7 +255,8 @@ function tick() {
 function startTicker() { if (S.ticking || !canvas?.app?.ticker) return; S.ticking = true; canvas.app.ticker.add(tick) }
 function stopTicker() { if (!S.ticking) return; S.ticking = false; canvas?.app?.ticker?.remove(tick) }
 
-const schedule = () => { if (!S.raf) S.raf = requestAnimationFrame(rebuild) }
+const safeRebuild = () => { try { rebuild() } catch (e) { S.raf = 0; bail(e) } }
+const schedule = () => { if (!S.raf) S.raf = requestAnimationFrame(safeRebuild) }
 
 // Click a number → zoom in on its town just past the spread point (which spreads it). A drag never counts.
 let down = null
@@ -252,9 +277,9 @@ Hooks.on("canvasReady", () => {
   if (view && !view._pbPeopleChips) { view._pbPeopleChips = true; view.addEventListener("pointerdown", onDown); view.addEventListener("pointerup", onUp) }
 })
 Hooks.on("canvasTearDown", () => { stopTicker(); S.root = null; S.spots.clear(); S.hidden.clear() })
-Hooks.on("canvasPan", () => retarget())
+Hooks.on("canvasPan", () => { try { retarget() } catch (e) { bail(e) } })
 // A token refreshed by Foundry keeps our choice; new / moved / removed people re-count.
-Hooks.on("refreshToken", (t) => { if (S.hidden.has(t.id)) hideNow(t) })
+Hooks.on("refreshToken", (t) => { try { if (S.hidden.has(t.id)) hideNow(t) } catch (e) { bail(e) } })
 for (const h of ["createToken", "updateToken", "deleteToken"]) Hooks.on(h, (doc) => { if (doc?.parent?.id === canvas?.scene?.id) schedule() })
 Hooks.on("updateScene", (scene) => { if (scene?.id === canvas?.scene?.id) schedule() })   // realm records (the map's fit width)
 
