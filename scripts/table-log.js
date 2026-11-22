@@ -326,6 +326,8 @@ function myNames() {
   const book = myLog()?.names || {}
   return isGM() ? arr(book.gm) : arr(book[game.user?.id])
 }
+// The mark Esc closed (its start + the text before it): a re-render doesn't reopen it; typing on does.
+let shut = null
 function wireSuggest(root, ta) {
   const ul = root.querySelector(".pb-tl-suggest")
   let items = [], pick = 0, mark = null
@@ -345,6 +347,8 @@ function wireSuggest(root, ta) {
   }
   const update = () => {
     mark = ta.selectionStart === ta.selectionEnd ? activeMark(ta.value, ta.selectionStart) : null
+    if (mark && shut && shut.start === mark.start && shut.head === ta.value.slice(0, mark.end)) mark = null
+    else shut = null
     items = mark ? suggestNames(myNames(), mark, { own: isGM() ? "" : str(game.user?.character?.name) }) : []
     pick = 0
     draw()
@@ -361,7 +365,7 @@ function wireSuggest(root, ta) {
     if (!items.length) return false
     if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); pick = (pick + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length; draw(); return true }
     if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); choose(items[pick]); return true }
-    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); return true }
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); if (mark) shut = { start: mark.start, head: ta.value.slice(0, mark.end) }; close(); return true }
     return false
   }
   return { update, key, close }

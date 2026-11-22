@@ -24,7 +24,6 @@ function cleanNameBook(v) {
   for (const [k, list] of Object.entries(v).slice(0, 80)) if (str(k)) out[str(k)] = cleanNames(list)
   return out
 }
-const normName = (s) => String(s ?? "").replace(/\s+/g, " ").trim().toLowerCase()
 
 /** The unfinished @ / # the caret is in (RealmScreen's captureCompose activeMark rule), or null. */
 export function activeMark(text, caret = String(text ?? "").length) {
@@ -40,30 +39,95 @@ export function activeMark(text, caret = String(text ?? "").length) {
   return { type: m[2] === "#" ? "place" : "person", query: query.replace(/^\s+/, ""), start: m.index + m[1].length, end: caret }
 }
 
-/** Names to offer for a mark, best first: `own` (the player's character) leads for @. → [{ n, t }] */
+// Matching ignores case, accents, curly quotes and punctuation: "éowyn" finds "Eowyn", "st mary" finds "St. Mary".
+const fold = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[‘’]/g, "'")
+  .toLowerCase().replace(/[^\p{L}\p{N}' ]+/gu, " ").replace(/\s+/g, " ").trim()
+const wordsOf = (s) => s.split(" ").filter(Boolean)
+
+// Edit distance with swaps (Damerau, optimal string alignment) — "Arhtorn" is one slip from "Arthorn".
+function slips(a, b, cap) {
+  if (Math.abs(a.length - b.length) > cap) return cap + 1
+  let pp = null, p = Array.from({ length: b.length + 1 }, (_, j) => j)
+  for (let i = 1; i <= a.length; i++) {
+    const c = [i]
+    let low = i
+    for (let j = 1; j <= b.length; j++) {
+      c[j] = Math.min(p[j] + 1, c[j - 1] + 1, p[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1))
+      if (pp && i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) c[j] = Math.min(c[j], pp[j - 2] + 1)
+      low = Math.min(low, c[j])
+    }
+    if (low > cap) return cap + 1
+    pp = p; p = c
+  }
+  return p[b.length]
+}
+// The fewest slips between `q` and the START of `w` ("arhto" vs "arthorn" → 1).
+const prefixSlips = (q, w, cap) => Math.min(...[q.length - 1, q.length, q.length + 1].filter(n => n > 0).map(n => slips(q, w.slice(0, n), cap)))
+
+/** How well `name` fits what was typed (0 = not at all). Exact starts beat word starts beat typos. */
+export function nameScore(name, query) {
+  const n = fold(name), q = fold(query)
+  if (!n) return 0
+  if (!q) return 1
+  if (n.startsWith(q)) return 100
+  const nw = wordsOf(n), qw = wordsOf(q)
+  if (nw.includes(q)) return 95                // a whole word: "vale" → "Arthorn Vale" before "Nira Valen"
+  if (nw.some(w => w.startsWith(q))) return 90
+  // every typed word starts a word of the name, in order: "vala gr" → "Vala the Grey"
+  if (qw.length > 1) {
+    let at = 0
+    const inOrder = qw.every(x => { const i = nw.findIndex((w, k) => k >= at && w.startsWith(x)); if (i < 0) return false; at = i + 1; return true })
+    if (inOrder) return 85
+  }
+  if (q.length >= 3 && n.replace(/ /g, "").includes(q.replace(/ /g, ""))) return 70
+  // a typo or two: 1 slip for short queries, 2 from six letters on
+  if (q.length >= 3) {
+    const cap = q.length >= 6 ? 2 : 1
+    const qq = q.replace(/ /g, "")
+    let best = cap + 1
+    for (const w of [n.replace(/ /g, ""), ...nw]) best = Math.min(best, prefixSlips(qq, w, cap))
+    if (best <= cap) return 60 - best * 10
+  }
+  // initials: "av" → "Arthorn Vale"
+  if (q.length >= 2 && !q.includes(" ") && nw.length >= q.length && [...q].every((ch, i) => nw[i]?.[0] === ch)) return 45
+  return 0
+}
+
+/** Names to offer for a mark, best first: the player's own character leads for @. → [{ n, t }] */
 export function suggestNames(names, mark, { own = "", limit = 6 } = {}) {
   if (!mark) return []
   const kind = mark.type === "place" ? "l" : "p"
-  const q = normName(mark.query)
-  const fits = (n) => !q || normName(n).startsWith(q) || normName(n).split(/[\s[\]()-]+/).some(w => w.startsWith(q))
-  const pool = [...(kind === "p" && str(own) ? [{ n: str(own), t: "p" }] : []), ...arr(names).filter(x => x && x.t === kind)]
-  const out = [], seen = new Set()
-  for (const x of pool) {
-    const k = normName(x.n)
-    if (!k || seen.has(k) || !fits(x.n)) continue
-    if (q && k === q) continue   // already typed in full
-    seen.add(k); out.push(x)
-    if (out.length >= limit) break
-  }
-  return out
+  const raw = String(mark.query ?? "")
+  const q = fold(raw)
+  const list = arr(names).filter(x => x && x.t === kind && str(x.n))
+  // A finished name followed by a space ("@Varek |") is done — don't keep offering.
+  if (q && /\s$/.test(raw) && list.some(x => fold(x.n) === q)) return []
+  // `own` is the Foundry actor's name, which may not be the Codex page's ("Nira" vs "Nira Valen"): lift the
+  // page that matches it instead of listing both. Only an actor with no page is offered under its own name.
+  const o = kind === "p" ? fold(own) : ""
+  const isOwn = (n) => { const f = fold(n); return !!o && (f === o || f.startsWith(o + " ") || o.startsWith(f + " ")) }
+  const pool = [...list]
+  if (o && !list.some(x => isOwn(x.n))) pool.unshift({ n: str(own), t: "p" })
+  const seen = new Set(), scored = []
+  pool.forEach((x, i) => {
+    const k = fold(x.n)
+    if (!k || seen.has(k)) return
+    seen.add(k)
+    if (q && k === q) return            // already typed in full
+    const s = nameScore(x.n, raw)
+    if (s) scored.push({ x, s: s + (isOwn(x.n) ? 15 : 0), i })
+  })
+  scored.sort((a, b) => b.s - a.s || (q ? a.x.n.length - b.x.n.length : 0) || a.i - b.i)
+  return scored.slice(0, limit).map(r => r.x)
 }
 
-/** The form a chosen name goes in as: @Name, or @[two words] when a word isn't Capitalised. */
+// The parser reads an unbracketed name as a run of Capitalised words of letters, digits, ' and -.
+const CAP_RUN = /^[A-ZÀ-ɏ][\p{L}\p{N}'’-]*(?: [A-ZÀ-ɏ][\p{L}\p{N}'’-]*)*$/u
+/** The form a chosen name goes in as: @Name, or @[St. Mary of the Vale] when it can't be read back bare. */
 export function markFor(type, name) {
   const key = type === "place" ? "#" : "@"
   const n = String(name ?? "").replace(/\s+/g, " ").trim()
-  const plain = n.split(" ").every(w => /^[A-Z\u00C0-\u024F]/.test(w)) && !/[\][]/.test(n)
-  return key + (plain ? n : `[${n}]`)
+  return key + (CAP_RUN.test(n) ? n : `[${n}]`)
 }
 
 /** Replace the active mark with the chosen name. → { text, caret } */

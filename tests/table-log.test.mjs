@@ -106,3 +106,23 @@ test("@ / # under the caret, and what it offers", () => {
   assert.deepEqual(completeMark("hi @Va", activeMark("hi @Va"), "Vala the Grey"), { text: "hi @[Vala the Grey] ", caret: 20 })
   assert.deepEqual(completeMark("hi @Va", activeMark("hi @Va"), "Varek"), { text: "hi @Varek ", caret: 10 })
 })
+
+test("suggestions forgive typos, accents and order, and never list one person twice", () => {
+  const names = [{ n: "Arthorn Vale", t: "p" }, { n: "Éowyn", t: "p" }, { n: "Vala the Grey", t: "p" }, { n: "St. Mary", t: "l" }, { n: "Nira Valen", t: "p" }]
+  const s = (q, o) => suggestNames(names, activeMark(q), o).map(x => x.n)
+  assert.equal(s("@Arhtorn")[0], "Arthorn Vale")          // swapped letters
+  assert.equal(s("@Artorn")[0], "Arthorn Vale")           // a dropped letter
+  assert.equal(s("@eow")[0], "Éowyn")                     // no accent typed
+  assert.equal(s("@vale")[0], "Arthorn Vale")            // a later word
+  assert.deepEqual(s("@[vala gr"), ["Vala the Grey"])     // words in order
+  assert.equal(s("#[st mar")[0], "St. Mary")              // punctuation ignored
+  assert.deepEqual(s("@zzz"), [])
+  // the Foundry actor "Nira" is the page "Nira Valen": one row, first
+  assert.deepEqual(s("@N", { own: "Nira" }), ["Nira Valen"])
+  assert.equal(s("@", { own: "Nira" }).filter(n => /nira/i.test(n)).length, 1)
+  // a finished name and a space: done offering
+  assert.deepEqual(s("we met @Arthorn Vale "), [])
+  // names the parser can't read back bare go in brackets
+  assert.equal(completeMark("to #St", activeMark("to #St"), "St. Mary").text, "to #[St. Mary] ")
+  assert.equal(completeMark("hi @Eo", activeMark("hi @Eo"), "Éowyn").text, "hi @Éowyn ")
+})
