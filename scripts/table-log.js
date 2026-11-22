@@ -349,7 +349,9 @@ function wireSuggest(root, ta) {
     mark = ta.selectionStart === ta.selectionEnd ? activeMark(ta.value, ta.selectionStart) : null
     if (mark && shut && shut.start === mark.start && shut.head === ta.value.slice(0, mark.end)) mark = null
     else shut = null
-    items = mark ? suggestNames(myNames(), mark, { own: isGM() ? "" : str(game.user?.character?.name) }) : []
+    const names = myNames()
+    const own = isGM() ? "" : str(names.find(x => x && x.me)?.n) || str(game.user?.character?.name)
+    items = mark ? suggestNames(names, mark, { own }) : []
     pick = 0
     draw()
   }

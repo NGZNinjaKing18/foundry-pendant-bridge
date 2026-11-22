@@ -17,7 +17,9 @@ const arr = (v) => (Array.isArray(v) ? v : [])
 // ── @ / # suggestions ─────────────────────────────────────────
 // RealmScreen sends `names` = { gm: [...], [userId]: [...] } of { n: name, t: "p" person | "l" place }:
 // each player's list holds only what the Directory lets them see (lib/foundryTableLog.js nameLists).
-const cleanNames = (v) => arr(v).filter(x => x && str(x.n)).slice(0, 800).map(x => ({ n: str(x.n).slice(0, 80), t: x.t === "l" ? "l" : "p" }))
+// `me` marks the character this player plays in the running campaign (RealmScreen decides — not Foundry's
+// one assigned character per account, which may be from another campaign).
+const cleanNames = (v) => arr(v).filter(x => x && str(x.n)).slice(0, 800).map(x => ({ n: str(x.n).slice(0, 80), t: x.t === "l" ? "l" : "p", ...(x.me && x.t !== "l" ? { me: 1 } : {}) }))
 function cleanNameBook(v) {
   const out = {}
   if (!v || typeof v !== "object") return out

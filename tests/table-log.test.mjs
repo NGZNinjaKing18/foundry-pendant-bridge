@@ -107,6 +107,10 @@ test("@ / # under the caret, and what it offers", () => {
   assert.deepEqual(completeMark("hi @Va", activeMark("hi @Va"), "Varek"), { text: "hi @Varek ", caret: 10 })
 })
 
+test("the campaign's own character is kept through the whisper (me), never on a place", () => {
+  const withNames = { ...log, names: { gm: [], u1: [{ n: "Nefarion Vanuzi", t: "p", me: 1 }, { n: "Vespar", t: "p" }, { n: "Docks", t: "l", me: 1 }] } }
+  assert.deepEqual(logFor(withNames, "u1").names.u1, [{ n: "Nefarion Vanuzi", t: "p", me: 1 }, { n: "Vespar", t: "p" }, { n: "Docks", t: "l" }])
+})
 test("suggestions forgive typos, accents and order, and never list one person twice", () => {
   const names = [{ n: "Arthorn Vale", t: "p" }, { n: "Éowyn", t: "p" }, { n: "Vala the Grey", t: "p" }, { n: "St. Mary", t: "l" }, { n: "Nira Valen", t: "p" }]
   const s = (q, o) => suggestNames(names, activeMark(q), o).map(x => x.n)
