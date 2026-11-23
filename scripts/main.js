@@ -38,6 +38,7 @@ import { setMusicSender, setMusicState, musicNote } from "./music-panel.js"   //
 import { timelineStatus, applyFromRealm, broadcastFromRealm, isTimelineWriter } from "./timeline.js"
 import { setMapBuilders, mapViewsState, mapViewsSet, mapSend, mapViewsEdit, mapRemove, mapReveal } from "./mapviews.js"
 import {} from "./realm-layer.js"   // draws the sent World Map itself (records in flags.realm)
+import { skyState, skySet, setSkySender } from "./realm-sky.js"   // the time of day + weather over map scenes (flags.sky)
 import {} from "./scene-doors.js"   // GM-only signs on a scene that lead to another scene (flags.doors)
 import {} from "./scene-dir.js"     // Scenes sidebar while RealmScreen is connected: live/pinned/recent strip, tags, quiet folders, picture folders
 import {} from "./people-chips.js"  // RealmScreen's people as numbers on each viewer's canvas; one town spreads at max zoom
@@ -639,6 +640,7 @@ const bridge = {
   }
 }
 setClockSender((m) => bridge.send(m))
+setSkySender((m) => bridge.send(m))
 setCampaignSender((m) => bridge.send(m))
 setPartySender((m) => bridge.send(m))
 setTripSender((m) => bridge.send(m))
@@ -3878,6 +3880,11 @@ async function handleCommand(msg) {
     // The app checks this to send records for the Realm layer instead of documents (v0.144.0+).
     case "map.realm":
       return bridge.reply(msg.reqId, { type: "map.realm", ok: true, version: 1 })
+    // The sky over map scenes (scripts/realm-sky.js): the GM's switch, and an hour's light + weather.
+    case "sky.state":
+      return bridge.reply(msg.reqId, { type: "sky.state", ok: true, ...skyState() })
+    case "sky.set":
+      return bridge.reply(msg.reqId, { type: "sky.set", ...(await skySet(msg)) })
     case "map.reveal":
       return bridge.reply(msg.reqId, { type: "map.revealed", ok: true, ...(await mapReveal(msg)) })
     // ── RealmScreen music in the Playlists tab (scripts/music-panel.js) ──

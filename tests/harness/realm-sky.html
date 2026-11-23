@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Realm Sky Harness</title>
+<style>
+/* Dev harness (not loaded by Foundry): the REAL scripts/realm-sky.js drawing frames made by the REAL RealmScreen
+   builder (pendant-home lib/mapSkyFrame.mjs, the same code lib/foundrySky.js runs), on real PIXI 7, inside a tiny
+   stand-in for Foundry's canvas. Serve the Downloads folder (launch config "campaign-page-harness") and open
+   /foundry-pendant-bridge/tests/harness/realm-sky.html */
+body { margin: 0; background: #0b0a10; color: #e7e1d4; font: 13px/1.4 sans-serif; }
+#bar { display: flex; gap: 12px; align-items: center; padding: 8px 12px; background: #151515; border-bottom: 1px solid #333; flex-wrap: wrap; }
+#bar label { display: flex; gap: 6px; align-items: center; }
+#bar select, #bar button { background: #2a2a2a; color: #ddd; border: 1px solid #444; border-radius: 3px; padding: 2px 8px; font: inherit; }
+#log { margin-left: auto; font: 12px monospace; color: #9c9; }
+#view { display: block; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <label>Hour <input id="hour" type="range" min="0" max="23" step="1" value="15"> <span id="hv">15</span></label>
+  <label>Day <input id="day" type="range" min="0" max="359" step="1" value="150"> <span id="dv">150</span></label>
+  <label>Zoom <input id="zoom" type="range" min="0.15" max="3" step="0.05" value="0.25"></label>
+  <label>Light &amp; weather <select id="mode"><option value="off">Off</option><option value="gm">DM only</option><option value="all" selected>Everyone</option></select></label>
+  <label><input id="gm" type="checkbox"> GM</label>
+  <label>Force <select id="force"><option value="">(as computed)</option><option value="rain">rain</option><option value="snow">snow</option><option value="storm">storm</option></select></label>
+  <button id="bench">Measure</button>
+  <span id="log">loading…</span>
+</div>
+<canvas id="view"></canvas>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.4.2/pixi.min.js"></script>
+<script type="module">
+const log = (m) => { document.getElementById('log').textContent = m }
+window.onerror = (m) => log('ERROR ' + m)
+
+// ── a tiny Foundry ──
+const hooks = {}
+globalThis.Hooks = {
+  on: (n, f) => { (hooks[n] ||= []).push(f) }, once: (n, f) => { (hooks[n] ||= []).push(f) },
+  callAll: (n, ...a) => { for (const f of hooks[n] || []) f(...a) },
+}
+const settings = { realmSky: 'all' }, reg = {}
+globalThis.game = {
+  user: { id: 'u', isGM: false },
+  settings: { get: (m, k) => settings[k], register: (m, k, o) => { reg[k] = o }, set: async (m, k, v) => { settings[k] = v; reg[k]?.onChange?.(v) } },
+}
+const W = 1100, H = 660
+const app = new PIXI.Application({ view: document.getElementById('view'), width: W, height: H, background: 0x0b0a10, resolution: window.devicePixelRatio || 1, autoDensity: true })
+const D = { sceneX: 250, sceneY: 160, sceneWidth: 4000, sceneHeight: 2400, width: 4500, height: 2720 }
+const primary = new PIXI.Container()
+primary.sortableChildren = true
+primary.sortChildren = function () {
+  this.children.sort((a, b) => ((a.elevation || 0) - (b.elevation || 0)) || ((a.sortLayer || 0) - (b.sortLayer || 0)) || ((a.sort || 0) - (b.sort || 0)))
+  this.sortDirty = false
+}
+app.stage.addChild(primary)
+const flags = { 'pendant-bridge': {} }
+const scene = { id: 's1', dimensions: D, getFlag: (m, k) => flags[m]?.[k] }
+globalThis.canvas = { ready: true, dimensions: D, stage: app.stage, primary, app, scene, performance: { mode: 2 } }
+
+// a stand-in map: sea, a continent, a party token above the sky
+const S = (x, y) => [D.sceneX + x * D.sceneWidth, D.sceneY + y * D.sceneHeight]
+const land = [[0.04, 0.2], [0.3, 0.05], [0.62, 0.08], [0.82, 0.25], [0.86, 0.6], [0.74, 0.92], [0.4, 0.95], [0.12, 0.82], [0.03, 0.5]]
+const bg = new PIXI.Graphics(); bg.sortLayer = 0
+bg.beginFill(0x2f5470).drawRect(0, 0, D.width, D.height).endFill()
+bg.beginFill(0x55603f).drawPolygon(land.flatMap(p => S(...p))).endFill()
+for (let i = 0; i < 260; i++) { const x = (i * 97 % 1000) / 1000, y = (i * 61 % 1000) / 1000; bg.beginFill(0x47522f, 0.6).drawCircle(...S(x, y), 18 + (i % 5) * 9).endFill() }
+primary.addChild(bg)
+const token = new PIXI.Graphics(); token.sortLayer = 700
+token.beginFill(0x6b4a2e).lineStyle(6, 0xf2c14e).drawCircle(0, 0, 50).endFill(); token.position.set(...S(0.42, 0.53))
+primary.addChild(token)
+app.ticker.add(() => { if (primary.sortDirty) primary.sortChildren() })
+
+// ── frames, made by RealmScreen's own builder (lib/foundrySky.js runs the same calls) ──
+const F = await import('/pendant-home/src/renderer/src/lib/mapSkyFrame.mjs?v=' + Date.now())
+// The sea = everything outside the continent (a water body framing the land, with the land as a hole).
+const mapData = { placement: { mode: 'bounds', bounds: { latN: 40, latS: 10, lngW: -15, lngE: 35 } } }
+const inLand = (u, v) => { let ins = false; for (let i = 0, j = land.length - 1; i < land.length; j = i++) { const [xi, yi] = land[i], [xj, yj] = land[j]; if (((yi > v) !== (yj > v)) && (u < ((xj - xi) * (v - yi)) / (yj - yi) + xi)) ins = !ins } return ins }
+const isSeaAt = (u, v) => !inLand(u, v)
+const sky = F.skyConfig({ owner: { type: 'gb-planet', data: { axialTiltDeg: 23.44, derived: {} } }, yearDays: 360 })   // a stand-in planet: its climate gives rain vs snow
+const png = async ({ cols, rows, data }) => { const c = document.createElement('canvas'); c.width = cols; c.height = rows; c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(data), cols, rows), 0, 0); return c.toDataURL('image/png') }
+let buildMs = 0
+async function send() {
+  const hour = +document.getElementById('hour').value, day = +document.getElementById('day').value
+  document.getElementById('hv').textContent = hour; document.getElementById('dv').textContent = day
+  const t0 = performance.now()
+  const f = F.skyFrame({ data: mapData, sky, clock: F.skyClock({ calDoy: day, absDay: 1000 + day, hour, yearDays: 360 }), isSeaAt })
+  buildMs = performance.now() - t0
+  // Test only: paint one kind of weather over the whole cloud deck, to look at each kind's drawing.
+  const force = document.getElementById('force').value
+  if (force) for (let i = 0; i < f.wet.data.length; i += 4) {
+    f.clouds.data[i + 3] = Math.max(f.clouds.data[i + 3], 170)
+    f.wet.data[i] = 200; f.wet.data[i + 1] = force === 'snow' ? 255 : 0; f.wet.data[i + 2] = force === 'storm' ? 230 : 40
+  }
+  const [light, clouds, wet] = await Promise.all([png(f.light), png(f.clouds), png(f.wet)])
+  flags['pendant-bridge'].sky = { at: { day, hour }, light, clouds, wet }
+  window.__bytes = light.length + clouds.length + wet.length
+  Hooks.callAll('updateScene', scene, { flags: { 'pendant-bridge': { sky: {} } } })
+}
+const Sky = await import('/foundry-pendant-bridge/scripts/realm-sky.js?v=' + Date.now())
+window.__sky = Sky
+Hooks.callAll('init')
+await send()
+Hooks.callAll('canvasReady')
+
+// camera
+const cam = () => { const z = +document.getElementById('zoom').value; app.stage.scale.set(z); app.stage.position.set(W / 2 - S(0.45, 0.5)[0] * z, H / 2 - S(0.45, 0.5)[1] * z) }
+cam()
+for (const id of ['hour', 'day', 'force']) document.getElementById(id).addEventListener('change', send)
+document.getElementById('zoom').addEventListener('input', cam)
+document.getElementById('mode').addEventListener('change', (e) => game.settings.set('pendant-bridge', 'realmSky', e.target.value))
+document.getElementById('gm').addEventListener('change', (e) => { game.user.isGM = e.target.checked; Sky.drawSky() })
+
+// Frame cost: GPU time of a full render, sky on vs off (a 1-pixel read-back after each render makes the GPU finish,
+// so the time is real draw time, not just command submission). Measured 2026-11-22: the sky adds ~0.07 ms a frame.
+window.__measure = async (n = 120) => {
+  const a = app, gl = a.renderer.gl, px = new Uint8Array(4)
+  const time = () => { for (let i = 0; i < 5; i++) { a.renderer.render(a.stage); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px) } const t0 = performance.now(); for (let i = 0; i < n; i++) { a.renderer.render(a.stage); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px) } return (performance.now() - t0) / n }
+  const prev = settings.realmSky
+  a.ticker.stop()
+  await game.settings.set('pendant-bridge', 'realmSky', 'all'); await new Promise(r => setTimeout(r, 200))
+  const on = time()
+  await game.settings.set('pendant-bridge', 'realmSky', 'off')
+  const off = time()
+  await game.settings.set('pendant-bridge', 'realmSky', prev); a.ticker.start()
+  return { buildMs: +buildMs.toFixed(1), bytes: window.__bytes, onMs: +on.toFixed(3), offMs: +off.toFixed(3), skyMs: +(on - off).toFixed(3) }
+}
+document.getElementById('bench').addEventListener('click', async () => { log('measuring…'); const r = await window.__measure(); log(JSON.stringify(r)) })
+log(`frame built in ${buildMs.toFixed(1)} ms`)
+</script>
+</body>
+</html>

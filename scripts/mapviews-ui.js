@@ -13,6 +13,7 @@
 
 import { viewsOf, mapViewsState, mapViewsSet, mapReveal, mapRemove, showEverything, setShowEverything, realmRecords, setNationNameScale } from "./mapviews.js"
 import { nameScale, nameGap, nationScale } from "./realm-layer.js"
+import { skyMode } from "./realm-sky.js"
 import { doorSize, doorLock, previewDoorLook, endDoorPreview } from "./scene-doors.js"
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]))
@@ -62,6 +63,8 @@ function viewsClass() {
         <hr>
         <label class="pb-mv-check"><input type="checkbox" data-action="everything" ${showEverything() ? "checked" : ""}> Show me everything (only you)</label>
         <hr>
+        <div class="form-group pb-mv-sky"><label>Light &amp; weather</label><select name="realmSky">${[["off", "Off"], ["gm", "DM only"], ["all", "Everyone"]].map(([v, t]) => `<option value="${v}" ${skyMode() === v ? "selected" : ""}>${t}</option>`).join("")}</select></div>
+        <hr>
         <div class="form-group pb-mv-range"><label>Town names</label><input type="range" name="realmNameScale" min="0.5" max="1.5" step="0.05" value="${nameScale()}"><span class="pb-mv-n">${Math.round(nameScale() * 100)}%</span></div>
         <div class="form-group pb-mv-range"><label>Name gap</label><input type="range" name="realmNameGap" min="0" max="20" step="1" value="${nameGap()}"><span class="pb-mv-n">${nameGap()} px</span></div>
         <div class="form-group pb-mv-range"><label>Nation names</label><input type="range" name="realmNationScale" min="0.3" max="2" step="0.05" value="${nationScale()}"><span class="pb-mv-n">${Math.round(nationScale() * 100)}%</span></div>
@@ -78,6 +81,9 @@ function viewsClass() {
     // The two name sliders: shown live while dragging, saved (for everyone) when let go.
     // A nation's own size slider: the same, saved on that nation's record.
     _onRender() {
+      this.element.querySelector('select[name="realmSky"]')?.addEventListener("change", (e) => {
+        game.settings.set("pendant-bridge", "realmSky", e.target.value).catch(warn)
+      })
       for (const input of this.element.querySelectorAll(".pb-mv-nation input")) {
         const out = input.parentElement.querySelector(".pb-mv-n")
         const say = () => { out.textContent = `${Math.round(input.value * 100)}%` }
