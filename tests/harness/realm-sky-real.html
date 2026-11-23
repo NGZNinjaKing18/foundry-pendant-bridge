@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Realm Sky Real Map</title>
+<style>
+/* Dev harness (not loaded by Foundry): the REAL scripts/realm-sky.js over a REAL RealmScreen map picture with REAL
+   frames exported from the running app (tests/harness/_local/<name>.json — local only, never committed; make it with
+   the :5750 recipe in realm-sky.js's header). Serve the Downloads folder (launch config "campaign-page-harness") and
+   open /foundry-pendant-bridge/tests/harness/realm-sky-real.html?map=knoxean */
+body { margin: 0; background: #000; color: #e7e1d4; font: 13px/1.4 sans-serif; }
+#bar { display: flex; gap: 12px; align-items: center; padding: 8px 12px; background: #151515; border-bottom: 1px solid #333; flex-wrap: wrap; }
+#bar label { display: flex; gap: 6px; align-items: center; }
+#bar select, #bar button { background: #2a2a2a; color: #ddd; border: 1px solid #444; border-radius: 3px; padding: 2px 8px; font: inherit; }
+#log { margin-left: auto; font: 12px monospace; color: #9c9; }
+#view { display: block; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <label>Hour <select id="hour"></select></label>
+  <label>Zoom <input id="zoom" type="range" min="0.8" max="12" step="0.05" value="1"> <span id="zv">1×</span></label>
+  <label>Centre <select id="ctr"><option value="0.5,0.5">whole</option><option value="0.5,0.4">ring band</option><option value="0.6,0.8">south</option><option value="0.3,0.6">south-west</option></select></label>
+  <button id="bench">Measure</button>
+  <span id="log">loading…</span>
+</div>
+<canvas id="view"></canvas>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.4.2/pixi.min.js"></script>
+<script type="module">
+const log = (m) => { document.getElementById('log').textContent = m }
+window.onerror = (m) => log('ERROR ' + m)
+const name = new URLSearchParams(location.search).get('map') || 'knoxean'
+const data = await (await fetch(`_local/${name}.json`)).json()
+
+const hooks = {}
+globalThis.Hooks = { on: (n, f) => { (hooks[n] ||= []).push(f) }, once: (n, f) => { (hooks[n] ||= []).push(f) }, callAll: (n, ...a) => { for (const f of hooks[n] || []) f(...a) } }
+const settings = { realmSky: 'all' }, reg = {}
+globalThis.game = { user: { id: 'u', isGM: true }, settings: { get: (m, k) => settings[k], register: (m, k, o) => { reg[k] = o }, set: async (m, k, v) => { settings[k] = v; reg[k]?.onChange?.(v) } } }
+const W = Math.min(1200, innerWidth), H = Math.min(800, innerHeight - 50)
+const app = new PIXI.Application({ view: document.getElementById('view'), width: W, height: H, background: 0x000000, resolution: window.devicePixelRatio || 1, autoDensity: true })
+// The |World Map| scene is ~57k px wide (65× RealmScreen's fit) — keep that scale so screen-sized rain/snow are judged right.
+const SW = 57344, SH = Math.round(SW * data.size[1] / data.size[0])
+const D = { sceneX: 2000, sceneY: 2000, sceneWidth: SW, sceneHeight: SH, width: SW + 4000, height: SH + 4000 }
+const primary = new PIXI.Container(); primary.sortableChildren = true
+primary.sortChildren = function () { this.children.sort((a, b) => ((a.elevation || 0) - (b.elevation || 0)) || ((a.sortLayer || 0) - (b.sortLayer || 0)) || ((a.sort || 0) - (b.sort || 0))); this.sortDirty = false }
+app.stage.addChild(primary)
+const flags = { 'pendant-bridge': {} }
+const scene = { id: 's1', dimensions: D, getFlag: (m, k) => flags[m]?.[k] }
+globalThis.canvas = { ready: true, dimensions: D, stage: app.stage, primary, app, scene, performance: { mode: 2 } }
+const bg = PIXI.Sprite.from(`_local/${data.img}`); bg.sortLayer = 0; bg.position.set(D.sceneX, D.sceneY); bg.width = SW; bg.height = SH
+primary.addChild(bg)
+app.ticker.add(() => { if (primary.sortDirty) primary.sortChildren() })
+
+const hours = Object.keys(data.frames)
+document.getElementById('hour').innerHTML = hours.map(h => `<option ${+h === data.hour ? 'selected' : ''}>${h}</option>`).join('')
+const show = () => {
+  const h = document.getElementById('hour').value
+  flags['pendant-bridge'].sky = { at: { day: data.absDay, hour: +h }, ...data.frames[h] }
+  Hooks.callAll('updateScene', scene, { flags: { 'pendant-bridge': { sky: {} } } })
+}
+const Sky = await import('/foundry-pendant-bridge/scripts/realm-sky.js?v=' + Date.now())
+window.__sky = Sky
+Hooks.callAll('init'); show(); Hooks.callAll('canvasReady')
+const cam = () => { const mz = +document.getElementById('zoom').value; document.getElementById('zv').textContent = mz.toFixed(2) + '×'; const z = Math.min(W / SW, H / SH) * mz; const [cx, cy] = document.getElementById('ctr').value.split(',').map(Number); app.stage.scale.set(z); app.stage.position.set(W / 2 - (D.sceneX + cx * SW) * z, H / 2 - (D.sceneY + cy * SH) * z) }
+cam()
+document.getElementById('hour').addEventListener('change', show)
+document.getElementById('zoom').addEventListener('input', cam)
+document.getElementById('ctr').addEventListener('change', cam)
+window.__measure = async (n = 120) => {
+  const gl = app.renderer.gl, px = new Uint8Array(4)
+  const time = () => { for (let i = 0; i < 5; i++) { app.renderer.render(app.stage); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px) } const t0 = performance.now(); for (let i = 0; i < n; i++) { app.renderer.render(app.stage); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px) } return (performance.now() - t0) / n }
+  app.ticker.stop()
+  await game.settings.set('pendant-bridge', 'realmSky', 'all'); await new Promise(r => setTimeout(r, 300))
+  const on = time(); await game.settings.set('pendant-bridge', 'realmSky', 'off'); const off = time()
+  await game.settings.set('pendant-bridge', 'realmSky', 'all'); app.ticker.start()
+  return { onMs: +on.toFixed(3), offMs: +off.toFixed(3), skyMs: +(on - off).toFixed(3) }
+}
+document.getElementById('bench').addEventListener('click', async () => { log('measuring…'); log(JSON.stringify(await window.__measure())) })
+log(`${data.name} · hour ${data.hour}`)
+</script>
+</body>
+</html>

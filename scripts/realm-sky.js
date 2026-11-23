@@ -52,79 +52,120 @@ void main() {
 }`
 
 const FRAG = `
-precision mediump float;
+precision highp float;
 varying vec2 vUv;
 uniform sampler2D uLightA, uLightB, uCloudA, uCloudB, uWetA, uWetB;
-uniform float uMix, uTime, uAspect, uPx;
+uniform float uMix, uTime, uAspect, uPx, uZoom;
 uniform vec2 uTexel;
 float hash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 float noise(vec2 p) {
   vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
   return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
 }
-float fbm(vec2 p) { return 0.55 * noise(p) + 0.3 * noise(p * 2.03 + 7.1) + 0.15 * noise(p * 4.1 + 3.7); }
-vec4 cloudAt(vec2 uv) { return mix(texture2D(uCloudA, uv), texture2D(uCloudB, uv), uMix); }
-// The cloud raster carries per-texel grain; stretched ~25x it reads as squares, so it is softened over
-// ~1.5 texels here and the stir noise below gives back fine, smooth detail.
-vec4 cloudSoft(vec2 uv) {
-  vec2 o = uTexel * 0.9;
-  return cloudAt(uv) * 0.28 + (cloudAt(uv + vec2(o.x, o.y)) + cloudAt(uv + vec2(-o.x, o.y)) + cloudAt(uv + vec2(o.x, -o.y)) + cloudAt(uv - o)) * 0.18;
+float fbm(vec2 p) {
+  float v = 0.0, a = 0.5;
+  for (int i = 0; i < 5; i++) { v += a * noise(p); p = p * 2.03 + vec2(17.1, 9.2); a *= 0.5; }
+  return v;
+}
+float fbm3(vec2 p) { return 0.57 * noise(p) + 0.29 * noise(p * 2.03 + vec2(17.1, 9.2)) + 0.14 * noise(p * 4.1 + vec2(3.3, 7.7)); }
+vec4 cl2(vec2 uv) { return mix(texture2D(uCloudA, uv), texture2D(uCloudB, uv), uMix); }
+// RealmScreen's cloud picture is only HOW MUCH cloud sits where (and its colour): blurred over ~2 texels so
+// none of its pixel grain survives. The shapes come from the noise below.
+vec4 coverAt(vec2 uv) {
+  vec2 o = uTexel * 1.6;
+  vec4 c = cl2(uv) * 0.2;
+  c += (cl2(uv + vec2(o.x, 0.0)) + cl2(uv - vec2(o.x, 0.0)) + cl2(uv + vec2(0.0, o.y)) + cl2(uv - vec2(0.0, o.y))) * 0.12;
+  c += (cl2(uv + o) + cl2(uv - o) + cl2(uv + vec2(o.x, -o.y)) + cl2(uv + vec2(-o.x, o.y))) * 0.08;
+  return c;
+}
+// Cloud shape at a map point: domain-warped noise, slowly evolving.
+float shape(vec2 mp) {
+  vec2 q = vec2(fbm3(mp * 3.0 + vec2(uTime * 0.006, 0.0)), fbm3(mp * 3.0 + vec2(5.2, 1.3) - vec2(0.0, uTime * 0.004)));
+  return fbm(mp * 7.0 + q * 1.6 + vec2(uTime * 0.003, uTime * 0.001));
+}
+// Coverage 0..1 → how much of the noise becomes cloud (soft-edged, lumpy, never a blob).
+float cloudOf(float cover, float n) { return smoothstep(1.02 - cover * 1.1, 1.24 - cover * 1.1, n); }
+vec4 li2(vec2 uv) { return mix(texture2D(uLightA, uv), texture2D(uLightB, uv), uMix); }
+// The light grid is coarse (48×32) and its twilight runs through several hues: widened over ~3 cells so the
+// terminator is a soft gradient, never a hard line or a rainbow stripe.
+vec4 lightAt(vec2 uv) {
+  vec2 o = vec2(3.0 / 48.0, 2.0 / 32.0);
+  return li2(uv) * 0.24 + (li2(uv + vec2(o.x, 0.0)) + li2(uv - vec2(o.x, 0.0))) * 0.19 + (li2(uv + vec2(o.x * 2.0, 0.0)) + li2(uv - vec2(o.x * 2.0, 0.0))) * 0.1
+       + (li2(uv + vec2(0.0, o.y)) + li2(uv - vec2(0.0, o.y))) * 0.09;
 }
 vec4 over(vec4 c, vec3 rgb, float a) { return vec4(rgb * a + c.rgb * (1.0 - a), a + c.a * (1.0 - a)); }
 void main() {
-  vec4 cl = cloudSoft(vUv);
+  vec4 cv = coverAt(vUv);
   vec4 wet = mix(texture2D(uWetA, vUv), texture2D(uWetB, vUv), uMix);
-  vec4 li = mix(texture2D(uLightA, vUv), texture2D(uLightB, vUv), uMix);
+  vec4 li = lightAt(vUv);
   float rain = wet.r, snow = wet.g, storm = wet.b;
+  float cover = clamp(cv.a * 1.05, 0.0, 1.0);
   vec2 mp = vUv * vec2(uAspect, 1.0);
-  // Clouds churn in place: the weather's shape is RealmScreen's; this only stirs its texture.
-  float stir = fbm(mp * 14.0 + vec2(uTime * 0.012, uTime * 0.004));
-  float ca = clamp(cl.a * (0.62 + 0.76 * stir), 0.0, 1.0);
-  vec3 crgb = cl.a > 0.001 ? cl.rgb / cl.a : vec3(1.0);
-  crgb *= 1.0 - 0.38 * rain * (1.0 - 0.7 * snow) - 0.22 * storm;   // rain decks grey, snow decks stay pale, storm cores darker
+  // Clear sky (and no shadow falling here): skip the noise — most of a fair-weather map costs next to nothing.
+  float shCover = cl2(vUv + vec2(0.006, 0.009)).a;
+  bool anyCloud = cover > 0.04;
+  float n = anyCloud ? shape(mp) : 0.0;
+  float cloud = anyCloud ? cloudOf(cover, n) : 0.0;
+  vec3 base = cv.a > 0.001 ? cv.rgb / cv.a : vec3(1.0);
+  base = mix(vec3(0.97, 0.98, 1.0), base, 0.65);                   // keep the type's tint, lose its flatness
+  base *= 1.0 - 0.32 * rain * (1.0 - 0.75 * snow) - 0.25 * storm;   // rain decks grey, storm cores dark, snow stays pale
+  base = mix(base, vec3(0.93, 0.95, 0.99), 0.35 * snow);
+  // Texture inside the deck too: billows brighten, troughs dim and thin, so a full overcast is never one flat sheet.
+  float billow = anyCloud ? fbm3(mp * 16.0 + vec2(uTime * 0.004, -uTime * 0.002)) : 0.5;
+  // Lit tops: the deck's own shape is brighter where it is thickest (cheap stand-in for a second lit sample).
+  vec3 crgb = base * (0.8 + 0.14 * smoothstep(0.45, 0.8, n) + 0.22 * billow);
+  // The clouds are under the same sky as the land: dim and tinted at night, not white sheets glowing in the dark.
+  vec3 lrgb = li.a > 0.001 ? li.rgb / li.a : vec3(0.0);
+  lrgb = mix(vec3(dot(lrgb, vec3(0.3, 0.59, 0.11))), lrgb, 0.85);   // twilight tints a touch calmer: a warm glow, not paint
+  float dk = smoothstep(0.15, 0.75, li.a);
+  crgb = mix(crgb, lrgb * 1.8, 0.25 * dk) * (1.0 - 0.72 * dk);
+  vec3 dropRgb = vec3(0.8, 0.85, 0.92) * (1.0 - 0.6 * dk);
+  float ca = cloud * mix(0.42, 0.84, smoothstep(0.35, 0.95, cover)) * mix(0.72, 1.0, smoothstep(0.3, 0.68, billow));
   vec4 c = vec4(0.0);
-  // A soft shadow under the clouds, a little to the side.
-  float sh = cloudAt(vUv + vec2(0.006, 0.009)).a;
-  c = over(c, vec3(0.04, 0.05, 0.08), sh * 0.22);
+  // The shadow: the cloud's cover a little down-right, shaped by cheap noise (it is soft and dim; nobody reads its edge).
+  float sh = shCover > 0.04 ? cloudOf(shCover, fbm3(mp * 7.0 + vec2(0.006 * uAspect, 0.009) * 7.0)) : 0.0;
+  c = over(c, vec3(0.03, 0.04, 0.07), sh * 0.2 * (1.0 - cloud));
   c = over(c, crgb, ca);
-  // Rain: slanted streaks on screen, as many as it is raining hard.
-  vec2 sp = gl_FragCoord.xy / uPx;
+  // Zoomed out, rain and snow show as the deck's colour (grey / pale); falling rain and flakes come in as you
+  // zoom in (a world map full of screen-sized flakes reads as stars).
+  float near = smoothstep(2.0, 5.0, uZoom);
   float wetRain = rain * (1.0 - snow);
-  if (wetRain > 0.02) {
-    vec2 rp = vec2(sp.x + sp.y * 0.22, sp.y);
-    float col = floor(rp.x / 3.0);
-    float h = hash(vec2(col, 1.7));
-    float y = (rp.y + uTime * (620.0 + 380.0 * h) + h * 900.0) / 150.0;
-    float on = step(1.0 - wetRain * 0.55, hash(vec2(col, floor(y))));
-    float t = fract(y);
-    float streak = smoothstep(0.0, 0.03, t) * (1.0 - smoothstep(0.03, 0.16, t)) * (1.0 - abs(fract(rp.x / 3.0) - 0.5) * 2.0);
-    c = over(c, vec3(0.78, 0.84, 0.92), streak * on * (0.25 + 0.35 * wetRain));
+  if (wetRain > 0.03) {
+    if (near > 0.01) {
+      vec2 sp = gl_FragCoord.xy / uPx;
+      vec2 rp = vec2(sp.x + sp.y * 0.22, sp.y);
+      float col = floor(rp.x / 3.0);
+      float h = hash(vec2(col, 1.7));
+      float y = (rp.y + uTime * (620.0 + 380.0 * h) + h * 900.0) / 150.0;
+      float on = step(1.0 - wetRain * 0.45, hash(vec2(col, floor(y))));
+      float t = fract(y);
+      float streak = smoothstep(0.0, 0.03, t) * (1.0 - smoothstep(0.03, 0.16, t)) * (1.0 - abs(fract(rp.x / 3.0) - 0.5) * 2.0);
+      c = over(c, dropRgb, streak * on * (0.2 + 0.3 * wetRain) * near);
+    }
   }
-  // Snow: soft flakes drifting down.
-  if (snow * rain > 0.02) {
-    float sa = snow * rain;
+  float sa = snow * rain;
+  if (sa > 0.03 && near > 0.01) {
+    vec2 sp = gl_FragCoord.xy / uPx;
     vec2 q = sp + vec2(sin(uTime * 0.6 + sp.y * 0.02) * 7.0, uTime * 34.0);
     vec2 cell = floor(q / 22.0);
     vec2 f = fract(q / 22.0) - 0.5 - (vec2(hash(cell), hash(cell + 4.3)) - 0.5) * 0.55;
-    float r = 0.06 + 0.07 * hash(cell + 7.7);                 // flakes of a few sizes
-    float flake = (1.0 - smoothstep(r * 0.45, r, length(f))) * step(1.0 - sa * 0.8, hash(cell + 9.1));
-    c = over(c, vec3(1.0), flake * 0.85);
+    float r = 0.06 + 0.07 * hash(cell + 7.7);
+    float flake = (1.0 - smoothstep(r * 0.45, r, length(f))) * step(1.0 - sa * 0.6, hash(cell + 9.1));
+    c = over(c, vec3(1.0) * (1.0 - 0.55 * dk), flake * 0.75 * near);
   }
-  // The time of day over all of it (night darkens the clouds too).
-  // Capped so the map stays readable at the table on a moonless night (RealmScreen's own wash goes darker).
-  c = over(c, li.a > 0.001 ? li.rgb / li.a : vec3(0.0), min(li.a, 0.7));
-  // Lightning: storm cells flash now and then — bright even at night, so it goes on last.
+  // The time of day over all of it (capped so a moonless night stays readable at the table).
+  c = over(c, lrgb, min(li.a, 0.7));
+  // Lightning lights a patch of the storm deck from inside, now and then.
   if (storm > 0.4) {
     vec2 g = vUv * vec2(8.0 * uAspect, 8.0);
     vec2 cid = floor(g);
     float ph = uTime * 1.6 + hash(cid) * 11.0;
     float strike = step(0.9, hash(cid + floor(ph)));
     float k = fract(ph);
-    // a sharp strike, a flicker, a fast decay — lighting up a patch of the cloud deck from inside
     float flash = strike * (1.0 - smoothstep(0.0, 0.22, k)) * (0.55 + 0.45 * step(0.45, fract(k * 14.0)));
     vec2 at = fract(g) - 0.5 - (vec2(hash(cid + 1.3), hash(cid + 2.9)) - 0.5) * 0.5;
     float glow = 1.0 - smoothstep(0.0, 0.55, length(at));
-    float a = flash * glow * glow * smoothstep(0.4, 0.75, storm) * (0.35 + 0.65 * ca) * 0.8;
+    float a = flash * glow * glow * smoothstep(0.4, 0.75, storm) * cloud * 0.8;
     c = vec4(c.rgb + vec3(0.82, 0.88, 1.0) * a, max(c.a, a));
   }
   gl_FragColor = c;
@@ -161,7 +202,7 @@ function buildMesh() {
   const t = S.tex.A
   const shader = PIXI.Shader.from(VERT, FRAG, {
     uLightA: t.light, uLightB: t.light, uCloudA: t.clouds, uCloudB: t.clouds, uWetA: t.wet, uWetB: t.wet,
-    uMix: 0, uTime: 0, uAspect: h > 0 ? w / h : 1, uPx: 1, uTexel: [1 / (t.clouds.width || 160), 1 / (t.clouds.height || 100)],
+    uMix: 0, uTime: 0, uAspect: h > 0 ? w / h : 1, uPx: 1, uZoom: 1, uTexel: [1 / (t.clouds.width || 160), 1 / (t.clouds.height || 100)],
   })
   const mesh = new PIXI.Mesh(geom, shader)
   const root = new PIXI.Container()
@@ -178,6 +219,9 @@ function buildMesh() {
     const low = (canvas.performance?.mode ?? 2) <= 0           // Foundry's Low performance mode: a still sky
     if (!low) u.uTime = ((now - S.t0) / 1000) % 3600
     u.uPx = (canvas.app?.renderer?.resolution || 1)
+    // Map zoom (1 = the whole scene fits the screen): rain and flakes fall only once you're in close.
+    const scr = canvas.app?.renderer?.screen, dd = canvas.dimensions
+    if (scr && dd?.sceneWidth) u.uZoom = (canvas.stage?.scale?.x || 1) / Math.min(scr.width / dd.sceneWidth, scr.height / dd.sceneHeight)
     if (S.fade) {
       const k = Math.min(1, (now - S.fade) / FADE_MS)
       u.uMix = k
