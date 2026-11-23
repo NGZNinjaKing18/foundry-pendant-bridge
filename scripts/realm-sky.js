@@ -263,7 +263,7 @@ const destroySet = (t) => {
     try { x.destroy(true) } catch { /* gone */ }
   }
 }
-// A forecast texture's REGIONAL copy: square cells on the map (~1/96 of its width), each the true average of the
+// A forecast texture's REGIONAL copy: square cells on the map (~1/48 of its width), each the true average of the
 // tiles under it (the browser's high-quality downscale). Zoomed out, the forecast reads as regional weather — how
 // much of an area is cloudy, wet, snowy — instead of a speckle of 17-mile dice rolls.
 function regional(tex, box) {
@@ -272,7 +272,7 @@ function regional(tex, box) {
     if (!img?.width) return tex
     const d = canvas.dimensions
     const bw = (box[2] - box[0]) * (d?.sceneWidth || 1), bh = (box[3] - box[1]) * (d?.sceneHeight || 1)
-    const cw = Math.min(img.width, 96), ch = Math.max(2, Math.min(img.height, Math.round(cw * bh / bw)))
+    const cw = Math.min(img.width, 48), ch = Math.max(2, Math.min(img.height, Math.round(cw * bh / bw)))
     if (cw >= img.width && ch >= img.height) return tex
     const cv = document.createElement("canvas"); cv.width = cw; cv.height = ch
     const g = cv.getContext("2d"); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high"
