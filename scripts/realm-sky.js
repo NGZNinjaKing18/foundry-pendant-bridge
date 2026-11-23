@@ -27,7 +27,16 @@ let sender = null               // the bridge's WebSocket send (only the window 
 export function setSkySender(fn) { sender = typeof fn === "function" ? fn : null }
 
 // ── commands (main.js) ─────────────────────────────────────────
-export function skyState() { return { mode: skyMode() } }
+// The switch, and (asked for) each scene's width / height — RealmScreen reads ground height for the forecast
+// against the map picture's shape, which only the scene knows.
+export function skyState(msg = {}) {
+  const aspects = {}
+  for (const id of Array.isArray(msg?.sceneIds) ? msg.sceneIds.slice(0, 50) : []) {
+    const d = game.scenes?.get?.(id)?.dimensions
+    if (d?.sceneWidth > 0 && d?.sceneHeight > 0) aspects[id] = d.sceneWidth / d.sceneHeight
+  }
+  return { mode: skyMode(), aspects }
+}
 export async function skySet(msg) {
   const scene = game.scenes?.get?.(msg?.sceneId)
   if (!scene) return { ok: false, error: "No such scene." }
@@ -36,7 +45,11 @@ export async function skySet(msg) {
   if (!ok(s.light) || !ok(s.clouds) || !ok(s.wet)) return { ok: false, error: "Bad sky." }
   // The wind down the map: up to 16 [east, north] pairs (RealmScreen sends 8); anything else is dropped.
   const wind = Array.isArray(s.wind) ? s.wind.slice(0, 16).filter(p => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite)).map(p => [Number(p[0]), Number(p[1])]) : null
-  await scene.setFlag(MOD, "sky", { at: { day: Number(s.at?.day) || 0, hour: Number(s.at?.hour) || 0 }, light: s.light, clouds: s.clouds, wet: s.wet, wind: wind?.length ? wind : null })
+  // The forecast per 0.25° tile (RealmScreen lib/mapSkyFrame.mjs): `band` (the cloud each tile's forecast allows)
+  // and `wet` at tile resolution, stretched over `box` (the tile grid's edges in the map's 0..1 coordinates).
+  const box = Array.isArray(s.box) && s.box.length === 4 && s.box.every(Number.isFinite) ? s.box.map(Number) : null
+  const band = ok(s.band) && box ? s.band : null
+  await scene.setFlag(MOD, "sky", { at: { day: Number(s.at?.day) || 0, hour: Number(s.at?.hour) || 0 }, light: s.light, clouds: s.clouds, wet: s.wet, wind: wind?.length ? wind : null, band, box: band ? box : null })
   return { ok: true }
 }
 
@@ -56,7 +69,13 @@ void main() {
 const FRAG = `
 precision highp float;
 varying vec2 vUv;
-uniform sampler2D uLightA, uLightB, uCloudA, uCloudB, uWetA, uWetB;
+uniform sampler2D uLightA, uLightB, uCloudA, uCloudB, uWetA, uWetB, uBandA, uBandB, uWetRA, uWetRB, uBandRA, uBandRB;
+uniform vec4 uBox;
+uniform vec2 uTiles;
+uniform vec2 uTilePx;   // one forecast tile's width / height on screen (CSS px)
+// The two frames are both read only during the 4 s cross-fade; otherwise just the current one (uMix is the
+// same for every pixel, so the branch is free).
+#define PAIR(A, B, uv) (uMix > 0.0 ? mix(texture2D(A, uv), texture2D(B, uv), uMix) : texture2D(A, uv))
 uniform float uMix, uTime, uAspect, uPx, uZoom;
 uniform vec2 uWind[8];
 uniform vec2 uTexel;
@@ -71,7 +90,7 @@ float fbm(vec2 p) {
   return v;
 }
 float fbm3(vec2 p) { return 0.57 * noise(p) + 0.29 * noise(p * 2.03 + vec2(17.1, 9.2)) + 0.14 * noise(p * 4.1 + vec2(3.3, 7.7)); }
-vec4 cl2(vec2 uv) { return mix(texture2D(uCloudA, uv), texture2D(uCloudB, uv), uMix); }
+vec4 cl2(vec2 uv) { return PAIR(uCloudA, uCloudB, uv); }
 // RealmScreen's cloud picture is only HOW MUCH cloud sits where (and its colour): blurred over ~2 texels so
 // none of its pixel grain survives. The shapes come from the noise below.
 vec4 coverAt(vec2 uv) {
@@ -96,7 +115,7 @@ const float FLOW_T = 24.0, SPEED = 0.008;   // map widths per second: a cloud cr
 float shapeAt(vec2 mp, vec2 q) { return fbm(mp * 7.0 + q * 1.6); }
 // Coverage 0..1 → how much of the noise becomes cloud (soft-edged, lumpy, never a blob).
 float cloudOf(float cover, float n) { return smoothstep(1.02 - cover * 1.1, 1.24 - cover * 1.1, n); }
-vec4 li2(vec2 uv) { return mix(texture2D(uLightA, uv), texture2D(uLightB, uv), uMix); }
+vec4 li2(vec2 uv) { return PAIR(uLightA, uLightB, uv); }
 // The light grid is coarse (48×32) and its twilight runs through several hues: widened over ~3 cells so the
 // terminator is a soft gradient, never a hard line or a rainbow stripe.
 vec4 lightAt(vec2 uv) {
@@ -107,10 +126,29 @@ vec4 lightAt(vec2 uv) {
 vec4 over(vec4 c, vec3 rgb, float a) { return vec4(rgb * a + c.rgb * (1.0 - a), a + c.a * (1.0 - a)); }
 void main() {
   vec4 cv = coverAt(vUv);
-  vec4 wet = mix(texture2D(uWetA, vUv), texture2D(uWetB, vUv), uMix);
+  // The forecast for this spot's tile: rain / snow / storm, and how much cloud it allows (the cloud is held to it).
+  // Zoomed in, each forecast tile (~17 miles) is read smoothly between tile centres — exactly its own forecast
+  // at each centre, with the cloud's shapes (not square tile edges) drawing where one forecast gives way to the next. Zoomed out, where a tile is a few pixels, the regional copy (square cells, each an average of its tiles) shows
+  // regional weather instead of a speckle of dice rolls.
+  vec2 tl = (vUv - uBox.xy) / (uBox.zw - uBox.xy);
+  float tmin = min(uTilePx.x, uTilePx.y);
+  float pk = smoothstep(10.0, 22.0, tmin);
+  // Smooth between tile centres, the lookup nudged by noise (under half a tile) so where one forecast gives way
+  // to the next follows an organic line, never the tile grid. Each tile's centre still reads its own forecast.
+  vec2 mpj = vUv * vec2(uAspect, 1.0);
+  vec2 jit = vec2(noise(mpj * 220.0 + 2.7), noise(mpj * 220.0 + 9.1)) - 0.5;
+  vec2 tuv = tl + jit * 1.1 / uTiles;
+  // Zoomed out: the REGIONAL copy (square cells, each the true average of its tiles; made when the frame arrives).
+  vec4 wetR = PAIR(uWetRA, uWetRB, tl);
+  vec4 bndR = PAIR(uBandRA, uBandRB, tl);
+  vec4 wet = wetR, bnd = bndR;
+  if (pk > 0.0) {
+    wet = mix(wetR, PAIR(uWetA, uWetB, tuv), pk);
+    bnd = mix(bndR, PAIR(uBandA, uBandB, tuv), pk);
+  }
   vec4 li = lightAt(vUv);
   float rain = wet.r, snow = wet.g, storm = wet.b;
-  float cover = clamp(cv.a * 1.05, 0.0, 1.0);
+  float cover = clamp(clamp(cv.a, bnd.r, bnd.g) * 1.05, 0.0, 1.0);
   vec2 mp = vUv * vec2(uAspect, 1.0);
   // Clear sky (and no shadow falling here): skip the noise — most of a fair-weather map costs next to nothing.
   float shCover = cl2(vUv + vec2(0.006, 0.009)).a;
@@ -124,10 +162,13 @@ void main() {
     vec2 q = vec2(fbm3(mp * 3.0 + vec2(uTime * 0.003, 0.0)), fbm3(mp * 3.0 + vec2(5.2, 1.3) - vec2(0.0, uTime * 0.002)));
     n = shapeAt(mp + o1, q) * w1 + shapeAt(mp + o2, q) * w2;
     n = 0.5 + (n - 0.5) / sqrt(w1 * w1 + w2 * w2);              // blending two noises flattens them: put the contrast back
+    // Close in, finer billows so a single tile's cloud has edges of its own (fades in with the forecast detail).
+    if (pk > 0.0) n += (fbm3((mp + o1) * 200.0) - 0.5) * 0.4 * pk;
   }
   float cloud = anyCloud ? cloudOf(cover, n) : 0.0;
   vec3 base = cv.a > 0.001 ? cv.rgb / cv.a : vec3(1.0);
   base = mix(vec3(0.97, 0.98, 1.0), base, 0.65);                   // keep the type's tint, lose its flatness
+  base = mix(vec3(0.93, 0.95, 0.98), base, 0.35 + 0.65 * storm);    // dark storm tint only where the forecast storms
   base *= 1.0 - 0.32 * rain * (1.0 - 0.75 * snow) - 0.25 * storm;   // rain decks grey, storm cores dark, snow stays pale
   base = mix(base, vec3(0.93, 0.95, 0.99), 0.35 * snow);
   // Texture inside the deck too: billows brighten, troughs dim and thin, so a full overcast is never one flat sheet.
@@ -193,7 +234,7 @@ void main() {
 }`
 
 // ── drawing ────────────────────────────────────────────────────
-const S = { wind: null, root: null, mesh: null, tex: { A: null, B: null }, sig: "", fade: null, tick: null, t0: 0, load: 0 }
+const S = { wind: null, box: [0, 0, 1, 1], root: null, mesh: null, tex: { A: null, B: null }, sig: "", fade: null, tick: null, t0: 0, load: 0 }
 
 function loadTex(src) {
   return new Promise((res) => {
@@ -212,7 +253,38 @@ function windUniform(rows) {
   }
   return out
 }
-const destroySet = (t) => { if (t) for (const k of ["light", "clouds", "wet"]) try { t[k]?.destroy(true) } catch { /* gone */ } }
+const destroySet = (t) => {
+  if (!t) return
+  const seen = new Set()
+  for (const k of ["light", "clouds", "wet", "band", "wetR", "bandR"]) {
+    const x = t[k]
+    if (!x || x === _noBand || seen.has(x)) continue
+    seen.add(x)
+    try { x.destroy(true) } catch { /* gone */ }
+  }
+}
+// A forecast texture's REGIONAL copy: square cells on the map (~1/96 of its width), each the true average of the
+// tiles under it (the browser's high-quality downscale). Zoomed out, the forecast reads as regional weather — how
+// much of an area is cloudy, wet, snowy — instead of a speckle of 17-mile dice rolls.
+function regional(tex, box) {
+  try {
+    const img = tex?.baseTexture?.resource?.source
+    if (!img?.width) return tex
+    const d = canvas.dimensions
+    const bw = (box[2] - box[0]) * (d?.sceneWidth || 1), bh = (box[3] - box[1]) * (d?.sceneHeight || 1)
+    const cw = Math.min(img.width, 96), ch = Math.max(2, Math.min(img.height, Math.round(cw * bh / bw)))
+    if (cw >= img.width && ch >= img.height) return tex
+    const cv = document.createElement("canvas"); cv.width = cw; cv.height = ch
+    const g = cv.getContext("2d"); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high"
+    g.drawImage(img, 0, 0, cw, ch)
+    return PIXI.Texture.from(cv)
+  } catch { return tex }
+}
+// The forecast textures' size in tiles (wet is the same grid as band; an old frame's wet is the cloud grid).
+const tilesOf = (t) => [Math.max(1, t?.wet?.width || 1), Math.max(1, t?.wet?.height || 1)]
+// A frame with no forecast (no planet world) holds nothing back: lowest 0, highest 1.
+let _noBand = null
+const noBand = () => (_noBand ||= PIXI.Texture.fromBuffer(new Uint8Array([0, 255, 0, 255]), 1, 1))
 
 function teardown() {
   if (S.tick) { canvas?.app?.ticker?.remove?.(S.tick); S.tick = null }
@@ -231,7 +303,7 @@ function buildMesh() {
     .addIndex([0, 1, 2, 0, 2, 3])
   const t = S.tex.A
   const shader = PIXI.Shader.from(VERT, FRAG, {
-    uLightA: t.light, uLightB: t.light, uCloudA: t.clouds, uCloudB: t.clouds, uWetA: t.wet, uWetB: t.wet,
+    uLightA: t.light, uLightB: t.light, uCloudA: t.clouds, uCloudB: t.clouds, uWetA: t.wet, uWetB: t.wet, uBandA: t.band, uBandB: t.band, uWetRA: t.wetR, uWetRB: t.wetR, uBandRA: t.bandR, uBandRB: t.bandR, uBox: S.box, uTiles: tilesOf(t), uTilePx: [100, 100],
     uMix: 0, uTime: 0, uAspect: h > 0 ? w / h : 1, uPx: 1, uZoom: 1, uWind: windUniform(S.wind), uTexel: [1 / (t.clouds.width || 160), 1 / (t.clouds.height || 100)],
   })
   const mesh = new PIXI.Mesh(geom, shader)
@@ -249,6 +321,9 @@ function buildMesh() {
     const low = (canvas.performance?.mode ?? 2) <= 0           // Foundry's Low performance mode: a still sky
     if (!low) u.uTime = ((now - S.t0) / 1000) % 3600
     u.uPx = (canvas.app?.renderer?.resolution || 1)
+    // One forecast tile's size on screen (CSS px), for the zoomed-in / zoomed-out look of the tiles.
+    const sw = canvas.dimensions?.sceneWidth, shh = canvas.dimensions?.sceneHeight, k = canvas.stage?.scale?.x || 1
+    if (u.uTiles?.[0] > 0 && sw && shh) u.uTilePx = [sw * ((u.uBox?.[2] ?? 1) - (u.uBox?.[0] ?? 0)) / u.uTiles[0] * k, shh * ((u.uBox?.[3] ?? 1) - (u.uBox?.[1] ?? 0)) / u.uTiles[1] * k]
     // Map zoom (1 = the whole scene fits the screen): rain and flakes fall only once you're in close.
     const scr = canvas.app?.renderer?.screen, dd = canvas.dimensions
     if (scr && dd?.sceneWidth) u.uZoom = (canvas.stage?.scale?.x || 1) / Math.min(scr.width / dd.sceneWidth, scr.height / dd.sceneHeight)
@@ -258,7 +333,7 @@ function buildMesh() {
       if (k >= 1) {                                            // B is the picture now: drop the old one
         const old = S.tex.A
         S.tex.A = S.tex.B; S.fade = null
-        u.uLightA = S.tex.A.light; u.uCloudA = S.tex.A.clouds; u.uWetA = S.tex.A.wet; u.uMix = 0
+        u.uLightA = S.tex.A.light; u.uCloudA = S.tex.A.clouds; u.uWetA = S.tex.A.wet; u.uBandA = S.tex.A.band; u.uWetRA = S.tex.A.wetR; u.uBandRA = S.tex.A.bandR; u.uMix = 0
         if (old !== S.tex.A) destroySet(old)
       }
     }
@@ -271,14 +346,18 @@ export async function drawSky() {
   const scene = canvas?.scene
   const sky = scene?.getFlag?.(MOD, "sky")
   if (!canvas?.primary || !sky?.light || !skyShownFor(skyMode(), game.user?.isGM)) { teardown(); return }
-  const sig = `${scene.id}|${sky.at?.day}|${sky.at?.hour}|${sky.clouds.length}|${sky.light.length}`
+  const sig = `${scene.id}|${sky.at?.day}|${sky.at?.hour}|${sky.clouds.length}|${sky.light.length}|${sky.band?.length || 0}|${sky.wet.length}`
   if (sig === S.sig && S.root && !S.root.destroyed) return
   const my = ++S.load
-  const [light, clouds, wet] = await Promise.all([loadTex(sky.light), loadTex(sky.clouds), loadTex(sky.wet)])
-  if (my !== S.load || !light || !clouds || !wet) { destroySet({ light, clouds, wet }); return }
+  const [light, clouds, wet, bandTex] = await Promise.all([loadTex(sky.light), loadTex(sky.clouds), loadTex(sky.wet), sky.band ? loadTex(sky.band) : null])
+  const band = bandTex || noBand()
+  const box = Array.isArray(sky.box) && sky.band ? sky.box : [0, 0, 1, 1]
+  const bandR = bandTex ? regional(bandTex, box) : band, wetR = sky.band ? regional(wet, box) : wet
+  if (my !== S.load || !light || !clouds || !wet) { destroySet({ light, clouds, wet, band, bandR, wetR }); return }
   S.sig = sig
   S.wind = sky.wind || null
-  const next = { light, clouds, wet }
+  S.box = box
+  const next = { light, clouds, wet, band, wetR, bandR }
   if (!S.root || S.root.destroyed || S.root.parent !== canvas.primary) {
     teardown(); S.load = my; S.sig = sig
     S.tex = { A: next, B: next }
@@ -289,10 +368,10 @@ export async function drawSky() {
   const u = S.mesh.shader.uniforms
   if (S.fade && S.tex.B && S.tex.B !== S.tex.A) {                // mid-fade: settle on B first
     destroySet(S.tex.A); S.tex.A = S.tex.B
-    u.uLightA = S.tex.A.light; u.uCloudA = S.tex.A.clouds; u.uWetA = S.tex.A.wet
+    u.uLightA = S.tex.A.light; u.uCloudA = S.tex.A.clouds; u.uWetA = S.tex.A.wet; u.uBandA = S.tex.A.band; u.uWetRA = S.tex.A.wetR; u.uBandRA = S.tex.A.bandR
   }
   S.tex.B = next
-  u.uLightB = light; u.uCloudB = clouds; u.uWetB = wet; u.uMix = 0
+  u.uLightB = light; u.uCloudB = clouds; u.uWetB = wet; u.uBandB = band; u.uWetRB = wetR; u.uBandRB = bandR; u.uBox = S.box; u.uTiles = tilesOf(next); u.uMix = 0
   u.uWind = windUniform(S.wind)
   S.fade = performance.now()
 }

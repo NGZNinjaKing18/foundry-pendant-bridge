@@ -3883,7 +3883,7 @@ async function handleCommand(msg) {
       return bridge.reply(msg.reqId, { type: "map.realm", ok: true, version: 1 })
     // The sky over map scenes (scripts/realm-sky.js): the GM's switch, and an hour's light + weather.
     case "sky.state":
-      return bridge.reply(msg.reqId, { type: "sky.state", ok: true, ...skyState() })
+      return bridge.reply(msg.reqId, { type: "sky.state", ok: true, ...skyState(msg) })
     case "sky.set":
       return bridge.reply(msg.reqId, { type: "sky.set", ...(await skySet(msg)) })
     // Maps nested in maps (scripts/realm-nest.js): which scenes sit inside this one, and where.
