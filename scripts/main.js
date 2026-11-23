@@ -39,6 +39,7 @@ import { timelineStatus, applyFromRealm, broadcastFromRealm, isTimelineWriter } 
 import { setMapBuilders, mapViewsState, mapViewsSet, mapSend, mapViewsEdit, mapRemove, mapReveal } from "./mapviews.js"
 import {} from "./realm-layer.js"   // draws the sent World Map itself (records in flags.realm)
 import { skyState, skySet, setSkySender } from "./realm-sky.js"   // the time of day + weather over map scenes (flags.sky)
+import { nestSet } from "./realm-nest.js"   // zoom into a nested map → fade through to its scene (flags.nest)
 import {} from "./scene-doors.js"   // GM-only signs on a scene that lead to another scene (flags.doors)
 import {} from "./scene-dir.js"     // Scenes sidebar while RealmScreen is connected: live/pinned/recent strip, tags, quiet folders, picture folders
 import {} from "./people-chips.js"  // RealmScreen's people as numbers on each viewer's canvas; one town spreads at max zoom
@@ -3885,6 +3886,9 @@ async function handleCommand(msg) {
       return bridge.reply(msg.reqId, { type: "sky.state", ok: true, ...skyState() })
     case "sky.set":
       return bridge.reply(msg.reqId, { type: "sky.set", ...(await skySet(msg)) })
+    // Maps nested in maps (scripts/realm-nest.js): which scenes sit inside this one, and where.
+    case "nest.set":
+      return bridge.reply(msg.reqId, { type: "nest.set", ...(await nestSet(msg)) })
     case "map.reveal":
       return bridge.reply(msg.reqId, { type: "map.revealed", ok: true, ...(await mapReveal(msg)) })
     // ── RealmScreen music in the Playlists tab (scripts/music-panel.js) ──

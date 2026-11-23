@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Realm Nest Harness</title>
+<style>
+/* Dev harness (not loaded by Foundry): the REAL scripts/realm-nest.js on real PIXI 7, inside a tiny stand-in for
+   Foundry's canvas with two scenes — a continent and an island nested in it (flags.nest as lib/foundryNest.js sends
+   them). Both pictures are drawn from ONE land function, so when the island scene lines up the land is identical.
+   Serve the Downloads folder (launch config "campaign-page-harness", port 5791) and open
+   /foundry-pendant-bridge/tests/harness/realm-nest.html — wheel over the island, or run window.__test(). */
+body { margin: 0; background: #0b0a10; color: #e7e1d4; font: 13px/1.4 sans-serif; overflow: hidden; }
+#bar { display: flex; gap: 12px; align-items: center; padding: 6px 12px; background: #151515; border-bottom: 1px solid #333; }
+#bar select, #bar button { background: #2a2a2a; color: #ddd; border: 1px solid #444; border-radius: 3px; padding: 2px 8px; font: inherit; }
+#log { margin-left: auto; font: 12px monospace; color: #9c9; }
+#view { display: block; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <b id="scene">—</b>
+  <label>Nested maps <select id="mode"><option value="off">Off</option><option value="gm">DM only</option><option value="all" selected>Everyone</option></select></label>
+  <label><input id="gm" type="checkbox"> GM</label>
+  <label><input id="cut" type="checkbox"> island has a cutout</label>
+  <button id="test">Run test</button>
+  <span id="log">loading…</span>
+</div>
+<canvas id="view"></canvas>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.4.2/pixi.min.js"></script>
+<script type="module">
+const log = (m) => { document.getElementById('log').textContent = m }
+window.onerror = (m) => log('ERROR ' + m)
+
+// ── a tiny Foundry ──
+const hooks = {}
+globalThis.Hooks = {
+  on: (n, f) => { (hooks[n] ||= []).push(f) }, once: (n, f) => { (hooks[n] ||= []).push(f) },
+  callAll: (n, ...a) => { for (const f of hooks[n] || []) f(...a) },
+}
+const settings = { realmNest: 'all' }, reg = {}
+globalThis.game = {
+  user: { id: 'u', isGM: false },
+  settings: { get: (m, k) => settings[k], register: (m, k, o) => { reg[k] = o }, set: async (m, k, v) => { settings[k] = v; reg[k]?.onChange?.(v) } },
+}
+const W = Math.max(960, window.innerWidth), H = Math.max(600, window.innerHeight - 34)   // a hidden tab reports 0
+const app = new PIXI.Application({ view: document.getElementById('view'), width: W, height: H, background: 0x111111, resolution: 1, preserveDrawingBuffer: true })
+
+// ── one land function → both pictures (normalised continent coords) ──
+const RECT = { x: 0.55, y: 0.35, w: 0.12, h: 0.12 }     // the island's spot on the continent (same aspect as both pictures)
+const CUT = [[0.1, 0.05], [0.95, 0.15], [0.85, 0.9], [0.2, 0.95], [0.02, 0.5]]
+function paint(px, py, u0, v0, uw, vh) {
+  const c = document.createElement('canvas'); c.width = px; c.height = py
+  const g = c.getContext('2d'), img = g.createImageData(px, py)
+  for (let j = 0; j < py; j++) for (let i = 0; i < px; i++) {
+    const u = u0 + (i + 0.5) / px * uw, v = v0 + (j + 0.5) / py * vh
+    const h = Math.sin(u * 23) * Math.cos(v * 19) + 0.6 * Math.sin((u + v) * 61) + 0.3 * Math.cos(u * 157 - v * 131) - 0.2
+    const k = (j * px + i) * 4
+    const land = h > 0
+    img.data[k] = land ? 70 + h * 90 : 30; img.data[k + 1] = land ? 100 + h * 60 : 70 + h * 20; img.data[k + 2] = land ? 50 : 120 + h * 30; img.data[k + 3] = 255
+    // a fine line every 0.01 continent units: misalignment shows as doubled lines
+    if (Math.abs(u * 100 - Math.round(u * 100)) < 0.03 || Math.abs(v * 100 - Math.round(v * 100)) < 0.03) { img.data[k] = 240; img.data[k + 1] = 220; img.data[k + 2] = 160 }
+  }
+  g.putImageData(img, 0, 0)
+  return c.toDataURL('image/png')
+}
+const SRC = { cont: paint(1600, 1000, 0, 0, 1, 1), isle: paint(1600, 1000, RECT.x, RECT.y, RECT.w, RECT.h) }
+
+// ── scenes ──
+const flags = { cont: {}, isle: {} }
+const DIMS = {
+  cont: { sceneX: 400, sceneY: 300, sceneWidth: 16000, sceneHeight: 10000 },
+  isle: { sceneX: 250, sceneY: 200, sceneWidth: 6400, sceneHeight: 4000 },
+}
+const transitions = []
+function sceneDoc(id, name) {
+  return {
+    id, name, visible: true, firstLevel: { background: { src: SRC[id] } },
+    getFlag: (m, k) => flags[id][k], setFlag: async (m, k, v) => { flags[id][k] = v }, unsetFlag: async (m, k) => { delete flags[id][k] },
+    async view(opts) { transitions.push({ to: id, ...opts }); await drawScene(id) },
+  }
+}
+const scenes = new Map([['cont', sceneDoc('cont', 'Continent')], ['isle', sceneDoc('isle', 'Island')]])
+game.scenes = { get: (id) => scenes.get(id) }
+function setNest() {
+  const cut = document.getElementById('cut').checked ? CUT : null
+  flags.cont.nest = { kids: [{ sceneId: 'isle', rect: RECT, cutout: cut }], parent: null, self: { cutout: null } }
+  flags.isle.nest = { kids: [], parent: { sceneId: 'cont', rect: RECT }, self: { cutout: cut } }
+}
+setNest()
+
+const primary = new PIXI.Container()
+primary.sortableChildren = true
+primary.sortChildren = function () {
+  this.children.sort((a, b) => ((a.elevation || 0) - (b.elevation || 0)) || ((a.sortLayer || 0) - (b.sortLayer || 0)) || ((a.sort || 0) - (b.sort || 0)))
+  this.sortDirty = false
+}
+app.stage.addChild(primary)
+app.stage.position.set(W / 2, H / 2)
+app.ticker.add(() => { if (primary.sortDirty) primary.sortChildren() })
+const texCache = new Map()
+const loadTex = (src) => {
+  if (texCache.has(src)) return texCache.get(src)
+  const p = new Promise((res) => { const t = PIXI.Texture.from(src); if (t.baseTexture.valid) res(t); else t.baseTexture.once('loaded', () => res(t)) })
+  texCache.set(src, p); return p
+}
+globalThis.foundry = { canvas: { loadTexture: loadTex, getTexture: () => null } }
+
+globalThis.canvas = {
+  ready: false, loading: false, stage: app.stage, primary, app, scene: null, dimensions: null, mousePosition: new PIXI.Point(NaN, NaN),
+  pan({ x, y, scale }) {
+    if (Number.isFinite(scale)) app.stage.scale.set(Math.max(0.01, Math.min(20, scale)))
+    if (Number.isFinite(x)) app.stage.pivot.set(x, y)
+    Hooks.callAll('canvasPan', canvas, { x: app.stage.pivot.x, y: app.stage.pivot.y, scale: app.stage.scale.x })
+  },
+}
+async function drawScene(id) {
+  if (canvas.scene) Hooks.callAll('canvasTearDown', canvas)
+  canvas.loading = true
+  primary.removeChildren().forEach(c => c.destroy())
+  const d = DIMS[id]
+  canvas.dimensions = { ...d, width: d.sceneWidth + 2 * d.sceneX, height: d.sceneHeight + 2 * d.sceneY }
+  canvas.scene = scenes.get(id)
+  const bg = new PIXI.Sprite(await loadTex(SRC[id])); bg.sortLayer = 0
+  bg.position.set(d.sceneX, d.sceneY); bg.width = d.sceneWidth; bg.height = d.sceneHeight
+  primary.addChild(bg)
+  canvas.ready = true
+  // like Foundry: the saved view first, then canvasReady (where the bridge lines the camera up)
+  app.stage.scale.set(0.06); app.stage.pivot.set(d.sceneX + d.sceneWidth / 2, d.sceneY + d.sceneHeight / 2)
+  Hooks.callAll('canvasReady', canvas)
+  canvas.loading = false
+  document.getElementById('scene').textContent = scenes.get(id).name
+}
+
+// the wheel: zoom about the cursor (as Foundry does)
+const view = app.view
+function wheelAt(sx, sy, factor) {
+  const k = app.stage.scale.x
+  const wx = (sx - app.stage.position.x) / k + app.stage.pivot.x, wy = (sy - app.stage.position.y) / k + app.stage.pivot.y
+  const nk = k * factor
+  canvas.mousePosition.set(wx, wy)
+  app.stage.scale.set(nk); app.stage.pivot.set(wx - (sx - app.stage.position.x) / nk, wy - (sy - app.stage.position.y) / nk)
+  window.__camAtWheel = { scene: canvas.scene.id, cam: inCont(centreUV(), canvas.scene.id) }   // the camera this wheel step asked for
+  Hooks.callAll('canvasPan', canvas, { x: app.stage.pivot.x, y: app.stage.pivot.y, scale: nk })
+}
+view.addEventListener('wheel', (e) => { e.preventDefault(); wheelAt(e.offsetX, e.offsetY, e.deltaY < 0 ? 1.1 : 1 / 1.1) }, { passive: false })
+view.addEventListener('pointermove', (e) => {
+  const k = app.stage.scale.x
+  canvas.mousePosition.set((e.offsetX - app.stage.position.x) / k + app.stage.pivot.x, (e.offsetY - app.stage.position.y) / k + app.stage.pivot.y)
+})
+
+const Nest = await import('/foundry-pendant-bridge/scripts/realm-nest.js?v=' + Date.now())
+window.__nest = Nest
+Hooks.callAll('init')
+await drawScene('cont')
+// start: the whole continent in view
+canvas.pan({ x: DIMS.cont.sceneX + DIMS.cont.sceneWidth / 2, y: DIMS.cont.sceneY + DIMS.cont.sceneHeight / 2, scale: Math.min(W / DIMS.cont.sceneWidth, H / DIMS.cont.sceneHeight) })
+document.getElementById('mode').addEventListener('change', (e) => game.settings.set('pendant-bridge', 'realmNest', e.target.value))
+document.getElementById('gm').addEventListener('change', (e) => { game.user.isGM = e.target.checked; Nest.onView(0) })
+document.getElementById('cut').addEventListener('change', () => { setNest(); Hooks.callAll('updateScene', canvas.scene, { flags: { 'pendant-bridge': { nest: {} } } }) })
+
+// ── the test: wheel in over the island until the scene switches, then out until it switches back ──
+const centreUV = () => { const d = canvas.dimensions; return { u: (app.stage.pivot.x - d.sceneX) / d.sceneWidth, v: (app.stage.pivot.y - d.sceneY) / d.sceneHeight, k: app.stage.scale.x * d.sceneWidth } }
+const inCont = (c, id) => (id === 'cont' ? c : { u: RECT.x + c.u * RECT.w, v: RECT.y + c.v * RECT.h, k: c.k / RECT.w })
+const frame = () => new Promise(r => setTimeout(r, 20))   // not rAF: it stops in a hidden tab
+window.__test = async () => {
+  transitions.length = 0
+  if (canvas.scene.id !== 'cont') await drawScene('cont')
+  canvas.pan({ x: DIMS.cont.sceneX + DIMS.cont.sceneWidth / 2, y: DIMS.cont.sceneY + DIMS.cont.sceneHeight / 2, scale: Math.min(W / DIMS.cont.sceneWidth, H / DIMS.cont.sceneHeight) })
+  await frame()
+  // cursor on the island's middle
+  const d = DIMS.cont, k = app.stage.scale.x
+  const tx = d.sceneX + (RECT.x + RECT.w * 0.45) * d.sceneWidth, ty = d.sceneY + (RECT.y + RECT.h * 0.5) * d.sceneHeight
+  const sx = (tx - app.stage.pivot.x) * k + app.stage.position.x, sy = (ty - app.stage.pivot.y) * k + app.stage.position.y
+  const alphas = []
+  let camBefore = null
+  for (let i = 0; i < 80 && canvas.scene.id === 'cont'; i++) {
+    wheelAt(sx, sy, 1.1)
+    camBefore = window.__camAtWheel.cam
+    await frame()
+    const sp = primary.children.find(c => c.sortLayer === 695)?.children.find(c => c instanceof PIXI.Sprite)
+    if (canvas.scene.id === 'cont') alphas.push(+(sp?.alpha ?? -1).toFixed(3))
+  }
+  await frame()
+  const inIsle = canvas.scene.id === 'isle'
+  const camAfter = inCont(centreUV(), 'isle')
+  // and back out
+  const alphasOut = []
+  let camOutBefore = null
+  for (let i = 0; i < 40 && canvas.scene.id === 'isle'; i++) { wheelAt(W / 2, H / 2, 1 / 1.1); camOutBefore = window.__camAtWheel.cam; await frame() }
+  await frame()
+  const backInCont = canvas.scene.id === 'cont'
+  const camBack = inCont(centreUV(), 'cont')
+  for (let i = 0; i < 6; i++) { const sp = primary.children.find(c => c.sortLayer === 695)?.children.find(c => c instanceof PIXI.Sprite); alphasOut.push(+(sp?.alpha ?? -1).toFixed(3)); wheelAt(W / 2, H / 2, 1 / 1.1); await frame() }
+  const r = {
+    switchedIn: inIsle, transitions: transitions.map(t => `${t.to}:${t.transition?.type}/${t.transition?.duration}`),
+    alphasIn: alphas.slice(-8),
+    // the camera one wheel step before vs right after the switch (continent units; the step itself is ×1.1)
+    alignIn: { du: +(camAfter.u - camBefore.u).toExponential(2), dv: +(camAfter.v - camBefore.v).toExponential(2), zoomRatio: +(camAfter.k / camBefore.k).toFixed(4) },
+    switchedBack: backInCont,
+    alignOut: { du: +(camBack.u - camOutBefore.u).toExponential(2), dv: +(camBack.v - camOutBefore.v).toExponential(2), zoomRatio: +(camBack.k / camOutBefore.k).toFixed(4) },
+    alphasOut,
+  }
+  log(JSON.stringify(r))
+  return r
+}
+document.getElementById('test').addEventListener('click', () => window.__test())
+log('ready — wheel over the island (right of centre), or Run test')
+</script>
+</body>
+</html>
