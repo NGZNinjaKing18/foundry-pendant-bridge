@@ -239,7 +239,7 @@ const S = { wind: null, box: [0, 0, 1, 1], root: null, mesh: null, tex: { A: nul
 function loadTex(src) {
   return new Promise((res) => {
     const img = new Image()
-    img.onload = () => { try { res(PIXI.Texture.from(img)) } catch { res(null) } }
+    img.onload = () => { try { res(PIXI.Texture.from(img, { scaleMode: PIXI.SCALE_MODES.LINEAR })) } catch { res(null) } }
     img.onerror = () => res(null)
     img.src = src
   })
@@ -263,6 +263,21 @@ const destroySet = (t) => {
     try { x.destroy(true) } catch { /* gone */ }
   }
 }
+// A separable box blur of radius r on the RGB of an RGBA buffer (alpha is always 255 here), edges clamped.
+function blurRGB(d, w, h, r) {
+  const tmp = new Float32Array(w * h * 3)
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let a = 0, b = 0, c = 0
+    for (let k = -r; k <= r; k++) { const p = (y * w + Math.min(w - 1, Math.max(0, x + k))) * 4; a += d[p]; b += d[p + 1]; c += d[p + 2] }
+    const q = (y * w + x) * 3; tmp[q] = a; tmp[q + 1] = b; tmp[q + 2] = c
+  }
+  const n = (2 * r + 1) * (2 * r + 1)
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let a = 0, b = 0, c = 0
+    for (let k = -r; k <= r; k++) { const q = (Math.min(h - 1, Math.max(0, y + k)) * w + x) * 3; a += tmp[q]; b += tmp[q + 1]; c += tmp[q + 2] }
+    const p = (y * w + x) * 4; d[p] = a / n; d[p + 1] = b / n; d[p + 2] = c / n
+  }
+}
 // A forecast texture's REGIONAL copy: square cells on the map (~1/48 of its width), each the true average of the
 // tiles under it (the browser's high-quality downscale). Zoomed out, the forecast reads as regional weather — how
 // much of an area is cloudy, wet, snowy — instead of a speckle of 17-mile dice rolls.
@@ -275,9 +290,14 @@ function regional(tex, box) {
     const cw = Math.min(img.width, 48), ch = Math.max(2, Math.min(img.height, Math.round(cw * bh / bw)))
     if (cw >= img.width && ch >= img.height) return tex
     const cv = document.createElement("canvas"); cv.width = cw; cv.height = ch
-    const g = cv.getContext("2d"); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high"
+    const g = cv.getContext("2d", { willReadFrequently: true }); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high"
     g.drawImage(img, 0, 0, cw, ch)
-    return PIXI.Texture.from(cv)
+    // Where neighbouring patches flip between clear and overcast, the cells still differ and read as soft squares
+    // (seen live in Foundry, 2026-11-23): blur over ~3 cells (two box passes, edges held) so no cell shape is left.
+    const im = g.getImageData(0, 0, cw, ch)
+    blurRGB(im.data, cw, ch, 2); blurRGB(im.data, cw, ch, 2)
+    g.putImageData(im, 0, 0)
+    return PIXI.Texture.from(cv, { scaleMode: PIXI.SCALE_MODES.LINEAR, mipmap: PIXI.MIPMAP_MODES.OFF })
   } catch { return tex }
 }
 // The forecast textures' size in tiles (wet is the same grid as band; an old frame's wet is the cloud grid).
