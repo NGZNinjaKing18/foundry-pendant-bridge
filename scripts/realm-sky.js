@@ -34,7 +34,9 @@ export async function skySet(msg) {
   const s = msg?.sky || {}
   const ok = (v) => typeof v === "string" && v.startsWith("data:image/png;base64,")
   if (!ok(s.light) || !ok(s.clouds) || !ok(s.wet)) return { ok: false, error: "Bad sky." }
-  await scene.setFlag(MOD, "sky", { at: { day: Number(s.at?.day) || 0, hour: Number(s.at?.hour) || 0 }, light: s.light, clouds: s.clouds, wet: s.wet })
+  // The wind down the map: up to 16 [east, north] pairs (RealmScreen sends 8); anything else is dropped.
+  const wind = Array.isArray(s.wind) ? s.wind.slice(0, 16).filter(p => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite)).map(p => [Number(p[0]), Number(p[1])]) : null
+  await scene.setFlag(MOD, "sky", { at: { day: Number(s.at?.day) || 0, hour: Number(s.at?.hour) || 0 }, light: s.light, clouds: s.clouds, wet: s.wet, wind: wind?.length ? wind : null })
   return { ok: true }
 }
 
@@ -56,6 +58,7 @@ precision highp float;
 varying vec2 vUv;
 uniform sampler2D uLightA, uLightB, uCloudA, uCloudB, uWetA, uWetB;
 uniform float uMix, uTime, uAspect, uPx, uZoom;
+uniform vec2 uWind[8];
 uniform vec2 uTexel;
 float hash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 float noise(vec2 p) {
@@ -78,11 +81,19 @@ vec4 coverAt(vec2 uv) {
   c += (cl2(uv + o) + cl2(uv - o) + cl2(uv + vec2(o.x, -o.y)) + cl2(uv + vec2(-o.x, o.y))) * 0.08;
   return c;
 }
-// Cloud shape at a map point: domain-warped noise, slowly evolving.
-float shape(vec2 mp) {
-  vec2 q = vec2(fbm3(mp * 3.0 + vec2(uTime * 0.006, 0.0)), fbm3(mp * 3.0 + vec2(5.2, 1.3) - vec2(0.0, uTime * 0.004)));
-  return fbm(mp * 7.0 + q * 1.6 + vec2(uTime * 0.003, uTime * 0.001));
+// The prevailing wind here (east, north), from RealmScreen's wind belts, one value per eighth of the map down.
+vec2 windAt(float v) {
+  float fi = clamp(v * 8.0 - 0.5, 0.0, 7.0);
+  vec2 w = vec2(0.0);
+  for (int i = 0; i < 8; i++) w += uWind[i] * max(0.0, 1.0 - abs(fi - float(i)));
+  return w;
 }
+// Clouds DRIFT with the wind (a flow map): two copies of the noise slide along it, each restarting every FLOW_T
+// seconds while the other is at full strength, so they flow forever without the shear tearing them apart.
+// The weather (how much cloud is where) stays put: clouds stream through a storm, they don't carry it away.
+const float FLOW_T = 24.0, SPEED = 0.008;   // map widths per second: a cloud crosses its own width in ~18 s
+// Domain-warped cloud noise; the warp is shared, only the detail drifts (q is computed once by the caller).
+float shapeAt(vec2 mp, vec2 q) { return fbm(mp * 7.0 + q * 1.6); }
 // Coverage 0..1 → how much of the noise becomes cloud (soft-edged, lumpy, never a blob).
 float cloudOf(float cover, float n) { return smoothstep(1.02 - cover * 1.1, 1.24 - cover * 1.1, n); }
 vec4 li2(vec2 uv) { return mix(texture2D(uLightA, uv), texture2D(uLightB, uv), uMix); }
@@ -104,14 +115,23 @@ void main() {
   // Clear sky (and no shadow falling here): skip the noise — most of a fair-weather map costs next to nothing.
   float shCover = cl2(vUv + vec2(0.006, 0.009)).a;
   bool anyCloud = cover > 0.04;
-  float n = anyCloud ? shape(mp) : 0.0;
+  vec2 wnd = windAt(vUv.y) * vec2(1.0, -1.0) * SPEED;        // north is up the map
+  float ph1 = fract(uTime / FLOW_T), ph2 = fract(uTime / FLOW_T + 0.5);
+  vec2 o1 = -wnd * FLOW_T * (ph1 - 0.5), o2 = -wnd * FLOW_T * (ph2 - 0.5);
+  float w1 = 1.0 - abs(2.0 * ph1 - 1.0), w2 = 1.0 - w1;
+  float n = 0.0;
+  if (anyCloud) {
+    vec2 q = vec2(fbm3(mp * 3.0 + vec2(uTime * 0.003, 0.0)), fbm3(mp * 3.0 + vec2(5.2, 1.3) - vec2(0.0, uTime * 0.002)));
+    n = shapeAt(mp + o1, q) * w1 + shapeAt(mp + o2, q) * w2;
+    n = 0.5 + (n - 0.5) / sqrt(w1 * w1 + w2 * w2);              // blending two noises flattens them: put the contrast back
+  }
   float cloud = anyCloud ? cloudOf(cover, n) : 0.0;
   vec3 base = cv.a > 0.001 ? cv.rgb / cv.a : vec3(1.0);
   base = mix(vec3(0.97, 0.98, 1.0), base, 0.65);                   // keep the type's tint, lose its flatness
   base *= 1.0 - 0.32 * rain * (1.0 - 0.75 * snow) - 0.25 * storm;   // rain decks grey, storm cores dark, snow stays pale
   base = mix(base, vec3(0.93, 0.95, 0.99), 0.35 * snow);
   // Texture inside the deck too: billows brighten, troughs dim and thin, so a full overcast is never one flat sheet.
-  float billow = anyCloud ? fbm3(mp * 16.0 + vec2(uTime * 0.004, -uTime * 0.002)) : 0.5;
+  float billow = anyCloud ? fbm3((mp + o1) * 16.0) * w1 + fbm3((mp + o2) * 16.0 + 3.1) * w2 : 0.5;
   // Lit tops: the deck's own shape is brighter where it is thickest (cheap stand-in for a second lit sample).
   vec3 crgb = base * (0.8 + 0.14 * smoothstep(0.45, 0.8, n) + 0.22 * billow);
   // The clouds are under the same sky as the land: dim and tinted at night, not white sheets glowing in the dark.
@@ -123,7 +143,8 @@ void main() {
   float ca = cloud * mix(0.42, 0.84, smoothstep(0.35, 0.95, cover)) * mix(0.72, 1.0, smoothstep(0.3, 0.68, billow));
   vec4 c = vec4(0.0);
   // The shadow: the cloud's cover a little down-right, shaped by cheap noise (it is soft and dim; nobody reads its edge).
-  float sh = shCover > 0.04 ? cloudOf(shCover, fbm3(mp * 7.0 + vec2(0.006 * uAspect, 0.009) * 7.0)) : 0.0;
+  vec2 so = vec2(0.006 * uAspect, 0.009);
+  float sh = shCover > 0.04 ? cloudOf(shCover, fbm3((mp + so + o1) * 7.0) * w1 + fbm3((mp + so + o2) * 7.0) * w2) : 0.0;
   c = over(c, vec3(0.03, 0.04, 0.07), sh * 0.2 * (1.0 - cloud));
   c = over(c, crgb, ca);
   // Zoomed out, rain and snow show as the deck's colour (grey / pale); falling rain and flakes come in as you
@@ -172,7 +193,7 @@ void main() {
 }`
 
 // ── drawing ────────────────────────────────────────────────────
-const S = { root: null, mesh: null, tex: { A: null, B: null }, sig: "", fade: null, tick: null, t0: 0, load: 0 }
+const S = { wind: null, root: null, mesh: null, tex: { A: null, B: null }, sig: "", fade: null, tick: null, t0: 0, load: 0 }
 
 function loadTex(src) {
   return new Promise((res) => {
@@ -181,6 +202,15 @@ function loadTex(src) {
     img.onerror = () => res(null)
     img.src = src
   })
+}
+// 8 rows of [east, north] for the shader; an older frame with no wind gets a gentle westerly.
+function windUniform(rows) {
+  const out = new Float32Array(16)
+  for (let i = 0; i < 8; i++) {
+    const r = Array.isArray(rows) && rows.length ? rows[Math.min(rows.length - 1, Math.floor(i * rows.length / 8))] : [0.9, 0.1]
+    out[i * 2] = Number(r?.[0]) || 0; out[i * 2 + 1] = Number(r?.[1]) || 0
+  }
+  return out
 }
 const destroySet = (t) => { if (t) for (const k of ["light", "clouds", "wet"]) try { t[k]?.destroy(true) } catch { /* gone */ } }
 
@@ -202,7 +232,7 @@ function buildMesh() {
   const t = S.tex.A
   const shader = PIXI.Shader.from(VERT, FRAG, {
     uLightA: t.light, uLightB: t.light, uCloudA: t.clouds, uCloudB: t.clouds, uWetA: t.wet, uWetB: t.wet,
-    uMix: 0, uTime: 0, uAspect: h > 0 ? w / h : 1, uPx: 1, uZoom: 1, uTexel: [1 / (t.clouds.width || 160), 1 / (t.clouds.height || 100)],
+    uMix: 0, uTime: 0, uAspect: h > 0 ? w / h : 1, uPx: 1, uZoom: 1, uWind: windUniform(S.wind), uTexel: [1 / (t.clouds.width || 160), 1 / (t.clouds.height || 100)],
   })
   const mesh = new PIXI.Mesh(geom, shader)
   const root = new PIXI.Container()
@@ -247,6 +277,7 @@ export async function drawSky() {
   const [light, clouds, wet] = await Promise.all([loadTex(sky.light), loadTex(sky.clouds), loadTex(sky.wet)])
   if (my !== S.load || !light || !clouds || !wet) { destroySet({ light, clouds, wet }); return }
   S.sig = sig
+  S.wind = sky.wind || null
   const next = { light, clouds, wet }
   if (!S.root || S.root.destroyed || S.root.parent !== canvas.primary) {
     teardown(); S.load = my; S.sig = sig
@@ -262,6 +293,7 @@ export async function drawSky() {
   }
   S.tex.B = next
   u.uLightB = light; u.uCloudB = clouds; u.uWetB = wet; u.uMix = 0
+  u.uWind = windUniform(S.wind)
   S.fade = performance.now()
 }
 const redraw = () => { drawSky().catch(e => console.warn("[pendant-bridge] sky", e)) }

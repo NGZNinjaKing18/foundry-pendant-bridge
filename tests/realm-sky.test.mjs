@@ -26,5 +26,11 @@ test("sky.set stores an hour's three pictures on the scene, and refuses anything
   assert.equal((await skySet({ sceneId: "nope", sky: {} })).ok, false)
   assert.equal((await skySet({ sceneId: "s1", sky: { light: png, clouds: "javascript:x", wet: png } })).ok, false)
   assert.equal((await skySet({ sceneId: "s1", sky: { at: { day: 12, hour: 7 }, light: png, clouds: png, wet: png } })).ok, true)
-  assert.deepEqual(flags.sky, { at: { day: 12, hour: 7 }, light: png, clouds: png, wet: png })
+  assert.deepEqual(flags.sky, { at: { day: 12, hour: 7 }, light: png, clouds: png, wet: png, wind: null })
+})
+
+test("sky.set keeps the wind rows and drops anything that isn't a pair of numbers", async () => {
+  const png = "data:image/png;base64,AAAA"
+  await skySet({ sceneId: "s1", sky: { light: png, clouds: png, wet: png, wind: [[0.9, -0.3], ["x", 1], [1], [-0.9, 0.3]] } })
+  assert.deepEqual(flags.sky.wind, [[0.9, -0.3], [-0.9, 0.3]])
 })
