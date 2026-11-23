@@ -8,7 +8,7 @@
 //   self    { cutout }                    this map's used part (0..1 of its own picture), or null
 // Zooming in over a nested map: its picture fades in over its spot once it covers half the screen; when it
 // FULLY covers the screen you are moved to its scene, lined up, with Foundry's own fade. Zooming out of a nested
-// scene until it no longer fills the screen takes you back to its parent, lined up, the picture fading out.
+// scene until all of it is inside the screen takes you back to its parent, lined up, the picture fading out.
 // Each person moves only their own view (the user, 2026-11-23); players only into scenes they can see.
 // Under the cursor, the smallest nested map wins. The GM picks Off / DM only / Everyone in Map views.
 // Cost: nothing while no nested map is near; one sprite and one alpha write per pan otherwise.
@@ -188,7 +188,9 @@ export function onView(dir) {
   // Out of a nested scene that no longer fills the screen → its parent, lined up.
   const par = nest.parent
   if (dir < 0 && par?.sceneId && par.rect && canSee(par.sceneId)) {
-    if (coverage(partOnScreen(fillOf(nest.self?.cutout)), sz.W, sz.H) < FULL) {
+    // Out only once the whole map sits inside the screen — its outside showing on every side (the user, 2026-11-23).
+    const me = partOnScreen(fillOf(nest.self?.cutout))
+    if (me.l > 0 && me.t > 0 && me.r < sz.W && me.b < sz.H) {
       const back = { sceneId: canvas.scene.id, rect: par.rect, cutout: nest.self?.cutout || null }
       S.back = back
       go(par.sceneId, toParentCam(camNow(), par.rect))
