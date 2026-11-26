@@ -362,7 +362,15 @@ function update(full = false) {
 // redrawings nothing uses are let go — Foundry memory stays small (the user: low Foundry memory).
 const VEC_MAX = 2048
 // A new texture on a sprite, at the size it already has (a sprite keeps its scale, not its size).
-function setTex(sp, t) { const w = sp.width, h = sp.height; sp.texture = t; sp.width = w; sp.height = h }
+// Never let a sprite go on showing a destroyed texture: PIXI throws on it mid-render, which blacks out the whole
+// Foundry canvas until a refresh (the user, 2026-11-26: "zoom too far in on the world map … everything goes black").
+const live = (t) => !!t && !t.destroyed && !!t.baseTexture && !t.baseTexture.destroyed && !!t.orig
+function setTex(sp, t) {
+  if (sp.destroyed || !live(t)) return
+  const ok = live(sp.texture), w = ok ? sp.width : 0, h = ok ? sp.height : 0
+  sp.texture = t
+  if (w > 0 && h > 0) { sp.width = w; sp.height = h }
+}
 function vecSrcOf(m, borders) {
   const v = m?.vec
   if (!v) return null
@@ -392,7 +400,7 @@ function vecTexture(src, step) {
   })).then(t => {
     if (!S.vec.has(key)) { t.destroy(true); return }
     e.tex = t
-    for (const sp of e.waiting) if (!sp.destroyed && sp._vecKey === key) setTex(sp, t)
+    for (const sp of e.waiting) if (!sp.destroyed && sp._vecKey === key) { setTex(sp, t); sp._vecShown = key }
     e.waiting = []
   }).catch(() => { S.vec.delete(key) })   // no SVG (or it failed): the picture stays
   return e
@@ -424,9 +432,12 @@ function sharpenMarkers(k, dpr, borders) {
       used.add(want.key)
       if (sp._vecKey !== want.key) {
         sp._vecKey = want.key
-        if (want.tex) setTex(sp, want.tex); else want.waiting.push(sp)   // keeps the picture until it's drawn
+        if (want.tex) { setTex(sp, want.tex); sp._vecShown = want.key } else want.waiting.push(sp)   // keeps the picture until it's drawn
       }
-    } else if (sp._vecKey) { sp._vecKey = null; if (png) setTex(sp, png) }
+    } else if (sp._vecKey || sp._vecShown) { sp._vecKey = null; if (png) { setTex(sp, png); sp._vecShown = null } }
+    // The redrawing this sprite still SHOWS stays alive until its next one has landed (zooming in steps 512 → 1024 →
+    // 2048: the old one used to be freed while still on screen — a black canvas).
+    if (sp._vecShown) used.add(sp._vecShown)
   }
   for (const [key, e] of S.vec) if (!used.has(key)) { S.vec.delete(key); e.tex?.destroy(true) }
 }
